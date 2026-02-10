@@ -1,0 +1,503 @@
+# Murmur Project Specification
+# Voice-powered AI scratchpad with adaptive widget-based UI
+# All user data encrypted at rest — zero plaintext storage
+
+meta:
+  name: Murmur
+  bundle_id_prefix: com.gudnuf.murmur
+  description: "A voice-powered scratchpad where an on-device AI agent captures your thoughts and dynamically composes widget-based views to surface what matters most"
+  author: gudnuf
+
+features:
+  widget: true
+  icloud_sync: false
+  push_notifications: true
+  watch_app: false
+
+targets:
+  app: Murmur
+  widget: MurmurWidgetExtension
+  tests: MurmurTests
+
+source_dirs:
+  app: Murmur
+  widget: MurmurWidget
+
+data_models:
+  - name: Entry
+    description: "The atomic unit — every voice input is immediately interpreted, categorized, and stored as an Entry. Not all entries are 'thoughts' — some are actions, reminders, lists, ideas. The category determines the meaning."
+    properties:
+      - name: id
+        type: UUID
+        required: true
+        default: "UUID()"
+        description: "Unique identifier"
+      - name: rawTranscript
+        type: EncryptedString
+        required: true
+        description: "Original voice-to-text transcription (encrypted at rest via CryptoKit)"
+      - name: processedContent
+        type: EncryptedString
+        required: true
+        description: "AI-structured version of the transcript (encrypted at rest). Always populated — processing is synchronous with capture, never deferred."
+      - name: category
+        type: EntryCategory
+        required: true
+        description: "AI-assigned immediately on capture. No 'unprocessed' state — the LLM interprets what the user said and categorizes in the same pipeline as transcription."
+      - name: status
+        type: EntryStatus
+        required: true
+        default: ".active"
+        description: "Lifecycle state: active, completed, archived, snoozed"
+      - name: priority
+        type: Int?
+        required: false
+        description: "AI-inferred priority (1=highest, 5=lowest) — assigned during initial processing"
+      - name: dueDate
+        type: Date?
+        required: false
+        description: "AI-extracted deadline from natural language (e.g., 'Thursday' → next Thursday)"
+      - name: audioDuration
+        type: TimeInterval?
+        required: false
+        description: "Duration of the original voice recording"
+      - name: locationContext
+        type: String?
+        required: false
+        description: "Optional location where entry was captured"
+      - name: summary
+        type: String
+        required: true
+        description: "Short AI-generated summary for display in widgets and lists (1 line max)"
+      - name: createdAt
+        type: Date
+        required: true
+        default: "Date()"
+        description: "When the entry was captured"
+      - name: updatedAt
+        type: Date
+        required: true
+        default: "Date()"
+        description: "Last modification timestamp"
+    relationships:
+      - type: many-to-many
+        target: Tag
+        description: "Entries can have multiple tags, tags can apply to multiple entries"
+      - type: one-to-many
+        target: Entry
+        description: "Parent-child relationship for grouping related entries (e.g., a grocery list entry with individual items)"
+
+  - name: Tag
+    description: "Flexible categorization for entries — AI-generated or user-created"
+    properties:
+      - name: id
+        type: UUID
+        required: true
+        default: "UUID()"
+        description: "Unique identifier"
+      - name: name
+        type: String
+        required: true
+        description: "Tag display name"
+      - name: colorHex
+        type: String?
+        required: false
+        description: "Optional hex color for visual distinction"
+      - name: isSystemGenerated
+        type: Bool
+        required: true
+        default: false
+        description: "Whether this tag was created by the AI agent"
+      - name: createdAt
+        type: Date
+        required: true
+        default: "Date()"
+        description: "When the tag was created"
+    relationships:
+      - type: many-to-many
+        target: Entry
+        description: "Tags can be applied to multiple entries"
+
+  - name: WidgetConfig
+    description: "Defines how an in-app widget renders — what to show and how"
+    properties:
+      - name: id
+        type: UUID
+        required: true
+        default: "UUID()"
+        description: "Unique identifier"
+      - name: widgetType
+        type: WidgetType
+        required: true
+        description: "Widget variant: todo, idea, reminder, list, quote, habit, general"
+      - name: size
+        type: WidgetSize
+        required: true
+        default: ".medium"
+        description: "Widget size: small (1x1), medium (2x1), large (2x2)"
+      - name: title
+        type: String?
+        required: false
+        description: "Optional header text for the widget"
+      - name: entryFilter
+        type: String?
+        required: false
+        description: "Query string to filter which entries appear in this widget"
+      - name: maxItems
+        type: Int
+        required: true
+        default: 3
+        description: "Maximum number of items to display"
+      - name: isPinned
+        type: Bool
+        required: true
+        default: false
+        description: "Whether the user pinned this widget (vs AI-selected)"
+      - name: sortOrder
+        type: Int
+        required: true
+        default: 0
+        description: "Display order on the home screen"
+    relationships: []
+
+  - name: ViewConfig
+    description: "A named, navigable view — preconfigured or user-created"
+    properties:
+      - name: id
+        type: UUID
+        required: true
+        default: "UUID()"
+        description: "Unique identifier"
+      - name: name
+        type: String
+        required: true
+        description: "Display name (e.g., 'Todo', 'Ideas', 'Don't Forget')"
+      - name: icon
+        type: String
+        required: true
+        description: "SF Symbol name for navigation"
+      - name: filterCategory
+        type: EntryCategory?
+        required: false
+        description: "Optional category filter"
+      - name: isDefault
+        type: Bool
+        required: true
+        default: false
+        description: "Whether this view ships with the app"
+      - name: sortOrder
+        type: Int
+        required: true
+        default: 0
+        description: "Navigation order"
+    relationships: []
+
+  - name: AgentContext
+    description: "The AI agent's persistent memory — patterns observed and current recommendations"
+    properties:
+      - name: id
+        type: UUID
+        required: true
+        default: "UUID()"
+        description: "Unique identifier (singleton in practice)"
+      - name: updatedAt
+        type: Date
+        required: true
+        default: "Date()"
+        description: "Last time the agent updated its context"
+      - name: userPatternsJSON
+        type: String
+        required: true
+        default: "'{}'"
+        description: "JSON blob of observed user patterns and preferences"
+      - name: widgetLayoutJSON
+        type: String
+        required: true
+        default: "'[]'"
+        description: "Current AI-recommended widget layout as JSON"
+      - name: lastAnalyzedEntryDate
+        type: Date?
+        required: false
+        description: "Timestamp of the most recently analyzed entry"
+    relationships: []
+
+enums:
+  - name: EntryCategory
+    description: "Assigned immediately on capture — no 'unprocessed' state. The LLM determines what the user said and picks the right category."
+    cases:
+      - todo        # Actionable task: "pick up dry cleaning"
+      - idea        # Creative/conceptual: "app that converts receipts to meal plans"
+      - reminder    # Time-bound: "DMV appointment Thursday"
+      - note        # Informational: "the wifi password is ..."
+      - list        # Collection: "grocery list: milk, eggs, bread"
+      - habit       # Recurring: "meditate every morning"
+      - question    # Something to look up: "what's the capital of Mongolia"
+      - thought     # True free-form thought: "I wonder if consciousness is just..."
+
+  - name: EntryStatus
+    cases:
+      - active
+      - completed
+      - archived
+      - snoozed
+
+  - name: WidgetType
+    cases:
+      - todo
+      - idea
+      - reminder
+      - list
+      - quote
+      - habit
+      - general
+
+  - name: WidgetSize
+    cases:
+      - small
+      - medium
+      - large
+
+protocols:
+  - name: TranscriberService
+    description: "Abstraction for voice-to-text. Apple Speech as reference impl, but designed for any backend (Whisper, Deepgram, etc.)"
+    methods:
+      - "func startRecording() async throws"
+      - "func stopRecording() async throws -> String"
+      - "var isRecording: Bool { get }"
+      - "var isAvailable: Bool { get }"
+
+  - name: LLMService
+    description: "Abstraction for AI processing. No concrete backend yet — mock for development. Designed around OpenAI-compatible chat completion shape for max compatibility."
+    methods:
+      - "func processEntry(_ rawText: String, context: AgentContext) async throws -> ProcessedEntry"
+      - "func composeHomeLayout(entries: [Entry], context: AgentContext) async throws -> [WidgetConfig]"
+      - "func chat(messages: [ChatMessage]) async throws -> String"
+
+  - name: EncryptionService
+    description: "Handles all data encryption/decryption. CryptoKit-based with Keychain-stored keys."
+    methods:
+      - "func encrypt(_ plaintext: String) throws -> EncryptedString"
+      - "func decrypt(_ encrypted: EncryptedString) throws -> String"
+      - "func generateKey() throws -> SymmetricKey"
+      - "var isKeyAvailable: Bool { get }"
+
+processing_pipeline:
+  description: "Voice input is transcribed and processed in a single synchronous pipeline. No entry ever exists in an 'unprocessed' state."
+  steps:
+    - step: 1
+      name: "Capture"
+      description: "User taps mic, speaks, taps to stop. Audio streamed to TranscriberService."
+    - step: 2
+      name: "Transcribe"
+      description: "TranscriberService converts speech to raw text. Can provide real-time partial results during recording."
+    - step: 3
+      name: "Interpret"
+      description: "LLMService.processEntry() receives raw text. Determines category, extracts structured data (due dates, list items, action items), generates summary, assigns priority. This is NOT deferred — it runs immediately after transcription."
+    - step: 4
+      name: "Encrypt & Persist"
+      description: "EncryptionService encrypts rawTranscript and processedContent. Entry saved to SwiftData with all fields populated."
+    - step: 5
+      name: "Recompose"
+      description: "Home screen widget layout is refreshed to potentially include the new entry. WidgetKit timelines reloaded."
+
+security:
+  description: "All user data encrypted at rest. Zero plaintext storage of user content."
+  layers:
+    - name: "iOS Data Protection"
+      description: "NSFileProtectionComplete on the SwiftData SQLite store. OS encrypts the entire database file when device is locked."
+      scope: "Entire database"
+
+    - name: "Application-Level Encryption"
+      description: "CryptoKit AES-GCM encryption for sensitive Entry fields (rawTranscript, processedContent). Even if the DB file is extracted, content is encrypted with an app-specific key."
+      scope: "Entry.rawTranscript, Entry.processedContent"
+      implementation: "EncryptedString type wrapping CryptoKit sealed box. Key stored in Keychain with kSecAttrAccessibleWhenUnlockedThisDeviceOnly."
+
+    - name: "Keychain for Credentials"
+      description: "All API keys, tokens, and encryption keys stored in iOS Keychain. Never in UserDefaults, never in plaintext files."
+      scope: "API keys, encryption symmetric key, any auth tokens"
+
+    - name: "Memory Hygiene"
+      description: "Decrypted content held in memory only while displayed. Cleared when views disappear. No logging of decrypted content."
+      scope: "Runtime"
+
+  encrypted_types:
+    - name: EncryptedString
+      description: "Custom type wrapping Data (CryptoKit AES-GCM sealed box). Conforms to Codable for SwiftData storage. Transparent encrypt/decrypt via EncryptionService."
+
+shared_sources:
+  - Models/Entry.swift
+  - Models/Tag.swift
+  - Models/WidgetConfig.swift
+  - Models/Enums.swift
+  - Config/PersistenceConfig.swift
+  - Config/Theme.swift
+  - Services/EncryptionService.swift
+
+tech_stack:
+  ui: SwiftUI
+  persistence: SwiftData
+  min_ios: "17.0"
+  swift_version: "5.9"
+  min_xcode: 26
+
+build_config:
+  simulator_device: "iPhone 16"
+  default_branch: main
+
+decisions:
+  - decision: "UI Framework"
+    choice: "SwiftUI"
+    rationale: "Declarative composition is essential for dynamic widget-based layouts. Native support for animations, gestures, and WidgetKit integration."
+
+  - decision: "Persistence"
+    choice: "SwiftData + CryptoKit encryption"
+    rationale: "Type-safe, integrates with SwiftUI observation, handles relationships (Entry<->Tag). Requires iOS 17+ which is acceptable. All user content encrypted at rest via CryptoKit AES-GCM with Keychain-stored keys."
+
+  - decision: "Voice Input"
+    choice: "Protocol-abstracted (Apple Speech reference impl)"
+    rationale: "Apple Speech framework is free, on-device, and good enough for MVP. TranscriberService protocol allows swapping to Whisper/Deepgram later."
+
+  - decision: "LLM Integration"
+    choice: "Protocol-abstracted (mock for development)"
+    rationale: "LLMService protocol with OpenAI-compatible chat shape. No concrete backend yet — uses mock that returns deterministic results for UI development. Designed for open standards compatibility."
+
+  - decision: "Widget Architecture"
+    choice: "Reusable WidgetCard components with AI-driven composition"
+    rationale: "All widgets share the same design tokens (Theme.swift) and WidgetCard container. The AI picks which widgets to show. Users can pin favorites."
+
+  - decision: "Home Screen Strategy"
+    choice: "AI-composed ScrollView of WidgetCards + pinned views drawer"
+    rationale: "Home screen is a vertical scroll of widget cards selected by the LLM. Bottom sheet or tab bar provides access to user-configured views (Todo, Ideas, etc.)."
+
+  - decision: "Immediate Processing"
+    choice: "Synchronous transcribe → interpret → encrypt → persist pipeline"
+    rationale: "No entry ever exists in an unprocessed state. The moment the user stops speaking, the transcript is sent to the LLM for categorization, then encrypted and persisted. This means the UI always has structured, categorized data to work with."
+
+  - decision: "Security"
+    choice: "Defense in depth: iOS Data Protection + CryptoKit AES-GCM + Keychain"
+    rationale: "User speaks sensitive things — passwords, personal thoughts, financial info. Three layers: OS-level file encryption, app-level field encryption for transcripts, Keychain for all keys and credentials. Zero plaintext at rest."
+
+  - decision: "AI Agent State"
+    choice: "SwiftData model with JSON blobs"
+    rationale: "AgentContext model stores patterns and layout recommendations as JSON. Context-efficient — the LLM only reads/writes what it needs."
+
+  - decision: "App Groups"
+    choice: "Shared container for SwiftData"
+    rationale: "WidgetKit extension needs access to Entry database. App Group container shared between main app and widget. Encryption key shared via Keychain access group."
+
+  - decision: "Build Tooling"
+    choice: "Nix + direnv + XcodeGen"
+    rationale: "Reproducible dev environment. XcodeGen eliminates xcodeproj merge conflicts. Direnv auto-activates Nix shell."
+
+  - decision: "Architecture Pattern"
+    choice: "MVVM + Service Protocols"
+    rationale: "ViewModels consume service protocols (TranscriberService, LLMService). Easy to test with mocks, clean separation of concerns."
+
+  - decision: "Open Standards"
+    choice: "OpenAI-compatible API shape for LLM protocol"
+    rationale: "Most open-source LLM servers (llama.cpp, ollama, vLLM) expose OpenAI-compatible endpoints. Designing the protocol around this shape maximizes backend compatibility."
+
+milestones:
+  - name: "M0: Project Scaffold"
+    description: "Buildable project with all infrastructure, empty UI, encrypted persistence"
+    issues:
+      - "Project initialization (Nix, XcodeGen, CI)"
+      - "Data models (Entry, Tag, WidgetConfig, ViewConfig, AgentContext) and SwiftData persistence"
+      - "EncryptionService + EncryptedString type with CryptoKit AES-GCM"
+      - "Theme and design system (design tokens, WidgetCard base component)"
+
+  - name: "M1: Voice Capture + Immediate Processing"
+    description: "Record voice, transcribe, interpret, encrypt, persist — full pipeline, no deferred processing"
+    issues:
+      - "TranscriberService protocol + Apple Speech implementation"
+      - "LLMService protocol + mock implementation (deterministic categorization for dev)"
+      - "Processing pipeline: transcribe → interpret → encrypt → persist (synchronous)"
+      - "Voice recording UI (minimal — one button + waveform + live transcript)"
+      - "Raw entry list view to verify pipeline works"
+
+  - name: "M2: Widget System"
+    description: "Reusable in-app widget components and static home layout"
+    issues:
+      - "WidgetCard design component (small/medium/large) with shared design tokens"
+      - "TodoWidget, IdeaWidget, ReminderWidget, ListWidget, HabitWidget implementations"
+      - "Static home screen layout with sample widgets"
+      - "Widget tap/interaction handling (complete todo, expand idea, etc.)"
+
+  - name: "M3: AI-Composed Home"
+    description: "LLM dynamically selects and arranges widgets based on entries and context"
+    issues:
+      - "LLM home composition: given entries + AgentContext, output widget layout"
+      - "AgentContext persistence and update cycle"
+      - "Home screen renders AI-selected widget grid"
+      - "Fallback layout when LLM is unavailable"
+
+  - name: "M4: Views & Navigation"
+    description: "Pinned views, view navigation, search"
+    issues:
+      - "ViewConfig model and default views (Todo, Ideas, Don't Forget, Habits, All)"
+      - "View navigation (bottom sheet or tab bar)"
+      - "Category-filtered list views with appropriate interactions per type"
+      - "Search and filter across entries"
+      - "Entry detail view with original transcript, processed content, tags, metadata"
+
+  - name: "M5: Home Screen Widgets"
+    description: "WidgetKit extension for iOS home screen and lock screen"
+    issues:
+      - "App Groups setup and shared encrypted container"
+      - "Keychain access group for shared encryption key"
+      - "WidgetKit extension target with small/medium/large families"
+      - "Interactive widget actions (complete todo, quick capture)"
+      - "Lock screen widget support"
+
+  - name: "M6: Agent Intelligence"
+    description: "Agent adapts to user patterns over time"
+    issues:
+      - "Pattern analysis from entry history (common categories, timing, frequency)"
+      - "Time-of-day aware widget selection (morning habits, evening reflection)"
+      - "Habit tracking and streak counting"
+      - "Reminder resurfacing (don't let things fall through cracks)"
+      - "Context file management for LLM cost efficiency"
+
+  - name: "M7: Open Backends & Polish"
+    description: "Real LLM/transcription backends, settings, onboarding"
+    issues:
+      - "Settings screen (backend configuration, encryption status, data management)"
+      - "OpenAI-compatible API client for LLMService"
+      - "Ollama / local LLM support"
+      - "Whisper / alternative transcription backends"
+      - "Onboarding flow"
+      - "Animations and transitions"
+      - "Accessibility audit"
+
+ui_mockups:
+  - name: "Home - AI Composed"
+    file: "mockups/01-home-ai.html"
+    description: "Main screen with AI-selected widget cards: a todo, an idea highlight, a reminder — arranged dynamically"
+
+  - name: "Home - Empty State"
+    file: "mockups/02-home-empty.html"
+    description: "First launch — gentle prompt to speak your first murmur with a pulsing microphone button"
+
+  - name: "Voice Capture"
+    file: "mockups/03-voice-capture.html"
+    description: "Minimal recording overlay — large mic button, live waveform, real-time transcript preview. Entry is categorized the moment you stop speaking."
+
+  - name: "Pinned Views"
+    file: "mockups/04-pinned-views.html"
+    description: "Bottom sheet showing user's configured views: Todo, Ideas, Don't Forget, Habits, All"
+
+  - name: "Todo View"
+    file: "mockups/05-todo-view.html"
+    description: "Filtered list of todo-category entries with checkboxes and swipe actions"
+
+  - name: "Entry Detail"
+    file: "mockups/06-entry-detail.html"
+    description: "Full entry view: original transcript, AI-processed version, category, tags, metadata, edit options"
+
+  - name: "iOS Home Screen Widget"
+    file: "mockups/07-ios-widget.html"
+    description: "WidgetKit widget showing 2-3 items from different categories with interactive actions"
+
+  - name: "Settings"
+    file: "mockups/08-settings.html"
+    description: "Backend configuration (transcription service, LLM endpoint), encryption status, view management, data export"
