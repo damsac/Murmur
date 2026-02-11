@@ -10,7 +10,7 @@ meta:
   author: gudnuf
   philosophy: "WHISPER to CANVAS — start radically simple. The app grows with the user. Features unlock through usage, not menus. The AI and user learn about each other together."
   pillars:
-    - "Privacy-first: cypherpunk aesthetic, encryption ambient, lock icon always visible"
+    - "Privacy-first: cypherpunk aesthetic, encryption ambient, privacy is structural not decorative"
     - "Voice-first: speak don't type, mic is the primary interface"
     - "Credits as fuel: tokens power the AI, user sees them flow in and out"
 
@@ -41,8 +41,8 @@ progressive_unlock:
     - level: 0
       name: "The Void"
       trigger: "First launch, 0 entries"
-      what_appears: "Empty screen. Pulsing mic. Lock icon. Token balance. 'Say anything.' No nav, no chrome."
-      screens: [S1, S2, S3, S4, S5]
+      what_appears: "Empty screen. Pulsing mic center. Token balance. 'Say anything.' No nav, no chrome."
+      screens: [S1, S2, S3, S4]
 
     - level: 1
       name: "First Light"
@@ -60,7 +60,7 @@ progressive_unlock:
       name: "Views Emerge"
       trigger: "20+ entries, AI detects patterns"
       what_appears: "AI suggests views via focus card. Bottom nav appears (Home / Views / Settings)."
-      screens: [S10, S11]
+      screens: [S5, S10, S11]
 
     - level: 4
       name: "Full Power"
@@ -79,7 +79,7 @@ tokens:
   starter_balance: 5000
   display:
     header: "Small pill in app header. Shows remaining balance as a plain number with subtle token icon. Always visible."
-    recording: "Hidden during recording (transcription is on-device, free). Appears when processing begins."
+    recording: "Counters visible at ↑ 0 · ↓ 0 during recording (on-device transcription = free). Animate when processing begins."
     processing: "Two counters appear during AI processing: ↑ (input, fast burst ~0.8s) and ↓ (output, streaming ~3s). Input is the transcript being sent. Output is the structured entries coming back. Monospace, muted, directional arrows in subtle colors."
     confirm: "Session summary in confirm footer: '↑ 247 in · ↓ 312 out' — clean breakdown of what was sent and received."
     settings: "Full breakdown: balance, total in/out lifetime, average per session."
@@ -152,8 +152,7 @@ tokens:
 
 # Privacy & Cypherpunk Aesthetic
 privacy:
-  lock_icon: "Always visible top-left on every screen. Green dot = all encrypted. Tap → encryption detail."
-  encryption_detail: "AES-256-GCM. Key in Secure Enclave. N entries encrypted."
+  encryption_detail: "AES-256-GCM. Key in Secure Enclave. N entries encrypted. Viewable in Settings."
   data_split:
     encrypted:
       - "rawTranscript (always encrypted, only decrypted in memory when viewing)"
@@ -690,8 +689,8 @@ milestones:
         description: "Set up the Nix flake, XcodeGen project.yml, Makefile, Theme.swift with design tokens, and CI pipeline."
       - title: "SwiftData models (Entry, Tag, CreditBalance, UserProgress) + encryption"
         description: "Implement all data models with SwiftData. EncryptionService + EncryptedString type with CryptoKit AES-GCM. CreditBalance and UserProgress as singletons."
-      - title: "Void state (S1) — the empty app with lock icon + token balance"
-        description: "Deep dark screen. Pulsing mic center. Lock icon top-left (tappable → settings). Token balance top-right. 'Say anything.' No nav, no chrome."
+      - title: "Void state (S1) — the empty app with pulsing mic + token balance"
+        description: "Deep dark screen. Pulsing mic center. Token balance top-right. 'Say anything.' No nav, no chrome."
       - title: "Recording overlay (S2) — mic states, waveform, live transcript, token counter"
         description: "Full-screen overlay. Active mic with pulse rings. Waveform. Live transcript. Duration counter. Token flow counter (↑ in · ↓ out)."
       - title: "Processing state (S3) — transition animation, item materialization"
@@ -707,7 +706,7 @@ milestones:
     description: "Sparse home, focus cards, AI-composed home, entry detail, progressive unlock tracking"
     issues:
       - title: "Sparse home (S7) — basic card layout with encrypted entries"
-        description: "Level 1 home. 'Murmur' header + greeting. A few cards. Lock icon + token balance in header. Floating mic. No bottom nav."
+        description: "Level 1 home. 'Murmur' header + greeting. A few cards. Token balance in header. Floating mic. No bottom nav."
       - title: "Focus card (S6) — AI selection logic, act/dismiss"
         description: "ONE item centered. Ghost of home behind. Act (complete/explore/dismiss) or tap anywhere for home. Priority: todo due today > reminder 24h > unchecked habit > AI insight > skip."
       - title: "AI-composed home (S8) — rule-based layout with LLM fallback"
@@ -725,7 +724,7 @@ milestones:
       - title: "Credit burn tracking during AI calls"
         description: "CreditService.deduct() called during AI operations. Per-entry creditCost recorded. Real-time counter during recording."
       - title: "Settings minimal (S5) — encryption status, credits, model selector"
-        description: "Level 0-2 settings: 3 sections. Security (encryption active, key status, entries encrypted), Credits (balance, top up), Processing (AI model with TEE badge, mode)."
+        description: "Level 3+ settings (accessible via bottom nav): 3 sections. Security (encryption active, key status, entries encrypted), Credits (balance, top up), Processing (AI model with TEE badge, mode)."
       - title: "TEE badges for model selector"
         description: "Model selector shows badges: [TEE] for trusted execution, [On-Device] for local, [Cloud] for standard. Badge colors: TEE=green, On-Device=blue, Cloud=gray."
       - title: "Top-up flow (S12) — Apple Pay, Cashu, Subscribe"
@@ -748,12 +747,15 @@ milestones:
         description: "AI backend config (transcription service, LLM endpoint, API key). Heat visualization slider. Manage views. Data export / clear."
 
 # V1 Screen Inventory (12 screens, progressive)
+# NOTE: The `level` field indicates the minimum unlock level for each screen.
+# Screens may appear with additional chrome (e.g., bottom nav) at higher levels.
+# Mockups may depict a screen as seen by a Level 3+ user even if the screen itself unlocks earlier.
 ui_mockups:
   # Always Present (Level 0+)
   - name: "S1: Void"
     file: "mockups/15-void.html"
     level: 0
-    description: "Deep dark. Pulsing mic center. Lock icon top-left (tappable → settings). Token balance top-right. 'Say anything.' No nav."
+    description: "Deep dark. Pulsing mic center. Token balance top-right. 'Say anything.' No nav, no chrome."
 
   - name: "S2: Recording"
     file: "mockups/16-recording-credits.html"
@@ -773,8 +775,8 @@ ui_mockups:
 
   - name: "S5: Settings (minimal)"
     file: "mockups/18-settings-minimal.html"
-    level: 0
-    description: "Progressive — starts as 3 sections (Encryption / Credits / Processing Mode), grows to full config at Level 4. Entry via lock icon (Level 0-2) or Settings tab (Level 3+)."
+    level: 3
+    description: "Progressive — starts as 3 sections (Encryption / Credits / Processing Mode), grows to full config at Level 4. Accessible via Settings tab in bottom nav (Level 3+)."
 
   # Level 1+ (1-5 entries)
   - name: "S6: Focus Card"
@@ -785,7 +787,7 @@ ui_mockups:
   - name: "S7: Home (Sparse)"
     file: "mockups/21-home-sparse.html"
     level: 1
-    description: "'Murmur' header + greeting. A few cards. Lock icon + token balance in header. Floating mic. No bottom nav yet."
+    description: "'Murmur' header + greeting. A few cards. Token balance in header. Floating mic. No bottom nav yet."
 
   # Level 2+ (10+ entries)
   - name: "S8: Home (AI-Composed)"
