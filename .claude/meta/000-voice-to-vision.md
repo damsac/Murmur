@@ -150,30 +150,59 @@ M0-M3 are the core product. M4-M7 are expansion.
 
 ```
 ~/Murmur/
-├── .git/                           # Initialized, 1 commit (b27bd8d)
+├── .git/
 ├── .claude/
-│   ├── project-spec.yml            # 430+ line spec — the source of truth
+│   ├── project-spec.yml            # 860+ line spec — revised for V1 UX
 │   └── meta/
 │       └── 000-voice-to-vision.md  # This file
 └── mockups/
-    ├── 01-home-ai.html             # AI-composed widget home
-    ├── 02-home-empty.html          # First launch empty state
+    ├── 01-home-ai.html             # AI-composed widget home (Level 2+, updated: lock+tokens)
+    ├── 02-home-empty.html          # Legacy empty state (replaced by 15-void)
     ├── 03-voice-capture.html       # Recording overlay with waveform
-    ├── 04-pinned-views.html        # Views bottom sheet
-    ├── 05-todo-view.html           # Todo list view
-    ├── 06-thought-detail.html      # Entry detail (filename pre-dates rename)
-    ├── 07-ios-widget.html          # WidgetKit home screen widget
-    └── 08-settings.html            # Backend configuration
+    ├── 04-pinned-views.html        # Views (Level 3+)
+    ├── 05-todo-view.html           # Todo list view (Level 3+)
+    ├── 06-thought-detail.html      # Entry detail (Level 2+)
+    ├── 06b-thought-detail-expanded.html
+    ├── 06c-thought-transcript.html
+    ├── 07-ios-widget.html          # WidgetKit (deferred to V1.1)
+    ├── 08-settings.html            # Legacy full settings
+    ├── 09-focus-todo.html          # Focus card: todo
+    ├── 10-focus-insight.html       # Focus card: AI insight
+    ├── 11-focus-dismissed.html     # Focus dismissed → home (updated: lock+tokens)
+    ├── 12-confirm-single.html      # Confirm: card-by-card
+    ├── 13-confirm-list.html        # Confirm: all items (updated: session cost)
+    ├── 14-confirm-edit.html        # Voice correction
+    ├── 15-void.html                # NEW: Level 0 void state
+    ├── 16-recording-credits.html   # NEW: Recording with token flow counter
+    ├── 17-confirm-credits.html     # NEW: Confirm with session cost
+    ├── 18-settings-minimal.html    # NEW: Minimal settings (Level 0-2)
+    ├── 19-topup.html               # NEW: Credit top-up (Card/Cashu/Subscribe)
+    ├── 20-recording-live.html      # NEW: Live Feed recording (Level 4+)
+    ├── 21-home-sparse.html         # NEW: Sparse home (Level 1)
+    └── index.html                  # Mockup browser with sidebar nav
 ```
 
-No Swift code yet. No Nix flake. No XcodeGen project. We're still in Phase 1 of `/init-ios-app` — the spec exists and has been reviewed once, but the user wants to iterate further before moving to Phase 2 (project setup and template instantiation).
+No Swift code yet. No Nix flake. No XcodeGen project. Phase 1 complete — spec revised for V1 UX with progressive disclosure, credit system, and cypherpunk privacy. Ready for Phase 2 (project setup and template instantiation).
 
 ## What's Next
 
-1. **Iterate on the spec** — Review the project-spec.yml with fresh eyes. Explore the todo-focused design and knowledge graph ideas. The spec determines everything downstream.
-2. **Approve Gate 1** — When the spec is solid, approve it and move to Phase 2.
-3. **Phase 2: Template instantiation** — Nix flake, XcodeGen project.yml, Makefile, theme, models, CI. The init-ios-app skill handles this.
-4. **Create GitHub repo + Issues** — Convert milestones to actionable issues for parallel development.
+**V1 UX Revision complete.** The spec has been rewritten around three pillars: privacy-first (cypherpunk aesthetic), voice-first (mic is the interface), and tokens as fuel (tokens power the AI). Major additions:
+
+1. **Progressive Disclosure** — 5-level unlock system. The app starts as "The Void" (just a mic and darkness) and grows features as the user builds history. No onboarding, no menus at first. Bottom nav doesn't appear until Level 3 (20+ entries). Hidden "Show all features" escape hatch for power users.
+
+2. **Token System** — Generic "tokens" as the credit unit, mapping to real LLM input/output tokens. UI shows directional flow: ↑ input (transcript sent, fast burst) and ↓ output (entries streaming back). Three top-up methods: Apple Pay (convenience), Cashu ecash tokens (cypherpunk privacy, bearer tokens), and monthly subscription. Starter balance of 5,000 tokens. Zero balance degrades gracefully — recording still works, AI processing disabled.
+
+3. **Live Feed** — Ships in V1, locked behind Level 4. Items materialize during recording — no processing wait. Costs ~2x but feels instant and magical.
+
+4. **WidgetKit deferred to V1.1** — Nail the in-app experience first.
+
+### Immediate next steps:
+1. **Phase 2: Template instantiation** — Nix flake, XcodeGen project.yml, Makefile, theme, models, CI.
+2. **Create GitHub Issues** — 24 issues across 4 milestones (Core Pipeline, Home + Focus, Credits + Privacy, Views + Polish).
+3. **Build M1: Core Pipeline** — Scaffold, models, Void state, recording, processing, confirm screen, service protocols.
+
+### 12 V1 screens defined:
+S1 Void, S2 Recording, S3 Processing, S4 Confirm, S5 Settings (minimal), S6 Focus Card, S7 Home Sparse, S8 Home AI-Composed, S9 Entry Detail, S10 Views, S11 Category View, S12 Credits/Top-Up.
 
 ---
 

@@ -1,27 +1,173 @@
 # Murmur Project Specification
-# Voice-powered AI scratchpad with adaptive widget-based UI
+# Voice-powered AI scratchpad — whisper to canvas
+# Privacy-first, voice-first, credits as fuel
 # All user data encrypted at rest — zero plaintext storage
 
 meta:
   name: Murmur
   bundle_id_prefix: com.gudnuf.murmur
-  description: "A voice-powered scratchpad where an on-device AI agent captures your thoughts and dynamically composes widget-based views to surface what matters most"
+  description: "A voice-powered scratchpad that starts as an empty void and grows with you. Speak, and the AI captures, categorizes, and encrypts your thoughts. The app progressively reveals features as you use it — no menus, no onboarding, just a mic and darkness. Tokens fuel the AI — you see them flow in and out. Privacy is ambient, not a toggle."
   author: gudnuf
+  philosophy: "WHISPER to CANVAS — start radically simple. The app grows with the user. Features unlock through usage, not menus. The AI and user learn about each other together."
+  pillars:
+    - "Privacy-first: cypherpunk aesthetic, encryption ambient, lock icon always visible"
+    - "Voice-first: speak don't type, mic is the primary interface"
+    - "Credits as fuel: tokens power the AI, user sees them flow in and out"
 
 features:
-  widget: true
+  widget: false          # V1.1 — nail in-app experience first
   icloud_sync: false
-  push_notifications: true
+  push_notifications: false  # V1.1
   watch_app: false
+  live_feed: true        # Ships in V1, locked behind Level 4 progressive unlock
+  cashu_payments: true   # V1 must-have — bearer token payments
+  apple_pay: true        # V1 must-have — card payments
+  subscription: true     # V1 must-have — recurring plan
 
 targets:
   app: Murmur
-  widget: MurmurWidgetExtension
   tests: MurmurTests
 
 source_dirs:
   app: Murmur
-  widget: MurmurWidget
+
+# Progressive Unlock System
+# Features appear naturally as the user builds history.
+# No gamification — no badges, no confetti. New elements simply appear.
+# AI mentions new features conversationally via focus cards.
+# Hidden escape hatch: Settings > "Show all features" for power users.
+progressive_unlock:
+  levels:
+    - level: 0
+      name: "The Void"
+      trigger: "First launch, 0 entries"
+      what_appears: "Empty screen. Pulsing mic. Lock icon. Token balance. 'Say anything.' No nav, no chrome."
+      screens: [S1, S2, S3, S4, S5]
+
+    - level: 1
+      name: "First Light"
+      trigger: "1+ entries accepted"
+      what_appears: "Focus card on app open. Sparse home with a few cards. Mic moves to floating position."
+      screens: [S6, S7]
+
+    - level: 2
+      name: "Grid Awakens"
+      trigger: "10+ entries, 2+ categories"
+      what_appears: "AI composes home layout meaningfully. Widget card variety. Row layouts."
+      screens: [S8, S9]
+
+    - level: 3
+      name: "Views Emerge"
+      trigger: "20+ entries, AI detects patterns"
+      what_appears: "AI suggests views via focus card. Bottom nav appears (Home / Views / Settings)."
+      screens: [S10, S11]
+
+    - level: 4
+      name: "Full Power"
+      trigger: "50+ entries OR user opts in via 'Show all features'"
+      what_appears: "Live Feed toggle. Backend config. Heat slider. Custom views. Full settings."
+      screens: [S12]
+
+  escape_hatch: "Settings > 'Show all features' — immediately unlocks Level 4 for power users"
+
+# Token System
+# Tokens are the unit. Users see tokens flowing in (transcript → AI) and out (AI → entries).
+# Casual users see a classy counter. Technical users recognize LLM input/output tokens.
+# The in/out flow IS the aesthetic — it makes the AI's work visible without being noisy.
+tokens:
+  unit: "tokens"
+  starter_balance: 5000
+  display:
+    header: "Small pill in app header. Shows remaining balance as a plain number with subtle token icon. Always visible."
+    recording: "Hidden during recording (transcription is on-device, free). Appears when processing begins."
+    processing: "Two counters appear during AI processing: ↑ (input, fast burst ~0.8s) and ↓ (output, streaming ~3s). Input is the transcript being sent. Output is the structured entries coming back. Monospace, muted, directional arrows in subtle colors."
+    confirm: "Session summary in confirm footer: '↑ 247 in · ↓ 312 out' — clean breakdown of what was sent and received."
+    settings: "Full breakdown: balance, total in/out lifetime, average per session."
+    low_balance: "Amber-tinted number when <500 tokens remaining."
+    zero_balance: "Red-tinted + inline message."
+
+  animation_timing:
+    input: "Transcript tokens sent in a fast burst. Counter races from 0 to ~200-300 in ~0.8s. Represents the transcript being sent to the LLM in one shot."
+    output: "Structured entries stream back. Counter increments from 0 to ~200-400 over ~2-4s. Represents LLM response streaming at ~100 tokens/sec (realistic for Haiku-class models). Items materialize on screen as output tokens arrive."
+    visual: "Input arrow (↑) is dimmer, output arrow (↓) is slightly brighter. Numbers use tabular-nums monospace. The flow feels like data moving through a pipe — in fast, out steady."
+
+  typical_session:
+    transcript_length: "50-200 words (~75-300 input tokens)"
+    ai_response: "Structured entries with categories, summaries, metadata (~200-400 output tokens)"
+    total: "~300-700 tokens per capture session"
+
+  costs:
+    - action: "On-device transcription"
+      tokens: 0
+      notes: "Free, Apple Speech. No tokens consumed."
+    - action: "AI processing (batch)"
+      tokens: "300-700"
+      notes: "Per session. ~200 in + ~400 out typical."
+    - action: "AI processing (live feed)"
+      tokens: "600-1400"
+      notes: "~2x batch. Streaming during recording."
+    - action: "Home recomposition"
+      tokens: "100-300"
+      notes: "Background. AI re-selects widget layout."
+    - action: "Focus card selection"
+      tokens: "50-150"
+      notes: "On app open. AI picks what to surface."
+
+  topup_options:
+    card:
+      method: "Apple Pay"
+      tiers:
+        - { tokens: 10000, price: "$0.99" }
+        - { tokens: 50000, price: "$3.99" }
+        - { tokens: 100000, price: "$6.99" }
+    cashu:
+      method: "Cashu ecash tokens"
+      description: "Paste ecash token or scan QR. No account. Bearer tokens. The cypherpunk option."
+    subscription:
+      method: "Monthly subscription"
+      amount: "100,000 tokens/month"
+      price: "$4.99/month"
+      description: "Auto-renew"
+
+  zero_balance_behavior: "Recording still works (on-device transcription = free). AI processing disabled. Items saved as raw encrypted transcripts. Message: 'Out of tokens. Items saved but not categorized. Top up to unlock AI.'"
+
+  heat_metaphor:
+    description: "Visual slider showing cost vs capability tradeoff (Level 4+)"
+    tiers:
+      - name: "Economy"
+        transcription: "On-device"
+        processing: "Cloud"
+        cost: "Free transcription"
+        speed: "Slower"
+      - name: "Standard"
+        transcription: "Cloud"
+        processing: "Cloud"
+        cost: "tokens/session"
+        speed: "Normal"
+      - name: "Live"
+        transcription: "Cloud everything"
+        processing: "Live Feed ON"
+        cost: "tokens x3/session"
+        speed: "Instant + magical"
+
+# Privacy & Cypherpunk Aesthetic
+privacy:
+  lock_icon: "Always visible top-left on every screen. Green dot = all encrypted. Tap → encryption detail."
+  encryption_detail: "AES-256-GCM. Key in Secure Enclave. N entries encrypted."
+  data_split:
+    encrypted:
+      - "rawTranscript (always encrypted, only decrypted in memory when viewing)"
+      - "processedContent (always encrypted)"
+    queryable_plaintext:
+      - "summary (for SwiftData queries and widget display)"
+      - "category (for filtering)"
+      - "tags (for search)"
+      - "status, priority, dueDate (for sorting/filtering)"
+    tradeoff: "Summaries and metadata are plaintext for query performance. This is explicit and documented. Raw content is always encrypted."
+  ai_model_badges:
+    - { badge: "[TEE]", meaning: "Trusted Execution Environment — encrypted in transit and at rest on server" }
+    - { badge: "[On-Device]", meaning: "Never leaves phone" }
+    - { badge: "[Cloud]", meaning: "Encrypted in transit" }
 
 data_models:
   - name: Entry
@@ -68,7 +214,12 @@ data_models:
       - name: summary
         type: String
         required: true
-        description: "Short AI-generated summary for display in widgets and lists (1 line max)"
+        description: "Short AI-generated summary for display in widgets and lists (1 line max). Plaintext for query performance."
+      - name: creditCost
+        type: Int
+        required: true
+        default: 0
+        description: "Total tokens consumed processing this entry (input + output)"
       - name: createdAt
         type: Date
         required: true
@@ -118,6 +269,94 @@ data_models:
         target: Entry
         description: "Tags can be applied to multiple entries"
 
+  - name: CreditBalance
+    description: "Tracks the user's sat balance, spending, and subscription status. Singleton model."
+    properties:
+      - name: id
+        type: UUID
+        required: true
+        default: "UUID()"
+        description: "Unique identifier (singleton in practice)"
+      - name: balance
+        type: Int
+        required: true
+        default: 5000
+        description: "Current token balance. Starts at 5,000 (starter tokens)."
+      - name: totalSpent
+        type: Int
+        required: true
+        default: 0
+        description: "Lifetime tokens consumed by AI operations"
+      - name: totalTopUps
+        type: Int
+        required: true
+        default: 0
+        description: "Lifetime tokens added via top-ups"
+      - name: lastTopUpDate
+        type: Date?
+        required: false
+        description: "When the user last added credits"
+      - name: subscriptionActive
+        type: Bool
+        required: true
+        default: false
+        description: "Whether the monthly subscription is active"
+      - name: subscriptionRenewDate
+        type: Date?
+        required: false
+        description: "Next renewal date for active subscription"
+    relationships: []
+
+  - name: UserProgress
+    description: "Tracks usage metrics that drive progressive unlock. Singleton model."
+    properties:
+      - name: id
+        type: UUID
+        required: true
+        default: "UUID()"
+        description: "Unique identifier (singleton in practice)"
+      - name: totalEntries
+        type: Int
+        required: true
+        default: 0
+        description: "Total entries ever created (not decremented on delete)"
+      - name: distinctCategories
+        type: Int
+        required: true
+        default: 0
+        description: "Number of unique categories used"
+      - name: currentLevel
+        type: Int
+        required: true
+        default: 0
+        description: "Current progressive unlock level (0-4)"
+      - name: viewsSuggested
+        type: Bool
+        required: true
+        default: false
+        description: "Whether the AI has suggested dedicated views"
+      - name: viewsAccepted
+        type: Bool
+        required: true
+        default: false
+        description: "Whether the user accepted the views suggestion"
+      - name: liveFeedUnlocked
+        type: Bool
+        required: true
+        default: false
+        description: "Whether Live Feed has been unlocked"
+      - name: allFeaturesShown
+        type: Bool
+        required: true
+        default: false
+        description: "Whether user manually activated 'Show all features'"
+      - name: updatedAt
+        type: Date
+        required: true
+        default: "Date()"
+        description: "Last time progress was recalculated"
+    relationships: []
+
   - name: WidgetConfig
     description: "Defines how an in-app widget renders — what to show and how"
     properties:
@@ -161,7 +400,7 @@ data_models:
     relationships: []
 
   - name: ViewConfig
-    description: "A named, navigable view — preconfigured or user-created"
+    description: "A named, navigable view — preconfigured or user-created. Only relevant at Level 3+."
     properties:
       - name: id
         type: UUID
@@ -257,6 +496,15 @@ enums:
       - medium
       - large
 
+  - name: UnlockLevel
+    description: "Progressive unlock levels that control what UI elements are visible"
+    cases:
+      - void          # Level 0: first launch, 0 entries
+      - firstLight    # Level 1: 1+ entries
+      - gridAwakens   # Level 2: 10+ entries, 2+ categories
+      - viewsEmerge   # Level 3: 20+ entries, patterns detected
+      - fullPower     # Level 4: 50+ entries or manual opt-in
+
 protocols:
   - name: TranscriberService
     description: "Abstraction for voice-to-text. Apple Speech as reference impl, but designed for any backend (Whisper, Deepgram, etc.)"
@@ -271,6 +519,7 @@ protocols:
     methods:
       - "func processEntry(_ rawText: String, context: AgentContext) async throws -> ProcessedEntry"
       - "func composeHomeLayout(entries: [Entry], context: AgentContext) async throws -> [WidgetConfig]"
+      - "func selectFocusCard(entries: [Entry], context: AgentContext) async throws -> Entry?"
       - "func chat(messages: [ChatMessage]) async throws -> String"
 
   - name: EncryptionService
@@ -281,27 +530,44 @@ protocols:
       - "func generateKey() throws -> SymmetricKey"
       - "var isKeyAvailable: Bool { get }"
 
+  - name: CreditService
+    description: "Manages credit balance, tracks spending, handles top-ups."
+    methods:
+      - "func deduct(tokens: Int, for action: String) async throws"
+      - "func topUp(tokens: Int, via method: TopUpMethod) async throws"
+      - "var balance: Int { get async }"
+      - "var isLowBalance: Bool { get }"
+      - "func estimateCost(for action: CreditAction) -> Int"
+
 processing_pipeline:
-  description: "Voice input is transcribed and processed in a single synchronous pipeline. No entry ever exists in an 'unprocessed' state."
+  description: "Voice input is transcribed and processed in a single synchronous pipeline. No entry ever exists in an 'unprocessed' state. Exception: zero-balance users get raw encrypted transcripts without AI processing."
   steps:
     - step: 1
       name: "Capture"
       description: "User taps mic, speaks, taps to stop. Audio streamed to TranscriberService."
     - step: 2
       name: "Transcribe"
-      description: "TranscriberService converts speech to raw text. Can provide real-time partial results during recording."
+      description: "TranscriberService converts speech to raw text. Can provide real-time partial results during recording. On-device transcription is free."
     - step: 3
-      name: "Interpret"
-      description: "LLMService.processEntry() receives raw text. Determines category, extracts structured data (due dates, list items, action items), generates summary, assigns priority. This is NOT deferred — it runs immediately after transcription."
+      name: "Credit Check"
+      description: "Check if user has sufficient credits for AI processing. If zero balance, skip to step 5 with raw transcript only."
     - step: 4
-      name: "Encrypt & Persist"
-      description: "EncryptionService encrypts rawTranscript and processedContent. Entry saved to SwiftData with all fields populated."
+      name: "Interpret"
+      description: "LLMService.processEntry() receives raw text. Determines category, extracts structured data (due dates, list items, action items), generates summary, assigns priority. Credits deducted. This is NOT deferred — it runs immediately after transcription."
     - step: 5
+      name: "Encrypt & Persist"
+      description: "EncryptionService encrypts rawTranscript and processedContent. Entry saved to SwiftData with all fields populated. creditCost recorded."
+    - step: 6
       name: "Recompose"
-      description: "Home screen widget layout is refreshed to potentially include the new entry. WidgetKit timelines reloaded."
+      description: "Home screen widget layout is refreshed to potentially include the new entry."
+
+  live_feed_mode:
+    description: "Level 4+ alternative pipeline. Items materialize during recording — no processing wait."
+    cost_multiplier: "~2x batch processing"
+    behavior: "AS YOU SPEAK: items appear at bottom of recording overlay. On stop, items already present — smooth transition to confirm screen. Feels instant and magical."
 
 security:
-  description: "All user data encrypted at rest. Zero plaintext storage of user content."
+  description: "All user content encrypted at rest. Summaries and metadata are plaintext for query performance — this tradeoff is explicit."
   layers:
     - name: "iOS Data Protection"
       description: "NSFileProtectionComplete on the SwiftData SQLite store. OS encrypts the entire database file when device is locked."
@@ -327,11 +593,14 @@ security:
 shared_sources:
   - Models/Entry.swift
   - Models/Tag.swift
+  - Models/CreditBalance.swift
+  - Models/UserProgress.swift
   - Models/WidgetConfig.swift
   - Models/Enums.swift
   - Config/PersistenceConfig.swift
   - Config/Theme.swift
   - Services/EncryptionService.swift
+  - Services/CreditService.swift
 
 tech_stack:
   ui: SwiftUI
@@ -347,7 +616,7 @@ build_config:
 decisions:
   - decision: "UI Framework"
     choice: "SwiftUI"
-    rationale: "Declarative composition is essential for dynamic widget-based layouts. Native support for animations, gestures, and WidgetKit integration."
+    rationale: "Declarative composition is essential for dynamic widget-based layouts. Native support for animations, gestures, and progressive UI reveals."
 
   - decision: "Persistence"
     choice: "SwiftData + CryptoKit encryption"
@@ -355,35 +624,51 @@ decisions:
 
   - decision: "Voice Input"
     choice: "Protocol-abstracted (Apple Speech reference impl)"
-    rationale: "Apple Speech framework is free, on-device, and good enough for MVP. TranscriberService protocol allows swapping to Whisper/Deepgram later."
+    rationale: "Apple Speech framework is free, on-device, and good enough for MVP. TranscriberService protocol allows swapping to Whisper/Deepgram later. On-device transcription costs zero credits."
 
   - decision: "LLM Integration"
     choice: "Protocol-abstracted (mock for development)"
     rationale: "LLMService protocol with OpenAI-compatible chat shape. No concrete backend yet — uses mock that returns deterministic results for UI development. Designed for open standards compatibility."
 
+  - decision: "Progressive Disclosure"
+    choice: "5-level progressive unlock driven by usage metrics"
+    rationale: "The app starts as a void — just a mic and darkness. Features appear as the user builds history. This eliminates onboarding friction, prevents feature overwhelm, and creates a sense of the app growing with you. No gamification — elements simply appear. AI mentions new features via focus cards."
+
+  - decision: "Credit System"
+    choice: "Tokens as credit unit with visible in/out flow and 3 top-up methods"
+    rationale: "Tokens are the natural unit — they map directly to what the AI consumes. Users see tokens flow in (transcript sent) and out (entries received). Three top-up methods: Apple Pay (convenience), Cashu ecash tokens (cypherpunk privacy), and monthly subscription (predictability). Starter balance of 5,000 tokens lets users try before paying. Zero balance degrades gracefully — recording still works, AI processing disabled."
+
+  - decision: "Live Feed"
+    choice: "Ships in V1, locked behind Level 4 progressive unlock"
+    rationale: "Items materialize during recording — no processing wait. Costs ~2x batch but feels instant and magical. Locked to Level 4 because it's expensive and users need to understand the credit system first."
+
+  - decision: "Cashu Payments"
+    choice: "V1 must-have, paste or scan QR"
+    rationale: "Bearer token payments with no account required. Aligns with cypherpunk privacy ethos. User pastes an ecash token URL or scans a QR code. No identity attached to the payment."
+
+  - decision: "WidgetKit"
+    choice: "Deferred to V1.1"
+    rationale: "Nail the in-app experience first. WidgetKit adds complexity (App Groups, shared containers, Keychain access groups). Ship V1 without it, add in V1.1."
+
   - decision: "Widget Architecture"
     choice: "Reusable WidgetCard components with AI-driven composition"
-    rationale: "All widgets share the same design tokens (Theme.swift) and WidgetCard container. The AI picks which widgets to show. Users can pin favorites."
+    rationale: "All in-app widgets share the same design tokens (Theme.swift) and WidgetCard container. The AI picks which widgets to show. Users can pin favorites."
 
   - decision: "Home Screen Strategy"
-    choice: "AI-composed ScrollView of WidgetCards + pinned views drawer"
-    rationale: "Home screen is a vertical scroll of widget cards selected by the LLM. Bottom sheet or tab bar provides access to user-configured views (Todo, Ideas, etc.)."
+    choice: "Progressive: void → sparse → AI-composed, with bottom nav appearing at Level 3"
+    rationale: "Level 0 is a void with a mic. Level 1 adds sparse cards. Level 2 adds AI-composed grid. Level 3 adds bottom nav with Views tab. This progression lets the home screen earn complexity."
 
   - decision: "Immediate Processing"
     choice: "Synchronous transcribe → interpret → encrypt → persist pipeline"
-    rationale: "No entry ever exists in an unprocessed state. The moment the user stops speaking, the transcript is sent to the LLM for categorization, then encrypted and persisted. This means the UI always has structured, categorized data to work with."
+    rationale: "No entry ever exists in an unprocessed state. The moment the user stops speaking, the transcript is sent to the LLM for categorization, then encrypted and persisted. Exception: zero balance saves raw encrypted transcript without AI processing."
 
   - decision: "Security"
     choice: "Defense in depth: iOS Data Protection + CryptoKit AES-GCM + Keychain"
-    rationale: "User speaks sensitive things — passwords, personal thoughts, financial info. Three layers: OS-level file encryption, app-level field encryption for transcripts, Keychain for all keys and credentials. Zero plaintext at rest."
+    rationale: "User speaks sensitive things — passwords, personal thoughts, financial info. Three layers: OS-level file encryption, app-level field encryption for transcripts, Keychain for all keys and credentials. Summaries are plaintext for query performance — this tradeoff is explicit."
 
   - decision: "AI Agent State"
     choice: "SwiftData model with JSON blobs"
     rationale: "AgentContext model stores patterns and layout recommendations as JSON. Context-efficient — the LLM only reads/writes what it needs."
-
-  - decision: "App Groups"
-    choice: "Shared container for SwiftData"
-    rationale: "WidgetKit extension needs access to Entry database. App Group container shared between main app and widget. Encryption key shared via Keychain access group."
 
   - decision: "Build Tooling"
     choice: "Nix + direnv + XcodeGen"
@@ -391,113 +676,191 @@ decisions:
 
   - decision: "Architecture Pattern"
     choice: "MVVM + Service Protocols"
-    rationale: "ViewModels consume service protocols (TranscriberService, LLMService). Easy to test with mocks, clean separation of concerns."
+    rationale: "ViewModels consume service protocols (TranscriberService, LLMService, CreditService). Easy to test with mocks, clean separation of concerns."
 
   - decision: "Open Standards"
     choice: "OpenAI-compatible API shape for LLM protocol"
     rationale: "Most open-source LLM servers (llama.cpp, ollama, vLLM) expose OpenAI-compatible endpoints. Designing the protocol around this shape maximizes backend compatibility."
 
 milestones:
-  - name: "M0: Project Scaffold"
-    description: "Buildable project with all infrastructure, empty UI, encrypted persistence"
+  - name: "M1: Core Pipeline"
+    description: "Project scaffold, data models, the void, recording, processing, confirm — the complete capture flow"
     issues:
-      - "Project initialization (Nix, XcodeGen, CI)"
-      - "Data models (Entry, Tag, WidgetConfig, ViewConfig, AgentContext) and SwiftData persistence"
-      - "EncryptionService + EncryptedString type with CryptoKit AES-GCM"
-      - "Theme and design system (design tokens, WidgetCard base component)"
+      - title: "Project scaffold (Nix, XcodeGen, CI, theme, design tokens)"
+        description: "Set up the Nix flake, XcodeGen project.yml, Makefile, Theme.swift with design tokens, and CI pipeline."
+      - title: "SwiftData models (Entry, Tag, CreditBalance, UserProgress) + encryption"
+        description: "Implement all data models with SwiftData. EncryptionService + EncryptedString type with CryptoKit AES-GCM. CreditBalance and UserProgress as singletons."
+      - title: "Void state (S1) — the empty app with lock icon + token balance"
+        description: "Deep dark screen. Pulsing mic center. Lock icon top-left (tappable → settings). Token balance top-right. 'Say anything.' No nav, no chrome."
+      - title: "Recording overlay (S2) — mic states, waveform, live transcript, token counter"
+        description: "Full-screen overlay. Active mic with pulse rings. Waveform. Live transcript. Duration counter. Token flow counter (↑ in · ↓ out)."
+      - title: "Processing state (S3) — transition animation, item materialization"
+        description: "Waveform freezes. Mic → spinner. 'Thinking...' Items materialize one by one with staggered animation."
+      - title: "Confirm screen (S4) — item list, accept/discard/correct, session cost"
+        description: "Transcript collapsible at top. Extracted items as cards with category badges. Per-item: correct (mic) / discard (X). 'Accept all' button. Token breakdown: '↑ 247 in · ↓ 312 out'."
+      - title: "TranscriberService protocol + Apple Speech implementation"
+        description: "Protocol abstraction for voice-to-text. Apple Speech as reference implementation. On-device, free, zero credit cost."
+      - title: "LLMService protocol + mock implementation"
+        description: "Protocol with processEntry, composeHomeLayout, selectFocusCard, chat methods. Mock returns deterministic results for UI development."
 
-  - name: "M1: Voice Capture + Immediate Processing"
-    description: "Record voice, transcribe, interpret, encrypt, persist — full pipeline, no deferred processing"
+  - name: "M2: Home + Focus"
+    description: "Sparse home, focus cards, AI-composed home, entry detail, progressive unlock tracking"
     issues:
-      - "TranscriberService protocol + Apple Speech implementation"
-      - "LLMService protocol + mock implementation (deterministic categorization for dev)"
-      - "Processing pipeline: transcribe → interpret → encrypt → persist (synchronous)"
-      - "Voice recording UI (minimal — one button + waveform + live transcript)"
-      - "Raw entry list view to verify pipeline works"
+      - title: "Sparse home (S7) — basic card layout with encrypted entries"
+        description: "Level 1 home. 'Murmur' header + greeting. A few cards. Lock icon + token balance in header. Floating mic. No bottom nav."
+      - title: "Focus card (S6) — AI selection logic, act/dismiss"
+        description: "ONE item centered. Ghost of home behind. Act (complete/explore/dismiss) or tap anywhere for home. Priority: todo due today > reminder 24h > unchecked habit > AI insight > skip."
+      - title: "AI-composed home (S8) — rule-based layout with LLM fallback"
+        description: "Replaces S7 at Level 2. Dynamic widget grid — reminder cards, todo count, ideas, habits. AI selects layout."
+      - title: "Entry detail (S9) — view, action bar, transcript link"
+        description: "Category badge, processed content, 'tell me more' AI button, tags, metadata. Action bar: archive/snooze/delete. Transcript link."
+      - title: "Progressive unlock tracking (UserProgress)"
+        description: "Track totalEntries, distinctCategories, compute currentLevel. Trigger UI reveals when levels change. No notifications — elements simply appear."
 
-  - name: "M2: Widget System"
-    description: "Reusable in-app widget components and static home layout"
+  - name: "M3: Credits + Privacy"
+    description: "Credit balance display, burn tracking, settings, top-up flow, TEE badges"
     issues:
-      - "WidgetCard design component (small/medium/large) with shared design tokens"
-      - "TodoWidget, IdeaWidget, ReminderWidget, ListWidget, HabitWidget implementations"
-      - "Static home screen layout with sample widgets"
-      - "Widget tap/interaction handling (complete todo, expand idea, etc.)"
+      - title: "Credit balance display (header, recording, confirm, settings)"
+        description: "Show token balance in header (always), ↑↓ flow during processing, in/out breakdown on confirm, full stats in settings. Amber at <500, red at 0."
+      - title: "Credit burn tracking during AI calls"
+        description: "CreditService.deduct() called during AI operations. Per-entry creditCost recorded. Real-time counter during recording."
+      - title: "Settings minimal (S5) — encryption status, credits, model selector"
+        description: "Level 0-2 settings: 3 sections. Security (encryption active, key status, entries encrypted), Credits (balance, top up), Processing (AI model with TEE badge, mode)."
+      - title: "TEE badges for model selector"
+        description: "Model selector shows badges: [TEE] for trusted execution, [On-Device] for local, [Cloud] for standard. Badge colors: TEE=green, On-Device=blue, Cloud=gray."
+      - title: "Top-up flow (S12) — Apple Pay, Cashu, Subscribe"
+        description: "Three tabs: Card (Apple Pay packs), Cashu (paste ecash token or scan QR), Subscribe (monthly plan). Accessible from Settings > Credits > Top Up."
 
-  - name: "M3: AI-Composed Home"
-    description: "LLM dynamically selects and arranges widgets based on entries and context"
+  - name: "M4: Views + Polish"
+    description: "Views suggestion, bottom nav, category views, voice correction, live feed, full settings"
     issues:
-      - "LLM home composition: given entries + AgentContext, output widget layout"
-      - "AgentContext persistence and update cycle"
-      - "Home screen renders AI-selected widget grid"
-      - "Fallback layout when LLM is unavailable"
+      - title: "Views suggestion via focus card (Level 3 unlock)"
+        description: "When user has 20+ entries and AI detects patterns, show focus card: 'You have N todos. Want a dedicated view?' Accept → bottom nav appears."
+      - title: "Bottom nav appearance"
+        description: "3-tab nav: Home / Views / Settings. Only appears at Level 3+. Glass-morphism effect. Animated entrance (slides up)."
+      - title: "Views grid (S10) + Category views (S11)"
+        description: "Grid of category views (Todo, Ideas, Don't Forget, etc.). Each view is a filtered list with appropriate interactions per category type."
+      - title: "Voice correction sub-flow (from confirm)"
+        description: "On confirm, tap mic icon on an item. Item expands with original strikethrough. Amber correction zone: small mic + 'Speak your fix'. LLM merges original + correction."
+      - title: "Live Feed toggle (Level 4)"
+        description: "Toggle in settings (Level 4+). When ON, items materialize during recording — no processing wait. Costs ~2x. Visual: items appear at bottom of recording overlay."
+      - title: "Full settings (Level 4)"
+        description: "AI backend config (transcription service, LLM endpoint, API key). Heat visualization slider. Manage views. Data export / clear."
 
-  - name: "M4: Views & Navigation"
-    description: "Pinned views, view navigation, search"
-    issues:
-      - "ViewConfig model and default views (Todo, Ideas, Don't Forget, Habits, All)"
-      - "View navigation (bottom sheet or tab bar)"
-      - "Category-filtered list views with appropriate interactions per type"
-      - "Search and filter across entries"
-      - "Entry detail view with original transcript, processed content, tags, metadata"
-
-  - name: "M5: Home Screen Widgets"
-    description: "WidgetKit extension for iOS home screen and lock screen"
-    issues:
-      - "App Groups setup and shared encrypted container"
-      - "Keychain access group for shared encryption key"
-      - "WidgetKit extension target with small/medium/large families"
-      - "Interactive widget actions (complete todo, quick capture)"
-      - "Lock screen widget support"
-
-  - name: "M6: Agent Intelligence"
-    description: "Agent adapts to user patterns over time"
-    issues:
-      - "Pattern analysis from entry history (common categories, timing, frequency)"
-      - "Time-of-day aware widget selection (morning habits, evening reflection)"
-      - "Habit tracking and streak counting"
-      - "Reminder resurfacing (don't let things fall through cracks)"
-      - "Context file management for LLM cost efficiency"
-
-  - name: "M7: Open Backends & Polish"
-    description: "Real LLM/transcription backends, settings, onboarding"
-    issues:
-      - "Settings screen (backend configuration, encryption status, data management)"
-      - "OpenAI-compatible API client for LLMService"
-      - "Ollama / local LLM support"
-      - "Whisper / alternative transcription backends"
-      - "Onboarding flow"
-      - "Animations and transitions"
-      - "Accessibility audit"
-
+# V1 Screen Inventory (12 screens, progressive)
 ui_mockups:
-  - name: "Home - AI Composed"
-    file: "mockups/01-home-ai.html"
-    description: "Main screen with AI-selected widget cards: a todo, an idea highlight, a reminder — arranged dynamically"
+  # Always Present (Level 0+)
+  - name: "S1: Void"
+    file: "mockups/15-void.html"
+    level: 0
+    description: "Deep dark. Pulsing mic center. Lock icon top-left (tappable → settings). Token balance top-right. 'Say anything.' No nav."
 
-  - name: "Home - Empty State"
-    file: "mockups/02-home-empty.html"
-    description: "First launch — gentle prompt to speak your first murmur with a pulsing microphone button"
+  - name: "S2: Recording"
+    file: "mockups/16-recording-credits.html"
+    level: 0
+    description: "Full-screen overlay. Active mic with pulse rings. Waveform. Live transcript. Duration counter. Token flow counter (↑ in · ↓ out)."
 
-  - name: "Voice Capture"
+  - name: "S3: Processing"
     file: "mockups/03-voice-capture.html"
-    description: "Minimal recording overlay — large mic button, live waveform, real-time transcript preview. Entry is categorized the moment you stop speaking."
+    level: 0
+    description: "Waveform freezes. Mic → spinner. 'Thinking...' Items materialize one by one with staggered animation."
+    notes: "Processing state shown within voice capture mockup"
 
-  - name: "Pinned Views"
+  - name: "S4: Confirm"
+    file: "mockups/17-confirm-credits.html"
+    level: 0
+    description: "Transcript collapsible at top. Extracted items as cards with category badges. Per-item: correct (mic) / discard (X). 'Accept all' button. Token breakdown: '↑ 247 in · ↓ 312 out'."
+
+  - name: "S5: Settings (minimal)"
+    file: "mockups/18-settings-minimal.html"
+    level: 0
+    description: "Progressive — starts as 3 sections (Encryption / Credits / Processing Mode), grows to full config at Level 4. Entry via lock icon (Level 0-2) or Settings tab (Level 3+)."
+
+  # Level 1+ (1-5 entries)
+  - name: "S6: Focus Card"
+    file: "mockups/09-focus-todo.html"
+    level: 1
+    description: "ONE item centered. Ghost of home behind. Act (complete/explore/dismiss) or tap anywhere for home."
+
+  - name: "S7: Home (Sparse)"
+    file: "mockups/21-home-sparse.html"
+    level: 1
+    description: "'Murmur' header + greeting. A few cards. Lock icon + token balance in header. Floating mic. No bottom nav yet."
+
+  # Level 2+ (10+ entries)
+  - name: "S8: Home (AI-Composed)"
+    file: "mockups/01-home-ai.html"
+    level: 2
+    description: "Replaces S7. Dynamic widget grid — reminder cards, todo count, ideas, habits. AI selects layout."
+
+  - name: "S9: Entry Detail"
+    file: "mockups/06-thought-detail.html"
+    level: 2
+    description: "Category badge, processed content, 'tell me more' AI button, tags, metadata. Action bar: archive/snooze/delete. Transcript link."
+
+  # Level 3+ (20+ entries, patterns detected)
+  - name: "S10: Views"
     file: "mockups/04-pinned-views.html"
-    description: "Bottom sheet showing user's configured views: Todo, Ideas, Don't Forget, Habits, All"
+    level: 3
+    description: "Grid of category views (Todo, Ideas, Don't Forget, etc.). Appears when bottom nav unlocks."
 
-  - name: "Todo View"
+  - name: "S11: Category View"
     file: "mockups/05-todo-view.html"
-    description: "Filtered list of todo-category entries with checkboxes and swipe actions"
+    level: 3
+    description: "Filtered list (e.g., Todo view with checkboxes, filter chips)."
 
-  - name: "Entry Detail"
-    file: "mockups/06-entry-detail.html"
-    description: "Full entry view: original transcript, AI-processed version, category, tags, metadata, edit options"
+  - name: "S12: Credits / Top-Up"
+    file: "mockups/19-topup.html"
+    level: 4
+    description: "Balance, usage, top-up: Card (Apple Pay) / Cashu tokens (paste or scan QR) / Subscription."
 
-  - name: "iOS Home Screen Widget"
+  # Additional mockups (not in 12-screen inventory but useful)
+  - name: "Recording: Live Feed"
+    file: "mockups/20-recording-live.html"
+    level: 4
+    description: "Live Feed ON: items materializing during recording. No processing wait."
+
+  - name: "Focus: Insight"
+    file: "mockups/10-focus-insight.html"
+    level: 1
+    description: "LLM resurfaces an older idea as a focus card."
+
+  - name: "Focus: Dismissed"
+    file: "mockups/11-focus-dismissed.html"
+    level: 1
+    description: "After dismissing focus card, reveals the home behind."
+
+  - name: "Confirm: Cards"
+    file: "mockups/12-confirm-single.html"
+    level: 0
+    description: "One-at-a-time card review variant of confirm flow."
+
+  - name: "Voice Correction"
+    file: "mockups/14-confirm-edit.html"
+    level: 0
+    description: "Re-record to fix an item during confirm."
+
+  - name: "Entry Detail: Expanded"
+    file: "mockups/06b-thought-detail-expanded.html"
+    level: 2
+    description: "Full content view of entry detail."
+
+  - name: "Entry Detail: Transcript"
+    file: "mockups/06c-thought-transcript.html"
+    level: 2
+    description: "Original recording transcript view."
+
+  - name: "iOS Widget (V1.1)"
     file: "mockups/07-ios-widget.html"
-    description: "WidgetKit widget showing 2-3 items from different categories with interactive actions"
+    level: null
+    description: "WidgetKit home screen widget — deferred to V1.1."
 
-  - name: "Settings"
+  - name: "Home: Empty State (legacy)"
+    file: "mockups/02-home-empty.html"
+    level: null
+    description: "Original empty state — replaced by Void (S1) in V1 revision."
+
+  - name: "Settings (legacy)"
     file: "mockups/08-settings.html"
-    description: "Backend configuration (transcription service, LLM endpoint), encryption status, view management, data export"
+    level: null
+    description: "Original full settings — replaced by progressive settings in V1 revision."

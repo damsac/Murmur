@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Murmur - Thought Detail</title>
+<title>Murmur - Thought Detail (Expanded)</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -172,42 +172,24 @@
     margin-bottom: 24px;
   }
 
-  .thought-text {
+  .thought-headline {
     font-size: 20px;
     color: #F5F5F7;
     line-height: 1.55;
     font-weight: 400;
     letter-spacing: -0.01em;
-    margin-bottom: 32px;
+    margin-bottom: 24px;
   }
 
-  .tell-me-more {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 18px;
-    background: rgba(124,111,247,0.1);
-    border: 1px solid rgba(124,111,247,0.2);
-    border-radius: 12px;
-    font-size: 14px;
-    font-weight: 500;
-    color: #9D93F9;
-    cursor: pointer;
-    transition: all 0.2s;
+  .thought-detail {
+    font-size: 16px;
+    color: #B0B0BC;
+    line-height: 1.65;
+    font-weight: 400;
+    margin-bottom: 12px;
+  }
+  .thought-detail:last-of-type {
     margin-bottom: 28px;
-  }
-  .tell-me-more:hover {
-    background: rgba(124,111,247,0.18);
-    border-color: rgba(124,111,247,0.35);
-  }
-  .tell-me-more svg {
-    width: 16px;
-    height: 16px;
-    fill: none;
-    stroke: #9D93F9;
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
   }
 
   .divider {
@@ -360,16 +342,13 @@
       Idea
     </div>
 
-    <div class="thought-text">An app that scans your grocery receipt and suggests meals based on what you actually bought.</div>
+    <div class="thought-headline">An app that scans your grocery receipt and suggests meals based on what you actually bought.</div>
 
-    <div class="tell-me-more">
-      <svg viewBox="0 0 24 24">
-        <circle cx="12" cy="12" r="10"/>
-        <line x1="12" y1="8" x2="12" y2="16"/>
-        <line x1="8" y1="12" x2="16" y2="12"/>
-      </svg>
-      Tell me more
-    </div>
+    <p class="thought-detail">You take a photo of your receipt after shopping. The app reads what you bought and cross-references it with a recipe database to suggest meals you can actually make this week.</p>
+
+    <p class="thought-detail">The key insight is working backwards from what people already have, not starting from a recipe and sending them to the store. Reduces waste, removes the decision fatigue of "what's for dinner."</p>
+
+    <p class="thought-detail">Could also track patterns over time and learn your preferences. If you always buy chicken thighs and rice, it stops suggesting the same stir fry and finds something new.</p>
 
     <div class="divider"></div>
 
