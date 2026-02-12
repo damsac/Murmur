@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="murmur-base.css">
-<title>Murmur - Confirm: Session Credits</title>
+<title>Murmur - Confirm Single Item</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -108,7 +108,6 @@
   }
   .confirm-screen::-webkit-scrollbar { display: none; }
 
-  /* Header */
   .confirm-header {
     padding: 16px 0 0;
   }
@@ -124,7 +123,7 @@
     margin-top: 4px;
   }
 
-  /* Original transcript */
+  /* Transcript */
   .transcript-section {
     margin-top: 16px;
     background: rgba(255,255,255,0.03);
@@ -179,11 +178,11 @@
     color: #5C5C6A;
   }
 
-  /* Item cards */
+  /* Single prominent item card */
   .item-card {
     background: #1A1A24;
     border-radius: 16px;
-    padding: 16px;
+    padding: 20px;
     margin-bottom: 10px;
     position: relative;
     overflow: hidden;
@@ -191,8 +190,6 @@
     opacity: 0;
   }
   .item-card:nth-child(1) { animation-delay: 0.05s; }
-  .item-card:nth-child(2) { animation-delay: 0.12s; }
-  .item-card:nth-child(3) { animation-delay: 0.19s; }
   @keyframes itemAppear {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
@@ -239,26 +236,19 @@
   .cat-todo .item-category { background: rgba(124,111,247,0.10); }
   .cat-todo .item-cat-dot { background: #7C6FF7; }
   .cat-todo .item-cat-text { color: #7C6FF7; }
-  .cat-reminder .item-category { background: rgba(251,191,36,0.08); }
-  .cat-reminder .item-cat-dot { background: #FBBF24; }
-  .cat-reminder .item-cat-text { color: #FBBF24; }
-  .cat-idea .item-category { background: rgba(251,191,36,0.08); }
-  .cat-idea .item-cat-dot { background: #FBBF24; }
-  .cat-idea .item-cat-text { color: #FBBF24; }
 
   .item-summary {
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 600;
     color: #F5F5F7;
     line-height: 1.35;
   }
-
   .item-meta {
     display: flex;
     align-items: center;
     gap: 12px;
-    margin-top: 6px;
-    font-size: 12px;
+    margin-top: 8px;
+    font-size: 13px;
     color: #5C5C6A;
   }
   .item-meta-accent {
@@ -313,7 +303,7 @@
     letter-spacing: 0.1px;
   }
 
-  /* Bottom actions */
+  /* Footer */
   .confirm-footer {
     position: sticky;
     bottom: 0;
@@ -321,8 +311,7 @@
     background: linear-gradient(transparent, #0A0A0F 20%);
     margin-top: auto;
   }
-
-  .accept-all-btn {
+  .accept-btn {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -335,21 +324,15 @@
     transition: all 0.2s;
     box-shadow: 0 4px 20px rgba(124,111,247,0.3);
   }
-  .accept-all-btn:hover {
+  .accept-btn:hover {
     box-shadow: 0 4px 28px rgba(124,111,247,0.45);
     transform: translateY(-1px);
   }
-  .accept-all-text {
+  .accept-btn-text {
     font-size: 17px;
     font-weight: 600;
     color: #F5F5F7;
   }
-  .accept-all-count {
-    font-size: 14px;
-    color: rgba(245,245,247,0.6);
-    margin-left: 4px;
-  }
-
   .discard-all {
     text-align: center;
     margin-top: 12px;
@@ -382,7 +365,7 @@
       <div class="confirm-subtitle">Here's what I heard</div>
     </div>
 
-    <!-- Original transcript -->
+    <!-- Transcript -->
     <div class="transcript-section">
       <div class="transcript-header">
         <div class="transcript-label">
@@ -392,18 +375,17 @@
           </svg>
           Transcript
         </div>
-        <span class="transcript-duration">12s</span>
+        <span class="transcript-duration">5s</span>
       </div>
-      <div class="transcript-text">"I need to pick up dry cleaning before six, oh and remind me about the DMV on Thursday, also I had this idea about an app that turns receipts into meal plans"</div>
+      <div class="transcript-text">"Remind me to call the dentist tomorrow morning"</div>
     </div>
 
-    <!-- Extracted items -->
+    <!-- Single extracted item -->
     <div class="items-header">
       <span class="items-label">Extracted</span>
-      <span class="items-count">3 items</span>
+      <span class="items-count">1 item</span>
     </div>
 
-    <!-- Item 1: Todo -->
     <div class="item-card cat-todo">
       <div class="item-top">
         <div class="item-content">
@@ -411,69 +393,9 @@
             <div class="item-cat-dot"></div>
             <span class="item-cat-text">Todo</span>
           </div>
-          <div class="item-summary">Pick up dry cleaning before 6pm</div>
+          <div class="item-summary">Call the dentist</div>
           <div class="item-meta">
-            Priority: High &middot; <span class="item-meta-accent">Due today</span>
-          </div>
-        </div>
-        <div class="item-actions">
-          <div class="item-action item-action-correct" title="Voice correction">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FBBF24" stroke-width="2" stroke-linecap="round">
-              <path d="M12 1a4 4 0 00-4 4v7a4 4 0 008 0V5a4 4 0 00-4-4z"/>
-              <path d="M19 10v2a7 7 0 01-14 0v-2"/>
-            </svg>
-          </div>
-          <div class="item-action item-action-discard" title="Discard">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round">
-              <line x1="18" y1="6" x2="6" y2="18"/>
-              <line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Item 2: Reminder -->
-    <div class="item-card cat-reminder">
-      <div class="item-top">
-        <div class="item-content">
-          <div class="item-category">
-            <div class="item-cat-dot"></div>
-            <span class="item-cat-text">Reminder</span>
-          </div>
-          <div class="item-summary">DMV appointment Thursday</div>
-          <div class="item-meta">
-            <span class="item-meta-accent">In 2 days</span>
-          </div>
-        </div>
-        <div class="item-actions">
-          <div class="item-action item-action-correct" title="Voice correction">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FBBF24" stroke-width="2" stroke-linecap="round">
-              <path d="M12 1a4 4 0 00-4 4v7a4 4 0 008 0V5a4 4 0 00-4-4z"/>
-              <path d="M19 10v2a7 7 0 01-14 0v-2"/>
-            </svg>
-          </div>
-          <div class="item-action item-action-discard" title="Discard">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round">
-              <line x1="18" y1="6" x2="6" y2="18"/>
-              <line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Item 3: Idea -->
-    <div class="item-card cat-idea">
-      <div class="item-top">
-        <div class="item-content">
-          <div class="item-category">
-            <div class="item-cat-dot"></div>
-            <span class="item-cat-text">Idea</span>
-          </div>
-          <div class="item-summary">App that turns grocery receipts into meal plans</div>
-          <div class="item-meta">
-            Scan receipt, get recipes for what you bought
+            <span class="item-meta-accent">Tomorrow morning</span>
           </div>
         </div>
         <div class="item-actions">
@@ -495,19 +417,18 @@
 
     <!-- Session cost -->
     <div class="session-cost">
-      <span class="session-cost-text">&#x2191; 247 in &middot; &#x2193; 312 out</span>
+      <span class="session-cost-text">&#x2191; 82 in &middot; &#x2193; 94 out</span>
     </div>
 
-    <!-- Accept all -->
+    <!-- Footer -->
     <div class="confirm-footer">
-      <div class="accept-all-btn">
+      <div class="accept-btn">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F5F5F7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="20 6 9 17 4 12"/>
         </svg>
-        <span class="accept-all-text">Accept all</span>
-        <span class="accept-all-count">(3)</span>
+        <span class="accept-btn-text">Accept</span>
       </div>
-      <div class="discard-all">Discard all</div>
+      <div class="discard-all">Discard</div>
     </div>
   </div>
 </div>
