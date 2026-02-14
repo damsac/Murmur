@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="murmur-base.css">
-<title>Murmur - Todo View</title>
+<title>Murmur - Swipe Actions</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -93,6 +93,7 @@
     background: #34D399;
     border-radius: 1px;
   }
+
   .nav-header {
     display: flex;
     align-items: center;
@@ -108,9 +109,7 @@
     cursor: pointer;
     border-radius: 10px;
   }
-  .back-button:hover {
-    background: rgba(255,255,255,0.05);
-  }
+  .back-button:hover { background: rgba(255,255,255,0.05); }
   .back-button svg {
     width: 22px;
     height: 22px;
@@ -125,6 +124,7 @@
     font-weight: 700;
     color: #F5F5F7;
   }
+
   .filter-chips {
     display: flex;
     gap: 8px;
@@ -136,7 +136,6 @@
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
   }
   .chip-active {
     background: #7C6FF7;
@@ -146,24 +145,21 @@
     background: #1A1A24;
     color: #8E8E9A;
   }
-  .chip-inactive:hover {
-    background: #252533;
-  }
+
   .todo-list {
-    padding: 12px 20px;
+    padding: 12px 0 12px 20px;
     overflow-y: auto;
     height: calc(100% - 54px - 52px - 54px);
   }
   .todo-list::-webkit-scrollbar { display: none; }
+
+  /* Normal todo item */
   .todo-item {
     display: flex;
     align-items: flex-start;
     gap: 14px;
-    padding: 16px 0;
+    padding: 16px 20px 16px 0;
     border-bottom: 1px solid rgba(255,255,255,0.04);
-    position: relative;
-  }
-  .todo-item:first-child {
     position: relative;
   }
   .checkbox {
@@ -174,39 +170,16 @@
     flex-shrink: 0;
     margin-top: 1px;
     cursor: pointer;
-    transition: all 0.2s;
     display: flex;
     align-items: center;
     justify-content: center;
   }
-  .checkbox:hover {
-    border-color: #7C6FF7;
-  }
-  .checkbox-checked {
-    background: #34D399;
-    border-color: #34D399;
-  }
-  .checkbox-checked svg {
-    width: 14px;
-    height: 14px;
-    stroke: #0A0A0F;
-    stroke-width: 3;
-    fill: none;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  .todo-content {
-    flex: 1;
-  }
+  .todo-content { flex: 1; }
   .todo-text {
     font-size: 16px;
     font-weight: 500;
     color: #F5F5F7;
     line-height: 1.4;
-  }
-  .todo-text-done {
-    text-decoration: line-through;
-    color: #5C5C6A;
   }
   .todo-meta {
     font-size: 13px;
@@ -217,33 +190,97 @@
     color: #FBBF24;
     font-weight: 500;
   }
-  .todo-meta-success {
-    color: #34D399;
+
+  /* Swiped item — shifted left to reveal actions */
+  .todo-item-swiped {
+    position: relative;
+    overflow: hidden;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
   }
-  .swipe-hint {
+  .swiped-content {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 16px 20px 16px 0;
+    transform: translateX(-180px);
+    transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+  }
+
+  /* Revealed action buttons */
+  .swipe-actions {
     position: absolute;
-    right: -4px;
+    right: 0;
+    top: 0;
+    bottom: 1px;
+    display: flex;
+    width: 180px;
+  }
+  .swipe-action {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .swipe-action:hover { opacity: 0.85; }
+  .swipe-action svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .swipe-action span {
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .action-complete {
+    background: #34D399;
+  }
+  .action-complete svg { stroke: #0A0A0F; }
+  .action-complete span { color: #0A0A0F; }
+  .action-snooze {
+    background: #FBBF24;
+  }
+  .action-snooze svg { stroke: #0A0A0F; }
+  .action-snooze span { color: #0A0A0F; }
+  .action-delete {
+    background: #EF4444;
+  }
+  .action-delete svg { stroke: #F5F5F7; }
+  .action-delete span { color: #F5F5F7; }
+
+  /* Annotation */
+  .swipe-hint-label {
+    position: absolute;
+    right: 20px;
     top: 50%;
     transform: translateY(-50%);
     display: flex;
     align-items: center;
-    gap: 4px;
-    opacity: 0;
-    animation: swipeHint 3s ease-in-out infinite 2s;
+    gap: 6px;
+    font-size: 11px;
+    color: #5C5C6A;
+    pointer-events: none;
   }
-  @keyframes swipeHint {
-    0%, 100% { opacity: 0; transform: translateY(-50%) translateX(0); }
-    20% { opacity: 0.5; transform: translateY(-50%) translateX(-8px); }
-    40% { opacity: 0; transform: translateY(-50%) translateX(0); }
-  }
-  .swipe-hint svg {
-    width: 16px;
-    height: 16px;
-    stroke: #5C5C6A;
+  .swipe-hint-label svg {
+    width: 14px;
+    height: 14px;
     fill: none;
+    stroke: #5C5C6A;
     stroke-width: 2;
     stroke-linecap: round;
+    animation: swipeArrow 2s ease-in-out infinite;
   }
+  @keyframes swipeArrow {
+    0%, 100% { transform: translateX(0); opacity: 0.5; }
+    50% { transform: translateX(-6px); opacity: 1; }
+  }
+
   .section-divider {
     font-size: 12px;
     font-weight: 600;
@@ -269,9 +306,7 @@
 
   <div class="nav-header">
     <div class="back-button">
-      <svg viewBox="0 0 24 24">
-        <polyline points="15 18 9 12 15 6"/>
-      </svg>
+      <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
     </div>
     <div class="nav-title">Todo</div>
   </div>
@@ -283,28 +318,51 @@
   </div>
 
   <div class="todo-list">
-    <!-- Active Items -->
+    <!-- Normal item with swipe hint -->
     <div class="todo-item">
       <div class="checkbox"></div>
       <div class="todo-content">
         <div class="todo-text">Pick up dry cleaning</div>
         <div class="todo-meta">2 hours ago</div>
       </div>
-      <div class="swipe-hint">
-        <svg viewBox="0 0 24 24">
-          <polyline points="15 18 9 12 15 6"/>
-        </svg>
+      <div class="swipe-hint-label">
+        <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+        swipe
       </div>
     </div>
 
-    <div class="todo-item">
-      <div class="checkbox"></div>
-      <div class="todo-content">
-        <div class="todo-text">DMV appointment</div>
-        <div class="todo-meta todo-meta-warning">Due Thursday</div>
+    <!-- SWIPED ITEM — actions revealed -->
+    <div class="todo-item-swiped">
+      <div class="swiped-content">
+        <div class="checkbox"></div>
+        <div class="todo-content">
+          <div class="todo-text">DMV appointment</div>
+          <div class="todo-meta todo-meta-warning">Due Thursday</div>
+        </div>
+      </div>
+      <div class="swipe-actions">
+        <div class="swipe-action action-complete">
+          <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+          <span>Done</span>
+        </div>
+        <div class="swipe-action action-snooze">
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
+          <span>Snooze</span>
+        </div>
+        <div class="swipe-action action-delete">
+          <svg viewBox="0 0 24 24">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+          </svg>
+          <span>Delete</span>
+        </div>
       </div>
     </div>
 
+    <!-- Normal items -->
     <div class="todo-item">
       <div class="checkbox"></div>
       <div class="todo-content">
@@ -313,30 +371,25 @@
       </div>
     </div>
 
-    <!-- Completed Section -->
-    <div class="section-divider">Completed</div>
-
     <div class="todo-item">
-      <div class="checkbox checkbox-checked">
-        <svg viewBox="0 0 24 24">
-          <polyline points="20 6 9 17 4 12"/>
-        </svg>
-      </div>
+      <div class="checkbox"></div>
       <div class="todo-content">
-        <div class="todo-text todo-text-done">Buy groceries</div>
-        <div class="todo-meta todo-meta-success">Completed yesterday</div>
+        <div class="todo-text">Call the dentist</div>
+        <div class="todo-meta todo-meta-warning">Tomorrow morning</div>
       </div>
     </div>
 
+    <div class="section-divider">Completed</div>
+
     <div class="todo-item">
-      <div class="checkbox checkbox-checked">
-        <svg viewBox="0 0 24 24">
+      <div class="checkbox" style="background:#34D399;border-color:#34D399;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0A0A0F" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="20 6 9 17 4 12"/>
         </svg>
       </div>
       <div class="todo-content">
-        <div class="todo-text todo-text-done">Send invoice to client</div>
-        <div class="todo-meta todo-meta-success">Completed 2 days ago</div>
+        <div class="todo-text" style="text-decoration:line-through;color:#5C5C6A;">Buy groceries</div>
+        <div class="todo-meta" style="color:#34D399;">Completed yesterday</div>
       </div>
     </div>
   </div>

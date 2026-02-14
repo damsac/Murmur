@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="murmur-base.css">
-<title>Murmur - Confirm: Session Credits</title>
+<title>Murmur - Text Confirm</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -108,7 +108,6 @@
   }
   .confirm-screen::-webkit-scrollbar { display: none; }
 
-  /* Header */
   .confirm-header {
     padding: 16px 0 0;
   }
@@ -124,21 +123,21 @@
     margin-top: 4px;
   }
 
-  /* Original transcript */
-  .transcript-section {
+  /* Original text (instead of transcript) */
+  .original-section {
     margin-top: 16px;
     background: rgba(255,255,255,0.03);
     border: 1px solid rgba(255,255,255,0.05);
     border-radius: 14px;
     padding: 14px 16px;
   }
-  .transcript-header {
+  .original-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     margin-bottom: 8px;
   }
-  .transcript-label {
+  .original-label {
     display: flex;
     align-items: center;
     gap: 6px;
@@ -148,15 +147,20 @@
     text-transform: uppercase;
     letter-spacing: 0.6px;
   }
-  .transcript-duration {
-    font-size: 11px;
-    color: #3A3A48;
+  .original-badge {
+    font-size: 10px;
+    font-weight: 600;
+    color: #7C6FF7;
+    background: rgba(124,111,247,0.1);
+    padding: 2px 8px;
+    border-radius: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
   }
-  .transcript-text {
+  .original-text {
     font-size: 14px;
     color: #8E8E9A;
     line-height: 1.5;
-    font-style: italic;
   }
 
   /* Items section */
@@ -192,7 +196,6 @@
   }
   .item-card:nth-child(1) { animation-delay: 0.05s; }
   .item-card:nth-child(2) { animation-delay: 0.12s; }
-  .item-card:nth-child(3) { animation-delay: 0.19s; }
   @keyframes itemAppear {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
@@ -242,9 +245,6 @@
   .cat-reminder .item-category { background: rgba(251,191,36,0.08); }
   .cat-reminder .item-cat-dot { background: #FBBF24; }
   .cat-reminder .item-cat-text { color: #FBBF24; }
-  .cat-idea .item-category { background: rgba(251,191,36,0.08); }
-  .cat-idea .item-cat-dot { background: #FBBF24; }
-  .cat-idea .item-cat-text { color: #FBBF24; }
 
   .item-summary {
     font-size: 16px;
@@ -252,7 +252,6 @@
     color: #F5F5F7;
     line-height: 1.35;
   }
-
   .item-meta {
     display: flex;
     align-items: center;
@@ -283,13 +282,13 @@
     cursor: pointer;
     transition: all 0.2s;
   }
-  .item-action-correct {
-    background: rgba(251,191,36,0.08);
-    border: 1px solid rgba(251,191,36,0.12);
+  .item-action-edit {
+    background: rgba(124,111,247,0.08);
+    border: 1px solid rgba(124,111,247,0.12);
   }
-  .item-action-correct:hover {
-    background: rgba(251,191,36,0.15);
-    border-color: rgba(251,191,36,0.25);
+  .item-action-edit:hover {
+    background: rgba(124,111,247,0.15);
+    border-color: rgba(124,111,247,0.25);
   }
   .item-action-discard {
     background: rgba(239,68,68,0.06);
@@ -313,7 +312,7 @@
     letter-spacing: 0.1px;
   }
 
-  /* Bottom actions */
+  /* Footer */
   .confirm-footer {
     position: sticky;
     bottom: 0;
@@ -321,7 +320,6 @@
     background: linear-gradient(transparent, #0A0A0F 20%);
     margin-top: auto;
   }
-
   .accept-all-btn {
     display: flex;
     align-items: center;
@@ -349,7 +347,6 @@
     color: rgba(245,245,247,0.6);
     margin-left: 4px;
   }
-
   .discard-all {
     text-align: center;
     margin-top: 12px;
@@ -367,7 +364,7 @@
 <div class="phone-frame">
   <div class="dynamic-island"></div>
   <div class="status-bar">
-    <div class="status-bar-left">8:15</div>
+    <div class="status-bar-left">9:41</div>
     <div class="status-bar-right">
       <div class="signal-bars">
         <span></span><span></span><span></span><span></span>
@@ -379,28 +376,28 @@
   <div class="confirm-screen">
     <div class="confirm-header">
       <div class="confirm-title">Review</div>
-      <div class="confirm-subtitle">Here's what I heard</div>
+      <div class="confirm-subtitle">Here's what I found</div>
     </div>
 
-    <!-- Original transcript -->
-    <div class="transcript-section">
-      <div class="transcript-header">
-        <div class="transcript-label">
+    <!-- Original typed text -->
+    <div class="original-section">
+      <div class="original-header">
+        <div class="original-label">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-            <path d="M12 1a4 4 0 00-4 4v7a4 4 0 008 0V5a4 4 0 00-4-4z"/>
-            <path d="M19 10v2a7 7 0 01-14 0v-2"/>
+            <rect x="2" y="4" width="20" height="16" rx="2"/>
+            <path d="M7 16h10"/>
           </svg>
-          Transcript
+          Original
         </div>
-        <span class="transcript-duration">12s</span>
+        <span class="original-badge">Typed</span>
       </div>
-      <div class="transcript-text">"I need to pick up dry cleaning before six, oh and remind me about the DMV on Thursday, also I had this idea about an app that turns receipts into meal plans"</div>
+      <div class="original-text">Pick up dry cleaning before 6, remind me about DMV Thursday</div>
     </div>
 
     <!-- Extracted items -->
     <div class="items-header">
       <span class="items-label">Extracted</span>
-      <span class="items-count">3 items</span>
+      <span class="items-count">2 items</span>
     </div>
 
     <!-- Item 1: Todo -->
@@ -417,10 +414,10 @@
           </div>
         </div>
         <div class="item-actions">
-          <div class="item-action item-action-correct" title="Voice correction">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FBBF24" stroke-width="2" stroke-linecap="round">
-              <path d="M12 1a4 4 0 00-4 4v7a4 4 0 008 0V5a4 4 0 00-4-4z"/>
-              <path d="M19 10v2a7 7 0 01-14 0v-2"/>
+          <div class="item-action item-action-edit" title="Edit">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7C6FF7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
             </svg>
           </div>
           <div class="item-action item-action-discard" title="Discard">
@@ -447,40 +444,10 @@
           </div>
         </div>
         <div class="item-actions">
-          <div class="item-action item-action-correct" title="Voice correction">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FBBF24" stroke-width="2" stroke-linecap="round">
-              <path d="M12 1a4 4 0 00-4 4v7a4 4 0 008 0V5a4 4 0 00-4-4z"/>
-              <path d="M19 10v2a7 7 0 01-14 0v-2"/>
-            </svg>
-          </div>
-          <div class="item-action item-action-discard" title="Discard">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round">
-              <line x1="18" y1="6" x2="6" y2="18"/>
-              <line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Item 3: Idea -->
-    <div class="item-card cat-idea">
-      <div class="item-top">
-        <div class="item-content">
-          <div class="item-category">
-            <div class="item-cat-dot"></div>
-            <span class="item-cat-text">Idea</span>
-          </div>
-          <div class="item-summary">App that turns grocery receipts into meal plans</div>
-          <div class="item-meta">
-            Scan receipt, get recipes for what you bought
-          </div>
-        </div>
-        <div class="item-actions">
-          <div class="item-action item-action-correct" title="Voice correction">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FBBF24" stroke-width="2" stroke-linecap="round">
-              <path d="M12 1a4 4 0 00-4 4v7a4 4 0 008 0V5a4 4 0 00-4-4z"/>
-              <path d="M19 10v2a7 7 0 01-14 0v-2"/>
+          <div class="item-action item-action-edit" title="Edit">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7C6FF7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
             </svg>
           </div>
           <div class="item-action item-action-discard" title="Discard">
@@ -495,17 +462,17 @@
 
     <!-- Session cost -->
     <div class="session-cost">
-      <span class="session-cost-text">&#x2191; 247 in &middot; &#x2193; 312 out</span>
+      <span class="session-cost-text">&#x2191; 68 in &middot; &#x2193; 186 out</span>
     </div>
 
-    <!-- Accept all -->
+    <!-- Footer -->
     <div class="confirm-footer">
       <div class="accept-all-btn">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F5F5F7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="20 6 9 17 4 12"/>
         </svg>
         <span class="accept-all-text">Accept all</span>
-        <span class="accept-all-count">(3)</span>
+        <span class="accept-all-count">(2)</span>
       </div>
       <div class="discard-all">Discard all</div>
     </div>

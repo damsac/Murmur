@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="murmur-base.css">
-<title>Murmur - Level 1 Sparse Home</title>
+<title>Murmur - Saved Success</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -35,8 +35,6 @@
     transform: translateX(-50%);
     z-index: 100;
   }
-
-  /* Status bar */
   .status-bar {
     display: flex;
     justify-content: space-between;
@@ -96,7 +94,7 @@
     border-radius: 1px;
   }
 
-  /* App header row */
+  /* App header */
   .app-header {
     display: flex;
     align-items: center;
@@ -115,7 +113,6 @@
     font-weight: 500;
   }
 
-  /* Greeting */
   .greeting {
     padding: 16px 24px 0;
     font-size: 16px;
@@ -123,7 +120,7 @@
     font-weight: 400;
   }
 
-  /* Scrollable content */
+  /* Content */
   .screen-content {
     padding: 24px 24px 0;
     height: calc(100% - 54px - 48px - 40px);
@@ -157,7 +154,33 @@
     background: linear-gradient(90deg, transparent, rgba(124,111,247,0.15), transparent);
   }
 
-  /* Card inner layout */
+  /* New item highlight */
+  .card-new {
+    animation: cardGlow 2s ease-out forwards;
+  }
+  @keyframes cardGlow {
+    0% {
+      box-shadow: 0 0 0 2px rgba(52,211,153,0.4), 0 0 20px rgba(52,211,153,0.15);
+    }
+    100% {
+      box-shadow: 0 0 0 0px rgba(52,211,153,0), 0 0 0px rgba(52,211,153,0);
+    }
+  }
+  .card-new::before {
+    background: linear-gradient(90deg, transparent, rgba(52,211,153,0.2), transparent);
+  }
+  .new-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #34D399;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+
   .card-top-row {
     display: flex;
     align-items: center;
@@ -193,12 +216,61 @@
   .card-meta.yellow { color: #FBBF24; }
   .card-meta.muted { color: #5C5C6A; }
 
-  /* Reminder card with yellow left border */
   .card-reminder {
     border-left: 3px solid #FBBF24;
   }
   .card-reminder::before {
     background: linear-gradient(90deg, transparent, rgba(251,191,36,0.12), transparent);
+  }
+
+  /* Toast notification */
+  .toast {
+    position: absolute;
+    top: 70px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 22px;
+    background: rgba(26,26,36,0.95);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(52,211,153,0.2);
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    z-index: 200;
+    animation: toastIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  @keyframes toastIn {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(-10px) scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0) scale(1);
+    }
+  }
+  .toast-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: rgba(52,211,153,0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .toast-text {
+    font-size: 15px;
+    font-weight: 600;
+    color: #F5F5F7;
+  }
+  .toast-count {
+    font-size: 13px;
+    color: #5C5C6A;
+    font-weight: 400;
   }
 
   /* Input bar */
@@ -269,8 +341,6 @@
 <body>
 <div class="phone-frame">
   <div class="dynamic-island"></div>
-
-  <!-- Status Bar -->
   <div class="status-bar">
     <div class="status-bar-left">9:41</div>
     <div class="status-bar-right">
@@ -281,21 +351,37 @@
     </div>
   </div>
 
-  <!-- App Header Row -->
-  <div class="app-header">
-    <div class="header-center">Murmur</div>
-    <div class="header-right">4,953 tokens</div>
+  <!-- Toast -->
+  <div class="toast">
+    <div class="toast-icon">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34D399" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+    </div>
+    <div>
+      <div class="toast-text">Saved</div>
+      <div class="toast-count">3 items added</div>
+    </div>
   </div>
 
-  <!-- Greeting -->
+  <div class="app-header">
+    <div class="header-center">Murmur</div>
+    <div class="header-right">4,641 tokens</div>
+  </div>
+
   <div class="greeting">Good morning</div>
 
-  <!-- Scrollable Content -->
   <div class="screen-content">
     <div class="cards-container">
 
-      <!-- Card 1: Todo -->
-      <div class="card">
+      <!-- Newly added cards with glow -->
+      <div class="card card-new">
+        <div class="new-badge">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#34D399" stroke-width="3" stroke-linecap="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          Just added
+        </div>
         <div class="card-top-row">
           <div class="category-dot purple"></div>
           <span class="card-category">Todo</span>
@@ -304,8 +390,13 @@
         <div class="card-meta yellow">Due today</div>
       </div>
 
-      <!-- Card 2: Reminder -->
-      <div class="card card-reminder">
+      <div class="card card-new" style="animation-delay: 0.15s;">
+        <div class="new-badge">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#34D399" stroke-width="3" stroke-linecap="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          Just added
+        </div>
         <div class="card-top-row">
           <div class="category-dot yellow"></div>
           <span class="card-category">Reminder</span>
@@ -314,20 +405,25 @@
         <div class="card-meta yellow">In 2 days</div>
       </div>
 
-      <!-- Card 3: Idea -->
-      <div class="card">
+      <div class="card card-new" style="animation-delay: 0.3s;">
+        <div class="new-badge">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#34D399" stroke-width="3" stroke-linecap="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          Just added
+        </div>
         <div class="card-top-row">
           <div class="category-dot yellow"></div>
           <span class="card-category">Idea</span>
         </div>
         <div class="card-text">App that turns grocery receipts into meal plans</div>
-        <div class="card-meta muted">Feb 8</div>
+        <div class="card-meta muted">Just now</div>
       </div>
 
     </div>
   </div>
 
-  <!-- Input bar: type or speak -->
+  <!-- Input bar -->
   <div class="input-bar">
     <div class="text-input">
       <svg viewBox="0 0 24 24">

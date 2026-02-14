@@ -128,6 +128,7 @@
   .num-system { background: rgba(142,142,154,0.08); color: #5C5C6A; }
   .num-credit { background: rgba(251,191,36,0.12); color: #FBBF24; }
   .num-new { background: rgba(124,111,247,0.2); color: #7C6FF7; }
+  .num-error { background: rgba(239,68,68,0.12); color: #EF4444; }
 
   .nav-text {
     flex: 1;
@@ -226,7 +227,7 @@
 <div class="sidebar">
   <div class="sidebar-header">
     <h1>Murmur</h1>
-    <p>UI Mockups &middot; V1 UX Revision &middot; 22 screens</p>
+    <p>UI Mockups &middot; V1 UX Revision &middot; 39 screens</p>
   </div>
 
   <!-- Level 0: The Void — Always Present -->
@@ -254,8 +255,8 @@
       </div>
     </a>
     <div class="flow-arrow">&#8595;</div>
-    <a class="nav-link" data-src="03-voice-capture.html">
-      <div class="nav-number num-capture">S3</div>
+    <a class="nav-link" data-src="22-processing.html">
+      <div class="nav-number num-new">S3</div>
       <div class="nav-text">
         <div class="nav-title">Processing</div>
         <div class="nav-subtitle">Thinking... items materialize</div>
@@ -433,9 +434,179 @@
 
   <div class="flow-divider"></div>
 
+  <!-- Text Input Flow -->
+  <div class="flow-section">
+    <div class="flow-label">Text Input Flow <span class="level-badge level-0">L0+</span></div>
+    <a class="nav-link" data-src="30-text-processing.html">
+      <div class="nav-number num-new">30</div>
+      <div class="nav-text">
+        <div class="nav-title">Text Processing</div>
+        <div class="nav-subtitle">Typed input → thinking</div>
+      </div>
+    </a>
+    <div class="flow-arrow">&#8595;</div>
+    <a class="nav-link" data-src="31-text-confirm.html">
+      <div class="nav-number num-confirm">31</div>
+      <div class="nav-text">
+        <div class="nav-title">Text Confirm</div>
+        <div class="nav-subtitle">Review typed extraction</div>
+      </div>
+    </a>
+  </div>
+
+  <div class="flow-divider"></div>
+
+  <!-- Onboarding -->
+  <div class="flow-section">
+    <div class="flow-label">Onboarding <span class="level-badge level-0">L0</span></div>
+    <a class="nav-link" data-src="32-onboarding-welcome.html">
+      <div class="nav-number num-new">32</div>
+      <div class="nav-text">
+        <div class="nav-title">Welcome</div>
+        <div class="nav-subtitle">First launch brand screen</div>
+      </div>
+    </a>
+    <div class="flow-arrow">&#8595;</div>
+    <a class="nav-link" data-src="33-onboarding-mic-prompt.html">
+      <div class="nav-number num-new">33</div>
+      <div class="nav-text">
+        <div class="nav-title">Mic Permission</div>
+        <div class="nav-subtitle">Allow mic or skip to typing</div>
+      </div>
+    </a>
+  </div>
+
+  <div class="flow-divider"></div>
+
+  <!-- Interaction States -->
+  <div class="flow-section">
+    <div class="flow-label">Interaction States <span class="level-badge level-1">L1+</span></div>
+    <a class="nav-link" data-src="34-keyboard-open.html">
+      <div class="nav-number num-new">34</div>
+      <div class="nav-text">
+        <div class="nav-title">Keyboard Open</div>
+        <div class="nav-subtitle">Active text input + iOS keyboard</div>
+      </div>
+    </a>
+    <a class="nav-link" data-src="35-success-saved.html">
+      <div class="nav-number num-confirm">35</div>
+      <div class="nav-text">
+        <div class="nav-title">Success / Saved</div>
+        <div class="nav-subtitle">Toast + new items highlighted</div>
+      </div>
+    </a>
+    <a class="nav-link" data-src="36-swipe-actions.html">
+      <div class="nav-number num-views">36</div>
+      <div class="nav-text">
+        <div class="nav-title">Swipe Actions</div>
+        <div class="nav-subtitle">Done / Snooze / Delete revealed</div>
+      </div>
+    </a>
+  </div>
+
+  <div class="flow-divider"></div>
+
+  <!-- Empty States -->
+  <div class="flow-section">
+    <div class="flow-label">Empty States <span class="level-badge level-1">L1+</span></div>
+    <a class="nav-link" data-src="26-empty-todo-view.html">
+      <div class="nav-number num-views">26</div>
+      <div class="nav-text">
+        <div class="nav-title">Empty: Todo</div>
+        <div class="nav-subtitle">All clear state</div>
+      </div>
+    </a>
+    <a class="nav-link" data-src="37-empty-ideas.html">
+      <div class="nav-number num-views">37</div>
+      <div class="nav-text">
+        <div class="nav-title">Empty: Ideas</div>
+        <div class="nav-subtitle">No ideas yet</div>
+      </div>
+    </a>
+    <a class="nav-link" data-src="38-empty-reminders.html">
+      <div class="nav-number num-views">38</div>
+      <div class="nav-text">
+        <div class="nav-title">Empty: Reminders</div>
+        <div class="nav-subtitle">No reminders</div>
+      </div>
+    </a>
+    <a class="nav-link" data-src="39-empty-home.html">
+      <div class="nav-number num-home">39</div>
+      <div class="nav-text">
+        <div class="nav-title">Empty: Home</div>
+        <div class="nav-subtitle">Nothing captured yet</div>
+      </div>
+    </a>
+  </div>
+
+  <div class="flow-divider"></div>
+
+  <!-- Edge Cases -->
+  <div class="flow-section">
+    <div class="flow-label">Edge Cases <span class="level-badge level-0">L0+</span></div>
+    <a class="nav-link" data-src="23-out-of-credits.html">
+      <div class="nav-number num-error">23</div>
+      <div class="nav-text">
+        <div class="nav-title">Out of Credits</div>
+        <div class="nav-subtitle">Zero balance, raw transcript</div>
+      </div>
+    </a>
+    <a class="nav-link" data-src="24-error-mic-denied.html">
+      <div class="nav-number num-error">24</div>
+      <div class="nav-text">
+        <div class="nav-title">Mic Denied</div>
+        <div class="nav-subtitle">Permission error state</div>
+      </div>
+    </a>
+    <a class="nav-link" data-src="25-error-api.html">
+      <div class="nav-number num-error">25</div>
+      <div class="nav-text">
+        <div class="nav-title">API Error</div>
+        <div class="nav-subtitle">Processing failed, retry</div>
+      </div>
+    </a>
+    <a class="nav-link" data-src="26-empty-todo-view.html">
+      <div class="nav-number num-views">26</div>
+      <div class="nav-text">
+        <div class="nav-title">Empty Todo View</div>
+        <div class="nav-subtitle">All clear state</div>
+      </div>
+    </a>
+    <a class="nav-link" data-src="27-confirm-single-item.html">
+      <div class="nav-number num-confirm">27</div>
+      <div class="nav-text">
+        <div class="nav-title">Confirm: Single Item</div>
+        <div class="nav-subtitle">1 item extracted</div>
+      </div>
+    </a>
+    <a class="nav-link" data-src="28-delete-confirm.html">
+      <div class="nav-number num-error">28</div>
+      <div class="nav-text">
+        <div class="nav-title">Delete Confirmation</div>
+        <div class="nav-subtitle">Destructive action dialog</div>
+      </div>
+    </a>
+    <a class="nav-link" data-src="29-low-tokens.html">
+      <div class="nav-number num-credit">29</div>
+      <div class="nav-text">
+        <div class="nav-title">Low Tokens Warning</div>
+        <div class="nav-subtitle">Amber balance + banner</div>
+      </div>
+    </a>
+  </div>
+
+  <div class="flow-divider"></div>
+
   <!-- Legacy / Deferred -->
   <div class="flow-section" style="padding-bottom: 24px;">
     <div class="flow-label">Legacy / Deferred</div>
+    <a class="nav-link" data-src="03-voice-capture.html">
+      <div class="nav-number num-system">03</div>
+      <div class="nav-text">
+        <div class="nav-title">Voice Capture (legacy)</div>
+        <div class="nav-subtitle">Replaced by 22-processing</div>
+      </div>
+    </a>
     <a class="nav-link" data-src="02-home-empty.html">
       <div class="nav-number num-system">02</div>
       <div class="nav-text">
