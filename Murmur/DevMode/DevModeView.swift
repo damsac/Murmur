@@ -39,7 +39,7 @@ struct DevModeView: View {
                                 }
                             }
 
-                            if let overrideLevel = appState.devOverrideLevel {
+                            if appState.devOverrideLevel != nil {
                                 HStack(spacing: 6) {
                                     Image(systemName: "info.circle.fill")
                                         .font(.system(size: 12))

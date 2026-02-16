@@ -1,10 +1,13 @@
 .DEFAULT_GOAL := help
 SCHEME := Murmur
+SIM_NAME := iPhone 17 Pro
+DESTINATION := platform=iOS Simulator,name=$(SIM_NAME),OS=latest
+BUNDLE_ID := $(shell grep 'PRODUCT_BUNDLE_IDENTIFIER_MURMUR:' project.local.yml 2>/dev/null | awk '{print $$2}')
 # Read APP_GROUP_IDENTIFIER from project.local.yml (required)
 APP_GROUP := $(shell grep 'APP_GROUP_IDENTIFIER:' project.local.yml 2>/dev/null | awk '{print $$2}')
 ENTITLEMENTS := Murmur/Murmur.entitlements
 
-.PHONY: generate build test lint clean help
+.PHONY: generate build test run lint clean setup help
 
 generate: ## Generate Xcode project and validate entitlements
 	@if [ ! -f project.local.yml ]; then \
@@ -18,30 +21,38 @@ generate: ## Generate Xcode project and validate entitlements
 		exit 1; \
 	fi
 	xcodegen generate
-	@if ! grep -q 'APP_GROUP_IDENTIFIER' "$(ENTITLEMENTS)" 2>/dev/null; then \
-		echo "ERROR: $(ENTITLEMENTS) missing App Group entitlement" >&2; \
+	@if ! grep -q '$(APP_GROUP)' "$(ENTITLEMENTS)" 2>/dev/null; then \
+		echo "ERROR: $(ENTITLEMENTS) missing App Group identifier '$(APP_GROUP)'" >&2; \
 		echo "Check project.yml entitlements.properties." >&2; \
 		exit 1; \
 	fi
 	@echo "Project generated — entitlements validated."
 
-build: generate ## Build for simulator (no code signing required)
+build: generate ## Build for simulator
 	set -o pipefail && xcodebuild \
 		-scheme $(SCHEME) \
-		-destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=latest' \
-		-configuration Debug \
-		CODE_SIGN_IDENTITY=- \
-		CODE_SIGNING_REQUIRED=NO \
+		-destination '$(DESTINATION)' \
 		build 2>&1 | xcbeautify
 
 test: generate ## Run unit tests on simulator
 	set -o pipefail && xcodebuild \
 		-scheme $(SCHEME) \
-		-destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=latest' \
-		-configuration Debug \
-		CODE_SIGN_IDENTITY=- \
-		CODE_SIGNING_REQUIRED=NO \
+		-destination '$(DESTINATION)' \
 		test 2>&1 | xcbeautify
+
+run: build ## Build, install, and launch on simulator
+	@SIM_ID=$$(xcrun simctl list devices available | grep '$(SIM_NAME) (' | head -1 | grep -oE '[0-9A-F-]{36}') && \
+	if [ -z "$$SIM_ID" ]; then \
+		echo "ERROR: Simulator '$(SIM_NAME)' not found" >&2; \
+		exit 1; \
+	fi && \
+	xcrun simctl boot "$$SIM_ID" 2>/dev/null || true && \
+	open -a Simulator && \
+	APP_PATH=$$(xcodebuild -scheme $(SCHEME) -destination '$(DESTINATION)' -showBuildSettings 2>/dev/null \
+		| grep ' BUILT_PRODUCTS_DIR' | awk '{print $$3}') && \
+	xcrun simctl install "$$SIM_ID" "$$APP_PATH/$(SCHEME).app" && \
+	xcrun simctl launch "$$SIM_ID" "$(BUNDLE_ID)" && \
+	echo "Murmur running on $(SIM_NAME)."
 
 lint: ## Lint Swift sources
 	swiftlint lint Murmur/
@@ -49,6 +60,17 @@ lint: ## Lint Swift sources
 clean: ## Remove build artifacts
 	xcodebuild clean -scheme $(SCHEME) 2>/dev/null || true
 	rm -rf build/ DerivedData/
+
+setup: ## Configure git hooks and check tool availability
+	@echo "Checking dev tools..."
+	@command -v xcodegen >/dev/null 2>&1 || { echo "ERROR: xcodegen not found — enter the dev shell (direnv allow)" >&2; exit 1; }
+	@command -v swiftlint >/dev/null 2>&1 || { echo "ERROR: swiftlint not found — enter the dev shell (direnv allow)" >&2; exit 1; }
+	@command -v xcbeautify >/dev/null 2>&1 || { echo "ERROR: xcbeautify not found — enter the dev shell (direnv allow)" >&2; exit 1; }
+	@echo "All dev tools available."
+	@if [ -d .git ]; then \
+		echo "Git hooks are managed by the Nix dev shell (shellHook)."; \
+		echo "Run 'direnv allow' or 'nix develop' to install them."; \
+	fi
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
