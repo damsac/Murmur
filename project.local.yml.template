@@ -1,0 +1,14 @@
+# Copy to project.local.yml and fill in your values.
+# project.local.yml is gitignored — per-developer settings only.
+
+settings:
+  base:
+    # REQUIRED: Your Apple Development Team ID
+    DEVELOPMENT_TEAM: YOUR_TEAM_ID_HERE  # Xcode > Settings > Accounts > Team ID
+
+    # REQUIRED: Bundle identifiers (customize for your developer account)
+    PRODUCT_BUNDLE_IDENTIFIER_MURMUR: com.damsac.murmur
+    PRODUCT_BUNDLE_IDENTIFIER_TESTS: com.damsac.murmur.tests
+
+    # REQUIRED: App Group identifier for shared data
+    APP_GROUP_IDENTIFIER: group.com.damsac.murmur.shared
