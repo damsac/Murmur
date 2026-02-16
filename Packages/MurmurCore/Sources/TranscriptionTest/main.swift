@@ -136,7 +136,9 @@ func confirmAndSave(pipeline: Pipeline, entries: [Entry], lastListed: inout [Ent
         print("Extracted \(entries.count) entries:\n")
         for (i, entry) in entries.enumerated() {
             let pri = entry.priority.map { "P\($0)" } ?? "--"
-            let due = entry.dueDate.map { formatShortDate($0) } ?? "--"
+            let due = entry.dueDate.map { formatShortDate($0) }
+                ?? entry.dueDateDescription
+                ?? "--"
             print("  \(i + 1). [\(entry.category.displayName)] \(entry.summary.isEmpty ? entry.content : entry.summary)")
             print("     Priority: \(pri)  Due: \(due)")
         }
@@ -502,7 +504,9 @@ func printEntryTable(_ entries: [Entry]) {
 
     for (i, entry) in entries.enumerated() {
         let pri = entry.priority.map { "P\($0)" } ?? "--"
-        let due = entry.dueDate.map { formatShortDate($0) } ?? "--"
+        let due = entry.dueDate.map { formatShortDate($0) }
+            ?? entry.dueDateDescription
+            ?? "--"
         let content = entry.summary.isEmpty ? entry.content : entry.summary
         let truncated = content.count > 34 ? String(content.prefix(31)) + "..." : content
         print("\(pad("\(i + 1)", 4))  \(pad(entry.status.rawValue, 10, left: true))  \(pad(entry.category.rawValue, 10, left: true))  \(pad(pri, 3))  \(pad(truncated, 34, left: true))  \(due)")
