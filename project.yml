@@ -16,6 +16,10 @@ settings:
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_IDENTITY: "Apple Development"
 
+packages:
+  MurmurCore:
+    path: Packages/MurmurCore
+
 targets:
   Murmur:
     type: application
@@ -24,6 +28,8 @@ targets:
       - path: Murmur
         excludes:
           - "**/.DS_Store"
+    dependencies:
+      - package: MurmurCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(PRODUCT_BUNDLE_IDENTIFIER_MURMUR)

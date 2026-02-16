@@ -7,6 +7,9 @@ DerivedData/
 *.ipa
 *.dSYM
 *.dSYM.zip
+Packages/MurmurCore/.build/
+Packages/MurmurCore/.swiftpm/
+Packages/MurmurCore/ScenarioResults/*.md
 
 # User state
 *.xcuserstate

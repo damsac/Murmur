@@ -7,7 +7,12 @@ BUNDLE_ID := $(shell grep 'PRODUCT_BUNDLE_IDENTIFIER_MURMUR:' project.local.yml 
 APP_GROUP := $(shell grep 'APP_GROUP_IDENTIFIER:' project.local.yml 2>/dev/null | awk '{print $$2}')
 ENTITLEMENTS := Murmur/Murmur.entitlements
 
+# MurmurCore local package (uses swift-clean to bypass Nix SDK)
+CORE_DIR := Packages/MurmurCore
+SWIFT_CLEAN := $(CORE_DIR)/swift-clean
+
 .PHONY: generate build test run lint clean setup help
+.PHONY: core-build core-test core-repl core-scenarios core-clean
 
 generate: ## Generate Xcode project and validate entitlements
 	@if [ ! -f project.local.yml ]; then \
@@ -72,6 +77,23 @@ setup: ## Configure git hooks and check tool availability
 		echo "Run 'direnv allow' or 'nix develop' to install them."; \
 	fi
 
+## ── MurmurCore package ──────────────────────────────
+
+core-build: ## Build MurmurCore package
+	cd $(CORE_DIR) && $(CURDIR)/$(SWIFT_CLEAN) build
+
+core-test: ## Run MurmurCore unit tests
+	cd $(CORE_DIR) && $(CURDIR)/$(SWIFT_CLEAN) test
+
+core-repl: core-build ## Run interactive REPL (record, text, list, etc.)
+	$(CORE_DIR)/.build/debug/TranscriptionTest
+
+core-scenarios: core-build ## Run LLM scenario tests (needs PPQ_API_KEY)
+	cd $(CORE_DIR) && .build/debug/ScenarioRunner
+
+core-clean: ## Clean MurmurCore build artifacts
+	cd $(CORE_DIR) && $(CURDIR)/$(SWIFT_CLEAN) package clean
+
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
