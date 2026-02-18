@@ -7,7 +7,7 @@
   };
 
   outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachSystem [ "aarch64-darwin" "x86_64-linux" ] (system:
+    flake-utils.lib.eachSystem [ "aarch64-darwin" ] (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
         isDarwin = pkgs.stdenv.isDarwin;
@@ -65,7 +65,7 @@
 
       in
       {
-        devShells.default = pkgs.mkShell {
+        devShells.default = pkgs.mkShellNoCC {
           name = "murmur-dev";
           packages = pkgs.lib.optionals isDarwin (with pkgs; [
             swiftlint
@@ -74,6 +74,11 @@
             gnumake
           ]);
           shellHook = pkgs.lib.optionalString isDarwin ''
+            # Strip Nix SDK variables that conflict with Xcode.
+            # Packages propagate Apple SDK setup hooks even with mkShellNoCC;
+            # we only need the binaries on PATH, not the C toolchain env.
+            unset DEVELOPER_DIR SDKROOT NIX_CFLAGS_COMPILE NIX_LDFLAGS
+
             # Install git hooks from Nix store
             if [ -d .git ]; then
               mkdir -p .git/hooks
