@@ -7,14 +7,12 @@ import Testing
 struct PipelineTests {
     var transcriber: MockTranscriber!
     var llm: MockLLMService!
-    var store: EntryStore!
     var pipeline: Pipeline!
 
     init() async throws {
         transcriber = MockTranscriber()
         llm = MockLLMService()
-        store = try EntryStore(inMemory: true)
-        pipeline = Pipeline(transcriber: transcriber, llm: llm, store: store)
+        pipeline = Pipeline(transcriber: transcriber, llm: llm)
     }
 
     @Test("Start and stop recording creates entries")
@@ -30,37 +28,22 @@ struct PipelineTests {
         #expect(result.entries[0].content == "Buy milk")
         #expect(result.entries[0].category == .todo)
         #expect(result.entries[0].summary == "Pick up milk from the store")
-        #expect(result.entries[0].source == .voice)
         #expect(result.entries[1].content == "Finish the report")
         #expect(result.transcript.text == "Buy milk and finish the report")
-
-        // Entries are NOT saved until explicit save
-        let beforeSave = try store.fetchAll()
-        #expect(beforeSave.count == 0)
-
-        // Save entries
-        try pipeline.save(result)
-
-        // Verify entries were saved
-        let saved = try store.fetchAll()
-        #expect(saved.count == 2)
     }
 
-    @Test("stopRecording does not save entries")
-    func stopRecordingDoesNotSave() async throws {
+    @Test("stopRecording returns entries without persistence")
+    func stopRecordingReturnsEntries() async throws {
         try await pipeline.startRecording()
         let result = try await pipeline.stopRecording()
 
         #expect(result.entries.count == 2)
-
-        // Nothing persisted yet
-        let stored = try store.fetchAll()
-        #expect(stored.count == 0)
+        #expect(result.entries[0].content == "Buy milk")
     }
 
-    @Test("Cannot start recording when unavailable")
-    func transcriberUnavailable() async throws {
-        transcriber._isAvailable = false
+    @Test("Transcriber error is wrapped in PipelineError")
+    func transcriberStartError() async throws {
+        transcriber.errorToThrow = MockError.simulated
 
         await #expect(throws: PipelineError.self) {
             try await pipeline.startRecording()
@@ -122,18 +105,7 @@ struct PipelineTests {
 
         #expect(result.entries.count == 2)
         #expect(result.entries[0].content == "Buy milk")
-        #expect(result.entries[0].source == .text)
-        #expect(result.entries[0].audioDuration == nil)
         #expect(result.inputText == "Buy milk and finish the report")
-
-        // Not saved until explicit save
-        let stored = try store.fetchAll()
-        #expect(stored.count == 0)
-
-        // Save and verify
-        try pipeline.save(result)
-        let saved = try store.fetchAll()
-        #expect(saved.count == 2)
     }
 
     @Test("Text extraction with empty input throws error")
@@ -150,19 +122,6 @@ struct PipelineTests {
         await #expect(throws: PipelineError.self) {
             try await pipeline.extractFromText("Buy milk")
         }
-    }
-
-    @Test("Save selected entries from extraction")
-    func saveSelectedEntries() async throws {
-        let result = try await pipeline.extractFromText("Buy milk and finish the report")
-        #expect(result.entries.count == 2)
-
-        // Save only the first entry
-        try pipeline.save(entries: [result.entries[0]])
-
-        let saved = try store.fetchAll()
-        #expect(saved.count == 1)
-        #expect(saved[0].content == "Buy milk")
     }
 
     // MARK: - Conversation & Refinement
@@ -218,7 +177,6 @@ struct PipelineTests {
         let result = try await pipeline.refineFromRecording()
 
         #expect(result.entries.count == 2)
-        #expect(result.entries[0].source == .voice)
         #expect(pipeline.currentConversation === conversation)
     }
 
@@ -278,269 +236,10 @@ struct PipelineTests {
             try await pipeline.refineFromRecording()
         }
     }
-
-    @Test("Date resolution populates dueDate from dueDateDescription")
-    func dateResolution() async throws {
-        llm.entriesToReturn = [
-            ExtractedEntry(
-                content: "Dentist appointment",
-                category: .reminder,
-                sourceText: "dentist on Thursday",
-                summary: "Go to dentist",
-                dueDateDescription: "next Thursday"
-            ),
-        ]
-
-        let result = try await pipeline.extractFromText("dentist on Thursday")
-
-        #expect(result.entries[0].dueDateDescription == "next Thursday")
-        #expect(result.entries[0].dueDate != nil)
-    }
-
-    @Test("Nil dueDateDescription produces nil dueDate")
-    func noDateResolution() async throws {
-        llm.entriesToReturn = [
-            ExtractedEntry(
-                content: "Buy milk",
-                category: .todo,
-                sourceText: "buy milk",
-                summary: "Get milk"
-            ),
-        ]
-
-        let result = try await pipeline.extractFromText("buy milk")
-
-        #expect(result.entries[0].dueDateDescription == nil)
-        #expect(result.entries[0].dueDate == nil)
-    }
 }
 
-@Suite("EntryStore", .serialized)
-@MainActor
-struct EntryStoreTests {
-    var store: EntryStore!
-
-    init() async throws {
-        store = try EntryStore(inMemory: true)
-    }
-
-    @Test("Save and fetch entries")
-    func saveAndFetch() async throws {
-        let entry = Entry(
-            transcript: "Test transcript",
-            content: "Buy milk",
-            category: .todo,
-            sourceText: "Buy milk"
-        )
-
-        try store.save(entry)
-
-        let fetched = try store.fetchAll()
-        #expect(fetched.count == 1)
-        #expect(fetched[0].content == "Buy milk")
-        #expect(fetched[0].category == .todo)
-    }
-
-    @Test("Fetch by category")
-    func fetchByCategory() async throws {
-        let todo = Entry(
-            transcript: "Test",
-            content: "Buy milk",
-            category: .todo,
-            sourceText: "Buy milk"
-        )
-        let note = Entry(
-            transcript: "Test",
-            content: "Remember this",
-            category: .note,
-            sourceText: "Remember this"
-        )
-
-        try store.save([todo, note])
-
-        let todos = try store.fetch(category: .todo)
-        #expect(todos.count == 1)
-        #expect(todos[0].category == .todo)
-
-        let notes = try store.fetch(category: .note)
-        #expect(notes.count == 1)
-        #expect(notes[0].category == .note)
-    }
-
-    @Test("Fetch by status")
-    func fetchByStatus() async throws {
-        let active = Entry(
-            transcript: "Test",
-            content: "Active todo",
-            category: .todo,
-            sourceText: "Active todo",
-            status: .active
-        )
-        let completed = Entry(
-            transcript: "Test",
-            content: "Done todo",
-            category: .todo,
-            sourceText: "Done todo",
-            status: .completed,
-            completedAt: Date()
-        )
-
-        try store.save([active, completed])
-
-        let activeEntries = try store.fetch(status: .active)
-        #expect(activeEntries.count == 1)
-        #expect(activeEntries[0].content == "Active todo")
-
-        let completedEntries = try store.fetch(status: .completed)
-        #expect(completedEntries.count == 1)
-        #expect(completedEntries[0].content == "Done todo")
-
-        let activeCount = try store.count(status: .active)
-        #expect(activeCount == 1)
-
-        let completedCount = try store.count(status: .completed)
-        #expect(completedCount == 1)
-    }
-
-    @Test("Count entries")
-    func countEntries() async throws {
-        let entry1 = Entry(
-            transcript: "Test",
-            content: "Todo 1",
-            category: .todo,
-            sourceText: "Todo 1"
-        )
-        let entry2 = Entry(
-            transcript: "Test",
-            content: "Todo 2",
-            category: .todo,
-            sourceText: "Todo 2"
-        )
-
-        try store.save([entry1, entry2])
-
-        let total = try store.count()
-        #expect(total == 2)
-
-        let todoCount = try store.count(category: .todo)
-        #expect(todoCount == 2)
-    }
-
-    @Test("Delete entry")
-    func deleteEntry() async throws {
-        let entry = Entry(
-            transcript: "Test",
-            content: "Buy milk",
-            category: .todo,
-            sourceText: "Buy milk"
-        )
-
-        try store.save(entry)
-        #expect(try store.count() == 1)
-
-        try store.delete(entry)
-        #expect(try store.count() == 0)
-    }
-
-    @Test("Update status sets completedAt when completing")
-    func updateStatus() async throws {
-        let entry = Entry(
-            transcript: "Test",
-            content: "Buy milk",
-            category: .todo,
-            sourceText: "Buy milk"
-        )
-
-        try store.save(entry)
-        #expect(entry.status == .active)
-        #expect(entry.completedAt == nil)
-
-        try store.updateStatus(entry, to: .completed)
-        #expect(entry.status == .completed)
-        #expect(entry.completedAt != nil)
-
-        // Verify updatedAt was changed
-        #expect(entry.updatedAt > entry.createdAt || entry.updatedAt == entry.createdAt)
-
-        // Update to archived — completedAt should remain from before
-        let previousCompletedAt = entry.completedAt
-        try store.updateStatus(entry, to: .archived)
-        #expect(entry.status == .archived)
-        #expect(entry.completedAt == previousCompletedAt)
-    }
-
-    @Test("Delete all entries")
-    func deleteAll() async throws {
-        let entries = [
-            Entry(transcript: "Test", content: "Todo 1", category: .todo, sourceText: "Todo 1"),
-            Entry(transcript: "Test", content: "Todo 2", category: .todo, sourceText: "Todo 2"),
-            Entry(transcript: "Test", content: "Note 1", category: .note, sourceText: "Note 1"),
-        ]
-
-        try store.save(entries)
-        #expect(try store.count() == 3)
-
-        try store.deleteAll()
-        #expect(try store.count() == 0)
-        #expect(try store.fetchAll().isEmpty)
-    }
-
-    @Test("Fetch by source")
-    func fetchBySource() async throws {
-        let voice = Entry(transcript: "Test", content: "Voice entry", category: .todo, sourceText: "Voice entry", source: .voice)
-        let text = Entry(transcript: "Test", content: "Text entry", category: .todo, sourceText: "Text entry", source: .text)
-
-        try store.save([voice, text])
-
-        let voiceEntries = try store.fetch(source: .voice)
-        #expect(voiceEntries.count == 1)
-        #expect(voiceEntries[0].content == "Voice entry")
-
-        let textEntries = try store.fetch(source: .text)
-        #expect(textEntries.count == 1)
-        #expect(textEntries[0].content == "Text entry")
-    }
-
-    @Test("Count by source")
-    func countBySource() async throws {
-        let entries = [
-            Entry(transcript: "Test", content: "V1", category: .todo, sourceText: "V1", source: .voice),
-            Entry(transcript: "Test", content: "V2", category: .todo, sourceText: "V2", source: .voice),
-            Entry(transcript: "Test", content: "T1", category: .todo, sourceText: "T1", source: .text),
-        ]
-
-        try store.save(entries)
-
-        #expect(try store.count(source: .voice) == 2)
-        #expect(try store.count(source: .text) == 1)
-    }
-}
-
-@Suite("Entry Model")
-struct EntryModelTests {
-    @Test("Entry has correct properties")
-    func entryProperties() {
-        let entry = Entry(
-            transcript: "Full transcript",
-            content: "Processed content",
-            category: .todo,
-            sourceText: "Source text",
-            summary: "A quick summary",
-            priority: 2,
-            source: .voice
-        )
-
-        #expect(entry.transcript == "Full transcript")
-        #expect(entry.content == "Processed content")
-        #expect(entry.category == .todo)
-        #expect(entry.sourceText == "Source text")
-        #expect(entry.summary == "A quick summary")
-        #expect(entry.priority == 2)
-        #expect(entry.status == .active)
-        #expect(entry.source == .voice)
-        #expect(entry.id != UUID(uuidString: "00000000-0000-0000-0000-000000000000"))
-    }
-
+@Suite("Enums")
+struct EnumTests {
     @Test("EntryCategory display names")
     func categoryDisplayNames() {
         #expect(EntryCategory.todo.displayName == "Todo")
@@ -551,14 +250,6 @@ struct EntryModelTests {
         #expect(EntryCategory.habit.displayName == "Habit")
         #expect(EntryCategory.question.displayName == "Question")
         #expect(EntryCategory.thought.displayName == "Thought")
-    }
-
-    @Test("EntryStatus display names")
-    func statusDisplayNames() {
-        #expect(EntryStatus.active.displayName == "Active")
-        #expect(EntryStatus.completed.displayName == "Completed")
-        #expect(EntryStatus.archived.displayName == "Archived")
-        #expect(EntryStatus.snoozed.displayName == "Snoozed")
     }
 
     @Test("EntrySource display names")
@@ -574,37 +265,10 @@ struct EntryModelTests {
         #expect(EntryCategory(from: "") == .note)
     }
 
-    @Test("EntryStatus defensive init falls back to active")
-    func statusDefensiveInit() {
-        #expect(EntryStatus(from: "completed") == .completed)
-        #expect(EntryStatus(from: "unknown") == .active)
-        #expect(EntryStatus(from: "") == .active)
-    }
-
     @Test("EntrySource defensive init falls back to voice")
     func sourceDefensiveInit() {
         #expect(EntrySource(from: "text") == .text)
         #expect(EntrySource(from: "unknown") == .voice)
         #expect(EntrySource(from: "") == .voice)
-    }
-
-    @Test("Entry defaults are correct")
-    func entryDefaults() {
-        let entry = Entry(
-            transcript: "Test",
-            content: "Test",
-            category: .note,
-            sourceText: "Test"
-        )
-
-        #expect(entry.summary == "")
-        #expect(entry.priority == nil)
-        #expect(entry.dueDateDescription == nil)
-        #expect(entry.dueDate == nil)
-        #expect(entry.status == .active)
-        #expect(entry.completedAt == nil)
-        #expect(entry.snoozeUntil == nil)
-        #expect(entry.audioDuration == nil)
-        #expect(entry.source == .voice)
     }
 }

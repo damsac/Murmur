@@ -34,7 +34,7 @@ struct SettingsRow: View {
                         .frame(width: 36, height: 36)
 
                     Image(systemName: icon)
-                        .font(.system(size: 18, weight: .medium))
+                        .font(.headline.weight(.medium))
                         .foregroundStyle(iconColor)
                 }
 
@@ -54,7 +54,7 @@ struct SettingsRow: View {
                 // Chevron
                 if showChevron {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Theme.Colors.textTertiary)
                 }
             }
@@ -98,7 +98,7 @@ struct SettingsToggleRow: View {
                     .frame(width: 36, height: 36)
 
                 Image(systemName: icon)
-                    .font(.system(size: 18, weight: .medium))
+                    .font(.headline.weight(.medium))
                     .foregroundStyle(iconColor)
             }
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import MurmurCore
 
 struct ConfirmSingleView: View {
     @Environment(AppState.self) private var appState
@@ -23,12 +24,12 @@ struct ConfirmSingleView: View {
                     // Header
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Review")
-                            .font(.system(size: 22, weight: .bold))
+                            .font(.title2.weight(.bold))
                             .tracking(-0.3)
                             .foregroundStyle(Theme.Colors.textPrimary)
 
                         Text("Here's what I heard")
-                            .font(.system(size: 14))
+                            .font(.subheadline)
                             .foregroundStyle(Theme.Colors.textTertiary)
                     }
                     .padding(.top, 70)
@@ -39,9 +40,9 @@ struct ConfirmSingleView: View {
                         HStack {
                             HStack(spacing: 6) {
                                 Image(systemName: "mic")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(.caption2.weight(.semibold))
                                 Text("TRANSCRIPT")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(.caption2.weight(.semibold))
                                     .tracking(0.6)
                             }
                             .foregroundStyle(Theme.Colors.textTertiary)
@@ -49,12 +50,12 @@ struct ConfirmSingleView: View {
                             Spacer()
 
                             Text(formattedDuration)
-                                .font(.system(size: 11))
+                                .font(.caption2)
                                 .foregroundStyle(Theme.Colors.textMuted)
                         }
 
                         Text("\"\(transcript)\"")
-                            .font(.system(size: 14))
+                            .font(.subheadline)
                             .foregroundStyle(Theme.Colors.textSecondary)
                             .italic()
                             .lineSpacing(2)
@@ -78,14 +79,14 @@ struct ConfirmSingleView: View {
                     // Items header
                     HStack {
                         Text("EXTRACTED")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.caption.weight(.semibold))
                             .tracking(0.8)
                             .foregroundStyle(Theme.Colors.textSecondary)
 
                         Spacer()
 
                         Text("\(items.count) item\(items.count == 1 ? "" : "s")")
-                            .font(.system(size: 12))
+                            .font(.caption2)
                             .foregroundStyle(Theme.Colors.textTertiary)
                     }
                     .padding(.bottom, 12)
@@ -116,7 +117,7 @@ struct ConfirmSingleView: View {
                         Text("\(outputTokens) out")
                             .foregroundStyle(Theme.Colors.textTertiary)
                     }
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Theme.Typography.label)
                     .monospacedDigit()
                     .tracking(0.3)
                     .frame(maxWidth: .infinity)
@@ -146,10 +147,10 @@ struct ConfirmSingleView: View {
                     Button(action: onAccept) {
                         HStack(spacing: 10) {
                             Image(systemName: "checkmark")
-                                .font(.system(size: 20, weight: .bold))
+                                .font(.title3.weight(.bold))
 
                             Text("Accept")
-                                .font(.system(size: 17, weight: .semibold))
+                                .font(.headline)
                         }
                         .foregroundStyle(Theme.Colors.textPrimary)
                         .frame(maxWidth: .infinity)
@@ -171,7 +172,7 @@ struct ConfirmSingleView: View {
                     // Discard link
                     Button(action: onDiscard) {
                         Text("Discard")
-                            .font(.system(size: 14))
+                            .font(.subheadline)
                             .foregroundStyle(Theme.Colors.textMuted)
                             .padding(8)
                     }
@@ -215,7 +216,7 @@ private struct ConfirmSingleItemCard: View {
                         .frame(width: 6, height: 6)
 
                     Text(item.category.displayName.uppercased())
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.caption2.weight(.semibold))
                         .tracking(0.5)
                         .foregroundStyle(Theme.categoryColor(item.category))
                 }
@@ -228,7 +229,7 @@ private struct ConfirmSingleItemCard: View {
 
                 // Summary
                 Text(item.summary)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.headline)
                     .foregroundStyle(Theme.Colors.textPrimary)
                     .lineSpacing(2)
 
@@ -236,7 +237,7 @@ private struct ConfirmSingleItemCard: View {
                 if let dueDate = item.dueDate {
                     HStack(spacing: 12) {
                         Text(dueDate)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.caption.weight(.medium))
                             .foregroundStyle(Theme.Colors.accentYellow)
                     }
                 }
@@ -257,7 +258,7 @@ private struct ConfirmSingleItemCard: View {
                             .frame(width: 36, height: 36)
 
                         Image(systemName: "mic")
-                            .font(.system(size: 16, weight: .medium))
+                            .font(Theme.Typography.bodyMedium)
                             .foregroundStyle(Theme.Colors.accentYellow)
                     }
                 }
@@ -275,7 +276,7 @@ private struct ConfirmSingleItemCard: View {
                             .frame(width: 36, height: 36)
 
                         Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.subheadline.weight(.medium))
                             .foregroundStyle(Theme.Colors.accentRed)
                     }
                 }

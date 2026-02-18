@@ -24,7 +24,7 @@ struct SettingsMinimalView: View {
                         // SECURITY Section
                         VStack(alignment: .leading, spacing: 10) {
                             Text("SECURITY")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(Theme.Typography.badge)
                                 .tracking(1)
                                 .foregroundStyle(Theme.Colors.textTertiary)
                                 .padding(.horizontal, Theme.Spacing.screenPadding)
@@ -70,7 +70,7 @@ struct SettingsMinimalView: View {
                         // CREDITS Section
                         VStack(alignment: .leading, spacing: 10) {
                             Text("CREDITS")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(Theme.Typography.badge)
                                 .tracking(1)
                                 .foregroundStyle(Theme.Colors.textTertiary)
                                 .padding(.horizontal, Theme.Spacing.screenPadding)
@@ -106,7 +106,7 @@ struct SettingsMinimalView: View {
                         // PROCESSING Section
                         VStack(alignment: .leading, spacing: 10) {
                             Text("PROCESSING")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(Theme.Typography.badge)
                                 .tracking(1)
                                 .foregroundStyle(Theme.Colors.textTertiary)
                                 .padding(.horizontal, Theme.Spacing.screenPadding)
@@ -183,7 +183,7 @@ private struct SettingsInfoRow: View {
                     .frame(width: 32, height: 32)
 
                 Image(systemName: icon)
-                    .font(.system(size: 16, weight: .medium))
+                    .font(Theme.Typography.bodyMedium)
                     .foregroundStyle(iconColor)
             }
 
@@ -201,7 +201,7 @@ private struct SettingsInfoRow: View {
 
                 if let badge {
                     Text(badge)
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.caption2.weight(.bold))
                         .tracking(0.5)
                         .textCase(.uppercase)
                         .foregroundStyle(Theme.Colors.accentGreen)

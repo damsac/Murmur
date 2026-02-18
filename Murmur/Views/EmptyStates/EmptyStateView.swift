@@ -103,7 +103,7 @@ struct EmptyStateView: View {
                         .frame(width: 72, height: 72)
 
                     Image(systemName: type.icon)
-                        .font(.system(size: 32, weight: .medium))
+                        .font(.largeTitle.weight(.medium))
                         .foregroundStyle(type.iconColor)
                 }
                 .padding(.bottom, 24)
@@ -111,13 +111,13 @@ struct EmptyStateView: View {
 
             // Title
             Text(type.title)
-                .font(.system(size: 22, weight: .bold))
+                .font(.title2.weight(.bold))
                 .foregroundStyle(Theme.Colors.textPrimary)
                 .padding(.bottom, 8)
 
             // Subtitle
             Text(type.subtitle)
-                .font(.system(size: 15))
+                .font(.subheadline)
                 .foregroundStyle(Theme.Colors.textTertiary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
@@ -128,10 +128,10 @@ struct EmptyStateView: View {
                 Button(action: action) {
                     HStack(spacing: 8) {
                         Image(systemName: "mic")
-                            .font(.system(size: 16, weight: .medium))
+                            .font(Theme.Typography.bodyMedium)
 
                         Text("Capture your first thought")
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.subheadline.weight(.semibold))
                     }
                     .foregroundStyle(Theme.Colors.accentPurpleLight)
                     .padding(.horizontal, 28)

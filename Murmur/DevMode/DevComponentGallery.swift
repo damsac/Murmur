@@ -1,4 +1,5 @@
 import SwiftUI
+import MurmurCore
 
 struct DevComponentGallery: View {
     @Environment(\.dismiss) private var dismiss
@@ -356,26 +357,30 @@ private struct FilterChipsGallery: View {
 
 private struct BottomNavBarGallery: View {
     @State private var tab1: BottomNavBar.Tab = .home
-    @State private var tab2: BottomNavBar.Tab = .views
+    @State private var tab2: BottomNavBar.Tab = .settings
 
     var body: some View {
-        GallerySection(title: "With Mic Spacer") {
-            ZStack(alignment: .bottom) {
-                BottomNavBar(selectedTab: $tab1, showMicButton: true)
-                MicButton(size: .large, isRecording: false) {}
-                    .offset(y: -30)
-            }
-            .frame(height: Theme.Spacing.bottomNavHeight + 20)
+        GallerySection(title: "With Mic + Keyboard") {
+            BottomNavBar(
+                selectedTab: $tab1,
+                onMicTap: {},
+                onKeyboardTap: {}
+            )
         }
 
-        GallerySection(title: "Without Mic Button") {
-            BottomNavBar(selectedTab: $tab2, showMicButton: false)
+        GallerySection(title: "Recording State") {
+            BottomNavBar(
+                selectedTab: $tab2,
+                isRecording: true,
+                onMicTap: {},
+                onKeyboardTap: {}
+            )
         }
 
         GallerySection(title: "All Tab States") {
             VStack(spacing: 8) {
                 ForEach(BottomNavBar.Tab.allCases, id: \.self) { tab in
-                    BottomNavBar(selectedTab: .constant(tab), showMicButton: false)
+                    BottomNavBar(selectedTab: .constant(tab), onMicTap: {})
                 }
             }
         }
@@ -592,8 +597,8 @@ private struct ProcessingOverlayGallery: View {
         GallerySection(title: "With Cards") {
             ProcessingOverlay(
                 entries: [
-                    Entry(summary: "Pick up dry cleaning before 6pm", category: .todo, priority: 2, aiGenerated: true),
-                    Entry(summary: "The best interfaces are invisible", category: .insight, aiGenerated: true),
+                    ExtractedEntry(content: "Pick up dry cleaning before 6pm", category: .todo, sourceText: "", summary: "Pick up dry cleaning before 6pm", priority: 1),
+                    ExtractedEntry(content: "The best interfaces are invisible", category: .thought, sourceText: "", summary: "The best interfaces are invisible"),
                 ],
                 transcript: "I need to pick up dry cleaning, and I had this thought about interfaces"
             )
@@ -613,7 +618,7 @@ private struct FocusOverlayGallery: View {
         GallerySection(title: "Category") {
             Picker("Category", selection: $category) {
                 Text("Todo").tag(EntryCategory.todo)
-                Text("Insight").tag(EntryCategory.insight)
+                Text("Thought").tag(EntryCategory.thought)
                 Text("Idea").tag(EntryCategory.idea)
                 Text("Reminder").tag(EntryCategory.reminder)
             }
@@ -623,11 +628,12 @@ private struct FocusOverlayGallery: View {
 
         FocusOverlay(
             entry: Entry(
-                summary: focusSummary(for: category),
+                transcript: "",
+                content: focusSummary(for: category),
                 category: category,
-                priority: category == .todo ? 2 : 1,
-                tags: ["sample"],
-                aiGenerated: true
+                sourceText: "",
+                summary: focusSummary(for: category),
+                priority: category == .todo ? 1 : 3
             ),
             onMarkDone: (category == .todo || category == .reminder) ? {} : nil,
             onSnooze: (category == .todo || category == .reminder) ? {} : nil,
@@ -641,7 +647,7 @@ private struct FocusOverlayGallery: View {
     private func focusSummary(for category: EntryCategory) -> String {
         switch category {
         case .todo: return "Review design mockups and provide feedback"
-        case .insight: return "The best interfaces are invisible"
+        case .thought: return "The best interfaces are invisible"
         case .idea: return "Build a browser extension for quick voice notes"
         case .reminder: return "Team standup at 10am tomorrow"
         default: return "Sample entry for \(category.displayName)"
@@ -749,39 +755,45 @@ private struct EntryCardGallery: View {
             VStack(spacing: 16) {
                 EntryCard(
                     entry: Entry(
-                        summary: "Review the new design system and provide feedback to the team",
+                        transcript: "",
+                        content: "Review the new design system and provide feedback to the team",
                         category: .todo,
-                        priority: 2,
-                        tags: ["design", "urgent"],
-                        aiGenerated: true
+                        sourceText: "",
+                        summary: "Review the new design system and provide feedback to the team",
+                        priority: 1
                     )
                 )
 
                 EntryCard(
                     entry: Entry(
-                        summary: "The best interfaces are invisible - they get out of the way and let users focus",
-                        category: .insight,
+                        transcript: "",
+                        content: "The best interfaces are invisible - they get out of the way and let users focus",
+                        category: .thought,
+                        sourceText: "",
                         createdAt: Date().addingTimeInterval(-3600),
-                        aiGenerated: false
+                        summary: "The best interfaces are invisible - they get out of the way and let users focus"
                     )
                 )
 
                 EntryCard(
                     entry: Entry(
-                        summary: "Build a browser extension for quick voice notes",
+                        transcript: "",
+                        content: "Build a browser extension for quick voice notes",
                         category: .idea,
+                        sourceText: "",
                         createdAt: Date().addingTimeInterval(-7200),
-                        tags: ["extension"],
-                        aiGenerated: true
+                        summary: "Build a browser extension for quick voice notes"
                     )
                 )
 
                 EntryCard(
                     entry: Entry(
-                        summary: "What's the best way to implement real-time collaboration?",
+                        transcript: "",
+                        content: "What's the best way to implement real-time collaboration?",
                         category: .question,
+                        sourceText: "",
                         createdAt: Date().addingTimeInterval(-86400),
-                        aiGenerated: true
+                        summary: "What's the best way to implement real-time collaboration?"
                     )
                 )
             }
@@ -791,9 +803,11 @@ private struct EntryCardGallery: View {
         GallerySection(title: "Without Category Badge") {
             EntryCard(
                 entry: Entry(
-                    summary: "This card hides its category badge",
+                    transcript: "",
+                    content: "This card hides its category badge",
                     category: .note,
-                    aiGenerated: true
+                    sourceText: "",
+                    summary: "This card hides its category badge"
                 ),
                 showCategory: false
             )
@@ -810,42 +824,50 @@ private struct ReminderCardGallery: View {
             VStack(spacing: 16) {
                 ReminderEntryCard(
                     entry: Entry(
+                        transcript: "",
+                        content: "Submit quarterly report to management",
+                        category: .reminder,
+                        sourceText: "",
                         summary: "Submit quarterly report to management",
-                        category: .reminder,
-                        dueDate: Calendar.current.startOfDay(for: Date()),
-                        priority: 2,
-                        aiGenerated: true
+                        priority: 1,
+                        dueDate: Calendar.current.startOfDay(for: Date())
                     ),
                     onTap: nil
                 )
 
                 ReminderEntryCard(
                     entry: Entry(
+                        transcript: "",
+                        content: "Schedule dentist appointment",
+                        category: .reminder,
+                        sourceText: "",
                         summary: "Schedule dentist appointment",
-                        category: .reminder,
-                        dueDate: Date().addingTimeInterval(86400),
-                        aiGenerated: true
+                        dueDate: Date().addingTimeInterval(86400)
                     ),
                     onTap: nil
                 )
 
                 ReminderEntryCard(
                     entry: Entry(
+                        transcript: "",
+                        content: "Renew gym membership",
+                        category: .reminder,
+                        sourceText: "",
                         summary: "Renew gym membership",
-                        category: .reminder,
-                        dueDate: Date().addingTimeInterval(86400 * 5),
-                        aiGenerated: true
+                        dueDate: Date().addingTimeInterval(86400 * 5)
                     ),
                     onTap: nil
                 )
 
                 ReminderEntryCard(
                     entry: Entry(
-                        summary: "This reminder is overdue",
+                        transcript: "",
+                        content: "This reminder is overdue",
                         category: .reminder,
-                        dueDate: Date().addingTimeInterval(-86400),
-                        priority: 2,
-                        aiGenerated: true
+                        sourceText: "",
+                        summary: "This reminder is overdue",
+                        priority: 1,
+                        dueDate: Date().addingTimeInterval(-86400)
                     ),
                     onTap: nil
                 )
@@ -862,32 +884,35 @@ private struct ConfirmItemCardGallery: View {
         GallerySection(title: "Categories") {
             VStack(spacing: 16) {
                 ConfirmItemCard(
-                    entry: Entry(
-                        summary: "Review the new design system and provide feedback to the team by end of week",
+                    entry: ExtractedEntry(
+                        content: "Review the new design system and provide feedback to the team by end of week",
                         category: .todo,
-                        priority: 2,
-                        aiGenerated: true
+                        sourceText: "",
+                        summary: "Review the new design system and provide feedback to the team by end of week",
+                        priority: 1
                     ),
                     onVoiceCorrect: {},
                     onDiscard: {}
                 )
 
                 ConfirmItemCard(
-                    entry: Entry(
-                        summary: "The best interfaces are invisible - they get out of the way",
-                        category: .insight,
-                        aiGenerated: true
+                    entry: ExtractedEntry(
+                        content: "The best interfaces are invisible - they get out of the way",
+                        category: .thought,
+                        sourceText: "",
+                        summary: "The best interfaces are invisible - they get out of the way"
                     ),
                     onVoiceCorrect: {},
                     onDiscard: {}
                 )
 
                 ConfirmItemCard(
-                    entry: Entry(
-                        summary: "Build a browser extension for quick voice notes",
+                    entry: ExtractedEntry(
+                        content: "Build a browser extension for quick voice notes",
                         category: .idea,
-                        priority: 1,
-                        aiGenerated: true
+                        sourceText: "",
+                        summary: "Build a browser extension for quick voice notes",
+                        priority: 3
                     ),
                     onVoiceCorrect: {},
                     onDiscard: {}
@@ -910,9 +935,12 @@ private struct TodoListItemGallery: View {
             VStack(spacing: 12) {
                 TodoListItem(
                     entry: Entry(
-                        summary: "Review design system documentation",
+                        transcript: "",
+                        content: "Review design system documentation",
                         category: .todo,
-                        priority: 2
+                        sourceText: "",
+                        summary: "Review design system documentation",
+                        priority: 1
                     ),
                     isCompleted: $completed1,
                     onTap: {},
@@ -923,9 +951,12 @@ private struct TodoListItemGallery: View {
 
                 TodoListItem(
                     entry: Entry(
-                        summary: "Schedule team meeting for next week",
+                        transcript: "",
+                        content: "Schedule team meeting for next week",
                         category: .todo,
-                        priority: 1
+                        sourceText: "",
+                        summary: "Schedule team meeting for next week",
+                        priority: 3
                     ),
                     isCompleted: $completed2,
                     onTap: {},
@@ -936,10 +967,13 @@ private struct TodoListItemGallery: View {
 
                 TodoListItem(
                     entry: Entry(
-                        summary: "Update project README with installation instructions and getting started guide",
+                        transcript: "",
+                        content: "Update project README with installation instructions and getting started guide",
                         category: .todo,
+                        sourceText: "",
                         createdAt: Date().addingTimeInterval(-7200),
-                        priority: 0
+                        summary: "Update project README with installation instructions and getting started guide",
+                        priority: 5
                     ),
                     isCompleted: $completed3,
                     onTap: {},

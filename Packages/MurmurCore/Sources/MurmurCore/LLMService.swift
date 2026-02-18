@@ -159,8 +159,11 @@ public protocol LLMService: Sendable {
     func extractEntries(from transcript: String, conversation: LLMConversation) async throws -> [ExtractedEntry]
 }
 
-/// An entry extracted by the LLM (before being saved as Entry model)
-public struct ExtractedEntry: Sendable, Codable {
+/// An entry extracted by the LLM — pure value type, no persistence dependency.
+public struct ExtractedEntry: Sendable, Codable, Identifiable {
+    /// Stable identity for SwiftUI (not decoded from JSON — always freshly generated)
+    public let id: UUID
+
     /// The processed/cleaned content
     public let content: String
 
@@ -179,6 +182,21 @@ public struct ExtractedEntry: Sendable, Codable {
     /// Raw time phrase from transcript (e.g. "next Thursday"), nil if none
     public let dueDateDescription: String?
 
+    enum CodingKeys: String, CodingKey {
+        case content, category, sourceText, summary, priority, dueDateDescription
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = UUID()
+        self.content = try container.decode(String.self, forKey: .content)
+        self.category = try container.decode(EntryCategory.self, forKey: .category)
+        self.sourceText = try container.decode(String.self, forKey: .sourceText)
+        self.summary = try container.decodeIfPresent(String.self, forKey: .summary) ?? ""
+        self.priority = try container.decodeIfPresent(Int.self, forKey: .priority)
+        self.dueDateDescription = try container.decodeIfPresent(String.self, forKey: .dueDateDescription)
+    }
+
     public init(
         content: String,
         category: EntryCategory,
@@ -187,6 +205,7 @@ public struct ExtractedEntry: Sendable, Codable {
         priority: Int? = nil,
         dueDateDescription: String? = nil
     ) {
+        self.id = UUID()
         self.content = content
         self.category = category
         self.sourceText = sourceText

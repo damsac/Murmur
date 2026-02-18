@@ -1,4 +1,5 @@
 import SwiftUI
+import MurmurCore
 
 struct TodoListItem: View {
     let entry: Entry
@@ -41,7 +42,7 @@ struct TodoListItem: View {
                 Button(action: handleComplete) {
                     VStack(spacing: 4) {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 20, weight: .semibold))
+                            .font(.title3.weight(.semibold))
                         Text("Done")
                             .font(Theme.Typography.badge)
                     }
@@ -55,7 +56,7 @@ struct TodoListItem: View {
                 Button(action: handleSnooze) {
                     VStack(spacing: 4) {
                         Image(systemName: "clock")
-                            .font(.system(size: 20, weight: .semibold))
+                            .font(.title3.weight(.semibold))
                         Text("Snooze")
                             .font(Theme.Typography.badge)
                     }
@@ -69,7 +70,7 @@ struct TodoListItem: View {
                 Button(action: handleDelete) {
                     VStack(spacing: 4) {
                         Image(systemName: "trash")
-                            .font(.system(size: 20, weight: .semibold))
+                            .font(.title3.weight(.semibold))
                         Text("Delete")
                             .font(Theme.Typography.badge)
                     }
@@ -97,13 +98,14 @@ struct TodoListItem: View {
 
                         if isCompleted {
                             Image(systemName: "checkmark")
-                                .font(.system(size: 14, weight: .bold))
+                                .font(.subheadline.weight(.bold))
                                 .foregroundStyle(Theme.Colors.accentPurple)
                                 .transition(.scale.combined(with: .opacity))
                         }
                     }
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(isCompleted ? "Mark incomplete" : "Mark complete")
 
                 // Entry content
                 VStack(alignment: .leading, spacing: 8) {
@@ -125,16 +127,16 @@ struct TodoListItem: View {
 
                         HStack(spacing: 4) {
                             Image(systemName: "clock")
-                                .font(.system(size: 10))
+                                .font(.caption2)
                             Text(timeAgo)
                                 .font(Theme.Typography.badge)
                         }
                         .foregroundStyle(Theme.Colors.textTertiary)
 
-                        if entry.priority == 2 {
+                        if entry.priority.map({ $0 <= 2 }) ?? false {
                             HStack(spacing: 3) {
                                 Image(systemName: "exclamationmark.circle.fill")
-                                    .font(.system(size: 10))
+                                    .font(.caption2)
                                 Text("High")
                                     .font(Theme.Typography.badge)
                             }
@@ -194,7 +196,8 @@ struct TodoListItem: View {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
             offset = 0
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        Task {
+            try? await Task.sleep(for: .seconds(0.3))
             onComplete()
         }
     }
@@ -203,7 +206,8 @@ struct TodoListItem: View {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
             offset = 0
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        Task {
+            try? await Task.sleep(for: .seconds(0.3))
             onSnooze()
         }
     }
@@ -212,7 +216,8 @@ struct TodoListItem: View {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
             offset = 0
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        Task {
+            try? await Task.sleep(for: .seconds(0.3))
             onDelete()
         }
     }
@@ -223,9 +228,12 @@ struct TodoListItem: View {
         VStack(spacing: 16) {
             TodoListItem(
                 entry: Entry(
-                    summary: "Review design system documentation",
+                    transcript: "",
+                    content: "Review design system documentation",
                     category: .todo,
-                    priority: 2
+                    sourceText: "",
+                    summary: "Review design system documentation",
+                    priority: 1
                 ),
                 isCompleted: .constant(false),
                 onTap: { print("Tapped") },
@@ -236,9 +244,12 @@ struct TodoListItem: View {
 
             TodoListItem(
                 entry: Entry(
-                    summary: "Schedule team meeting for next week",
+                    transcript: "",
+                    content: "Schedule team meeting for next week",
                     category: .todo,
-                    priority: 1
+                    sourceText: "",
+                    summary: "Schedule team meeting for next week",
+                    priority: 3
                 ),
                 isCompleted: .constant(true),
                 onTap: { print("Tapped") },
@@ -249,10 +260,13 @@ struct TodoListItem: View {
 
             TodoListItem(
                 entry: Entry(
-                    summary: "Update project README with installation instructions and getting started guide",
+                    transcript: "",
+                    content: "Update project README with installation instructions and getting started guide",
                     category: .todo,
+                    sourceText: "",
                     createdAt: Date().addingTimeInterval(-7200),
-                    priority: 0
+                    summary: "Update project README with installation instructions and getting started guide",
+                    priority: 5
                 ),
                 isCompleted: .constant(false),
                 onTap: { print("Tapped") },
@@ -275,9 +289,12 @@ struct TodoListItem: View {
 
         TodoListItem(
             entry: Entry(
-                summary: "Try swiping this todo item to the left",
+                transcript: "",
+                content: "Try swiping this todo item to the left",
                 category: .todo,
-                priority: 1
+                sourceText: "",
+                summary: "Try swiping this todo item to the left",
+                priority: 3
             ),
             isCompleted: .constant(false),
             onTap: { print("Tapped") },

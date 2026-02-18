@@ -1,4 +1,5 @@
 import SwiftUI
+import MurmurCore
 
 struct FilterChips: View {
     let filters: [Filter]

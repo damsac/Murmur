@@ -1,29 +1,25 @@
 import Foundation
 
-/// Orchestrates recording, transcription, extraction, and storage of entries.
+/// Orchestrates recording, transcription, and extraction — returns ExtractedEntry values.
+/// Stateless with respect to persistence: the caller owns all storage.
 @MainActor
 public final class Pipeline {
     private let transcriber: any Transcriber
     private let llm: any LLMService
-    private let store: EntryStore
 
     /// Conversation state from the most recent extraction session.
     /// Used by refine methods for multi-turn LLM context.
     public private(set) var currentConversation: LLMConversation?
 
-    public init(transcriber: any Transcriber, llm: any LLMService, store: EntryStore) {
+    public init(transcriber: any Transcriber, llm: any LLMService) {
         self.transcriber = transcriber
         self.llm = llm
-        self.store = store
     }
 
     // MARK: - Recording Flow
 
     /// Start recording audio
     public func startRecording() async throws {
-        guard await transcriber.isAvailable else {
-            throw PipelineError.transcriberUnavailable
-        }
         do {
             try await transcriber.startRecording()
         } catch {
@@ -31,7 +27,7 @@ public final class Pipeline {
         }
     }
 
-    /// Stop recording, transcribe, extract, and return entries WITHOUT saving.
+    /// Stop recording, transcribe, extract, and return entries.
     /// Creates a fresh conversation for subsequent refinement.
     public func stopRecording() async throws -> RecordingResult {
         guard await transcriber.isRecording else {
@@ -50,13 +46,7 @@ public final class Pipeline {
         }
 
         let conversation = LLMConversation()
-        let entries = try await extractAndMakeEntries(
-            from: transcript.text,
-            transcript: transcript.text,
-            source: .voice,
-            audioDuration: transcript.duration,
-            conversation: conversation
-        )
+        let entries = try await extractEntries(from: transcript.text, conversation: conversation)
         currentConversation = conversation
 
         return RecordingResult(entries: entries, transcript: transcript)
@@ -72,13 +62,7 @@ public final class Pipeline {
         }
 
         let conversation = LLMConversation()
-        let entries = try await extractAndMakeEntries(
-            from: text,
-            transcript: text,
-            source: .text,
-            audioDuration: nil,
-            conversation: conversation
-        )
+        let entries = try await extractEntries(from: text, conversation: conversation)
         currentConversation = conversation
 
         return TextResult(entries: entries, inputText: text)
@@ -107,13 +91,7 @@ public final class Pipeline {
             throw PipelineError.emptyTranscript
         }
 
-        let entries = try await extractAndMakeEntries(
-            from: transcript.text,
-            transcript: transcript.text,
-            source: .voice,
-            audioDuration: transcript.duration,
-            conversation: conversation
-        )
+        let entries = try await extractEntries(from: transcript.text, conversation: conversation)
 
         return RecordingResult(entries: entries, transcript: transcript)
     }
@@ -127,36 +105,9 @@ public final class Pipeline {
             throw PipelineError.emptyTranscript
         }
 
-        let entries = try await extractAndMakeEntries(
-            from: newInput,
-            transcript: newInput,
-            source: .text,
-            audioDuration: nil,
-            conversation: conversation
-        )
+        let entries = try await extractEntries(from: newInput, conversation: conversation)
 
         return TextResult(entries: entries, inputText: newInput)
-    }
-
-    // MARK: - Save
-
-    /// Persist entries from a RecordingResult into the store.
-    public func save(_ result: RecordingResult) throws {
-        try save(entries: result.entries)
-    }
-
-    /// Persist entries from a TextResult into the store.
-    public func save(_ result: TextResult) throws {
-        try save(entries: result.entries)
-    }
-
-    /// Persist a specific set of entries into the store.
-    public func save(entries: [Entry]) throws {
-        do {
-            try store.save(entries)
-        } catch {
-            throw PipelineError.storageFailed(underlying: error)
-        }
     }
 
     /// Check if currently recording
@@ -175,14 +126,11 @@ public final class Pipeline {
 
     // MARK: - Shared Extraction Helper
 
-    /// Extract entries via LLM and convert to Entry models.
-    private func extractAndMakeEntries(
+    /// Extract entries via LLM and return as ExtractedEntry values.
+    private func extractEntries(
         from text: String,
-        transcript: String,
-        source: EntrySource,
-        audioDuration: TimeInterval?,
         conversation: LLMConversation
-    ) async throws -> [Entry] {
+    ) async throws -> [ExtractedEntry] {
         let extractedEntries: [ExtractedEntry]
         do {
             extractedEntries = try await llm.extractEntries(from: text, conversation: conversation)
@@ -194,23 +142,7 @@ public final class Pipeline {
             throw PipelineError.noEntriesExtracted
         }
 
-        let now = Date()
-        return extractedEntries.map { extracted in
-            Entry(
-                transcript: transcript,
-                content: extracted.content,
-                category: extracted.category,
-                sourceText: extracted.sourceText,
-                createdAt: now,
-                updatedAt: now,
-                summary: extracted.summary,
-                priority: extracted.priority,
-                dueDateDescription: extracted.dueDateDescription,
-                dueDate: Entry.resolveDate(from: extracted.dueDateDescription),
-                audioDuration: audioDuration,
-                source: source
-            )
-        }
+        return extractedEntries
     }
 
 }
@@ -219,13 +151,13 @@ public final class Pipeline {
 
 /// The result of a completed recording session
 public struct RecordingResult {
-    /// Entries that were extracted (not yet saved — call Pipeline.save() to persist)
-    public let entries: [Entry]
+    /// Entries that were extracted
+    public let entries: [ExtractedEntry]
 
     /// The full transcript from the recording
     public let transcript: Transcript
 
-    public init(entries: [Entry], transcript: Transcript) {
+    public init(entries: [ExtractedEntry], transcript: Transcript) {
         self.entries = entries
         self.transcript = transcript
     }
@@ -233,13 +165,13 @@ public struct RecordingResult {
 
 /// The result of a text extraction
 public struct TextResult {
-    /// Entries that were extracted (not yet saved — call Pipeline.save() to persist)
-    public let entries: [Entry]
+    /// Entries that were extracted
+    public let entries: [ExtractedEntry]
 
     /// The original text input
     public let inputText: String
 
-    public init(entries: [Entry], inputText: String) {
+    public init(entries: [ExtractedEntry], inputText: String) {
         self.entries = entries
         self.inputText = inputText
     }
@@ -254,7 +186,6 @@ public enum PipelineError: LocalizedError, Sendable {
     case emptyTranscript
     case extractionFailed(underlying: any Error)
     case noEntriesExtracted
-    case storageFailed(underlying: any Error)
     case noActiveSession
 
     public var errorDescription: String? {
@@ -271,8 +202,6 @@ public enum PipelineError: LocalizedError, Sendable {
             return "Entry extraction failed: \(error.localizedDescription)"
         case .noEntriesExtracted:
             return "No entries were extracted from the transcript"
-        case .storageFailed(let error):
-            return "Failed to save entries: \(error.localizedDescription)"
         case .noActiveSession:
             return "No active extraction session to refine"
         }

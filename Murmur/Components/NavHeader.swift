@@ -31,7 +31,7 @@ struct NavHeader: View {
                 Button(action: { backAction?() }) {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.left")
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(.headline)
                             .foregroundStyle(Theme.Colors.accentPurple)
                     }
                     .frame(width: 44, height: 44)
@@ -54,7 +54,7 @@ struct NavHeader: View {
                 ForEach(trailingButtons) { button in
                     Button(action: button.action) {
                         Image(systemName: button.icon)
-                            .font(.system(size: 18, weight: .medium))
+                            .font(.headline.weight(.medium))
                             .foregroundStyle(Theme.Colors.accentPurple)
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())

@@ -1,4 +1,5 @@
 import SwiftUI
+import MurmurCore
 
 struct EntryDetailView: View {
     @Environment(AppState.self) private var appState
@@ -38,9 +39,9 @@ struct EntryDetailView: View {
                         CategoryBadge(category: entry.category, size: .medium)
                             .padding(.bottom, 24)
 
-                        // Thought text
-                        Text(entry.summary)
-                            .font(.system(size: 20, weight: .regular))
+                        // Content text
+                        Text(entry.content.isEmpty ? entry.summary : entry.content)
+                            .font(.title3)
                             .tracking(-0.01)
                             .lineSpacing(6)
                             .foregroundStyle(Theme.Colors.textPrimary)
@@ -50,9 +51,9 @@ struct EntryDetailView: View {
                         Button(action: onTellMeMore) {
                             HStack(spacing: 8) {
                                 Image(systemName: "plus.circle")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(Theme.Typography.bodyMedium)
                                 Text("Tell me more")
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(.subheadline.weight(.medium))
                             }
                             .foregroundStyle(Theme.Colors.accentPurpleLight)
                             .padding(.horizontal, 18)
@@ -75,25 +76,8 @@ struct EntryDetailView: View {
                             .frame(height: 1)
                             .padding(.bottom, 20)
 
-                        // Footer row (tags + metadata)
+                        // Footer row (metadata)
                         HStack(alignment: .center) {
-                            // Tags
-                            if !entry.tags.isEmpty {
-                                HStack(spacing: 8) {
-                                    ForEach(entry.tags, id: \.self) { tag in
-                                        Text(tag)
-                                            .font(.system(size: 13, weight: .medium))
-                                            .foregroundStyle(Theme.Colors.textTertiary)
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 5)
-                                            .background(
-                                                RoundedRectangle(cornerRadius: 24)
-                                                    .fill(Theme.Colors.bgCard)
-                                            )
-                                    }
-                                }
-                            }
-
                             Spacer()
 
                             // Metadata
@@ -116,7 +100,7 @@ struct EntryDetailView: View {
                         Button(action: onViewTranscript) {
                             HStack(spacing: 6) {
                                 Image(systemName: "doc.text")
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(.subheadline.weight(.medium))
                                 Text("View transcript")
                                     .font(Theme.Typography.caption)
                             }
@@ -150,8 +134,10 @@ struct EntryDetailView: View {
     }
 
     private var formattedDuration: String {
-        // Mock duration - in real app this would come from audio recording
-        return "0:42"
+        guard let duration = entry.audioDuration else { return "text" }
+        let minutes = Int(duration) / 60
+        let seconds = Int(duration) % 60
+        return String(format: "%d:%02d", minutes, seconds)
     }
 }
 
@@ -211,11 +197,11 @@ private struct ActionButton: View {
         Button(action: action) {
             VStack(spacing: 5) {
                 Image(systemName: icon)
-                    .font(.system(size: 22, weight: .regular))
+                    .font(.title2)
                     .foregroundStyle(color)
 
                 Text(label)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.caption2.weight(.medium))
                     .foregroundStyle(color)
             }
             .frame(minWidth: 80)
@@ -235,10 +221,11 @@ private struct ActionButton: View {
 
     EntryDetailView(
         entry: Entry(
-            summary: "An app that scans your grocery receipt and suggests meals based on what you actually bought.",
+            transcript: "",
+            content: "An app that scans your grocery receipt and suggests meals based on what you actually bought.",
             category: .idea,
-            tags: ["app-idea", "food"],
-            aiGenerated: true
+            sourceText: "",
+            summary: "An app that scans your grocery receipt and suggests meals based on what you actually bought."
         ),
         onBack: { print("Back") },
         onEdit: { print("Edit") },
@@ -256,11 +243,12 @@ private struct ActionButton: View {
 
     EntryDetailView(
         entry: Entry(
-            summary: "Review the new design system and provide detailed feedback to the team by end of week",
+            transcript: "",
+            content: "Review the new design system and provide detailed feedback to the team by end of week",
             category: .todo,
-            priority: 2,
-            tags: ["design", "work"],
-            aiGenerated: true
+            sourceText: "",
+            summary: "Review the new design system and provide detailed feedback to the team by end of week",
+            priority: 1
         ),
         onBack: { print("Back") },
         onEdit: { print("Edit") },
@@ -278,10 +266,11 @@ private struct ActionButton: View {
 
     EntryDetailView(
         entry: Entry(
-            summary: "The best interfaces are invisible - they get out of the way and let users focus on their task without distraction.",
-            category: .insight,
-            tags: ["ux", "design-philosophy"],
-            aiGenerated: true
+            transcript: "",
+            content: "The best interfaces are invisible - they get out of the way and let users focus on their task without distraction.",
+            category: .thought,
+            sourceText: "",
+            summary: "The best interfaces are invisible - they get out of the way and let users focus on their task without distraction."
         ),
         onBack: { print("Back") },
         onEdit: { print("Edit") },

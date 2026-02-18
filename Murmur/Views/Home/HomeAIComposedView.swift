@@ -1,4 +1,5 @@
 import SwiftUI
+import MurmurCore
 
 struct HomeAIComposedView: View {
     @Environment(AppState.self) private var appState
@@ -15,7 +16,7 @@ struct HomeAIComposedView: View {
             // Header
             VStack(spacing: 2) {
                 Text("Murmur")
-                    .font(.system(size: 32, weight: .bold))
+                    .font(.largeTitle.weight(.bold))
                     .tracking(-0.5)
                     .foregroundStyle(Theme.Colors.textPrimary)
 
@@ -26,17 +27,6 @@ struct HomeAIComposedView: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 16)
             .padding(.bottom, 4)
-
-            // Token balance
-            HStack {
-                Spacer()
-                TokenBalanceLabel(
-                    balance: appState.creditBalance,
-                    showWarning: appState.creditBalance < 100
-                )
-            }
-            .padding(.horizontal, Theme.Spacing.screenPadding)
-            .padding(.bottom, 16)
 
             // Scrollable cards
             ScrollView {
@@ -78,8 +68,8 @@ struct HomeAIComposedView: View {
             cards.append(.todoCount(todoCount))
         }
 
-        // Daily habit card (if any learning entries exist, show as habit)
-        if let habit = entries.filter({ $0.category == .learning }).first {
+        // Daily habit card
+        if let habit = entries.filter({ $0.category == .habit }).first {
             cards.append(.habit(habit))
         }
 
@@ -135,7 +125,7 @@ private struct ReminderCard: View {
             // Header
             HStack {
                 Text("DON'T FORGET")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.caption.weight(.semibold))
                     .tracking(0.8)
                     .foregroundStyle(Theme.Colors.textSecondary)
 
@@ -147,7 +137,7 @@ private struct ReminderCard: View {
                         .frame(width: 32, height: 32)
 
                     Image(systemName: "clock.fill")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(Theme.Typography.bodyMedium)
                         .foregroundStyle(Theme.Colors.accentYellow)
                 }
             }
@@ -155,14 +145,14 @@ private struct ReminderCard: View {
 
             // Title
             Text(entry.summary)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.headline)
                 .foregroundStyle(Theme.Colors.textPrimary)
                 .lineLimit(2)
 
             // Due date
             if let dueDate = entry.dueDate {
                 Text(dueText(for: dueDate))
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(Theme.Colors.accentYellow)
                     .padding(.top, 6)
             }
@@ -198,16 +188,16 @@ private struct TodoCountCard: View {
                     .frame(width: 32, height: 32)
 
                 Image(systemName: "checkmark")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.body.weight(.bold))
                     .foregroundStyle(Theme.Colors.accentPurple)
             }
 
             Text("\(count)")
-                .font(.system(size: 28, weight: .bold))
+                .font(Theme.Typography.title)
                 .foregroundStyle(Theme.Colors.textPrimary)
 
             Text("todos remaining")
-                .font(.system(size: 14))
+                .font(.subheadline)
                 .foregroundStyle(Theme.Colors.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -225,7 +215,7 @@ private struct HabitCard: View {
             // Header
             HStack {
                 Text("DAILY HABIT")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.caption.weight(.semibold))
                     .tracking(0.8)
                     .foregroundStyle(Theme.Colors.textSecondary)
 
@@ -237,7 +227,7 @@ private struct HabitCard: View {
                         .frame(width: 32, height: 32)
 
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(Theme.Typography.bodyMedium)
                         .foregroundStyle(Theme.Colors.accentGreen)
                 }
             }
@@ -245,14 +235,14 @@ private struct HabitCard: View {
 
             // Title
             Text(entry.summary)
-                .font(.system(size: 16, weight: .semibold))
+                .font(.body.weight(.semibold))
                 .foregroundStyle(Theme.Colors.textPrimary)
                 .lineLimit(2)
                 .padding(.bottom, 4)
 
             // Streak
             Text("7 day streak")
-                .font(.system(size: 14, weight: .medium))
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(Theme.Colors.accentGreen)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -270,7 +260,7 @@ private struct IdeasCard: View {
             // Header
             HStack {
                 Text("IDEAS")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.caption.weight(.semibold))
                     .tracking(0.8)
                     .foregroundStyle(Theme.Colors.textSecondary)
 
@@ -282,7 +272,7 @@ private struct IdeasCard: View {
                         .frame(width: 32, height: 32)
 
                     Image(systemName: "lightbulb.fill")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(Theme.Typography.bodyMedium)
                         .foregroundStyle(Theme.Colors.accentYellow)
                 }
             }
@@ -298,7 +288,7 @@ private struct IdeasCard: View {
                             .padding(.top, 7)
 
                         Text(entry.summary)
-                            .font(.system(size: 15))
+                            .font(.subheadline)
                             .foregroundStyle(Theme.Colors.textPrimary)
                             .lineLimit(2)
                     }
@@ -323,37 +313,49 @@ private struct IdeasCard: View {
         inputText: $inputText,
         entries: [
             Entry(
-                summary: "DMV appointment Thursday",
+                transcript: "",
+                content: "DMV appointment Thursday",
                 category: .reminder,
-                dueDate: Calendar.current.date(byAdding: .day, value: 2, to: Date()),
-                aiGenerated: true
+                sourceText: "",
+                summary: "DMV appointment Thursday",
+                dueDate: Calendar.current.date(byAdding: .day, value: 2, to: Date())
             ),
             Entry(
+                transcript: "",
+                content: "Review design system and provide feedback",
+                category: .todo,
+                sourceText: "",
                 summary: "Review design system and provide feedback",
-                category: .todo,
-                priority: 2,
-                aiGenerated: true
+                priority: 1
             ),
             Entry(
+                transcript: "",
+                content: "Call dentist about appointment",
+                category: .todo,
+                sourceText: "",
                 summary: "Call dentist about appointment",
+                priority: 3
+            ),
+            Entry(
+                transcript: "",
+                content: "Meditate for 10 minutes",
                 category: .todo,
-                priority: 1,
-                aiGenerated: true
+                sourceText: "",
+                summary: "Meditate for 10 minutes"
             ),
             Entry(
-                summary: "Meditate for 10 minutes",
-                category: .todo,
-                aiGenerated: true
-            ),
-            Entry(
-                summary: "Voice-controlled home garden watering system",
+                transcript: "",
+                content: "Voice-controlled home garden watering system",
                 category: .idea,
-                aiGenerated: true
+                sourceText: "",
+                summary: "Voice-controlled home garden watering system"
             ),
             Entry(
-                summary: "App that turns grocery receipts into meal plans",
+                transcript: "",
+                content: "App that turns grocery receipts into meal plans",
                 category: .idea,
-                aiGenerated: true
+                sourceText: "",
+                summary: "App that turns grocery receipts into meal plans"
             )
         ],
         onMicTap: { print("Mic tapped") },

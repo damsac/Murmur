@@ -12,3 +12,6 @@ settings:
 
     # REQUIRED: App Group identifier for shared data
     APP_GROUP_IDENTIFIER: group.com.damsac.murmur.shared
+
+    # OPTIONAL: PPQ.ai API key for LLM extraction
+    PPQ_API_KEY: ""

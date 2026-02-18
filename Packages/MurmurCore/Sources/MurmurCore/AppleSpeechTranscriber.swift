@@ -55,6 +55,13 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
 
         recognitionRequest.shouldReportPartialResults = true
 
+        // Configure audio session before accessing audio engine
+        #if !os(macOS)
+        let audioSession = AVAudioSession.sharedInstance()
+        try audioSession.setCategory(.playAndRecord, mode: .measurement, options: .duckOthers)
+        try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        #endif
+
         // Configure audio engine input
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)

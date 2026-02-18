@@ -1,8 +1,9 @@
 import SwiftUI
+import MurmurCore
 
 struct ProcessingView: View {
     @Environment(AppState.self) private var appState
-    let entries: [Entry]
+    let entries: [ExtractedEntry]
     let transcript: String?
 
     var body: some View {
@@ -18,11 +19,12 @@ struct ProcessingView: View {
 
     ProcessingView(
         entries: [
-            Entry(
-                summary: "Review the new design system and provide feedback to the team by end of week",
+            ExtractedEntry(
+                content: "Review the new design system and provide feedback to the team by end of week",
                 category: .todo,
-                priority: 2,
-                aiGenerated: true
+                sourceText: "",
+                summary: "Review the new design system and provide feedback to the team by end of week",
+                priority: 1
             )
         ],
         transcript: "Review the design system and provide feedback"
@@ -35,22 +37,25 @@ struct ProcessingView: View {
 
     ProcessingView(
         entries: [
-            Entry(
-                summary: "Review the new design system and provide feedback to the team",
+            ExtractedEntry(
+                content: "Review the new design system and provide feedback to the team",
                 category: .todo,
-                priority: 2,
-                aiGenerated: true
+                sourceText: "",
+                summary: "Review the new design system and provide feedback to the team",
+                priority: 1
             ),
-            Entry(
-                summary: "The best interfaces are invisible - they get out of the way",
-                category: .insight,
-                aiGenerated: true
+            ExtractedEntry(
+                content: "The best interfaces are invisible - they get out of the way",
+                category: .thought,
+                sourceText: "",
+                summary: "The best interfaces are invisible - they get out of the way"
             ),
-            Entry(
-                summary: "Build a browser extension for quick voice notes",
+            ExtractedEntry(
+                content: "Build a browser extension for quick voice notes",
                 category: .idea,
-                priority: 1,
-                aiGenerated: true
+                sourceText: "",
+                summary: "Build a browser extension for quick voice notes",
+                priority: 3
             )
         ],
         transcript: nil

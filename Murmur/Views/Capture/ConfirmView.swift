@@ -1,11 +1,12 @@
 import SwiftUI
+import MurmurCore
 
 struct ConfirmView: View {
     @Environment(AppState.self) private var appState
-    let entries: [Entry]
+    let entries: [ExtractedEntry]
     let onAccept: () -> Void
-    let onVoiceCorrect: (Entry) -> Void
-    let onDiscard: (Entry) -> Void
+    let onVoiceCorrect: (ExtractedEntry) -> Void
+    let onDiscard: (ExtractedEntry) -> Void
 
     var body: some View {
         ZStack {
@@ -47,7 +48,7 @@ struct ConfirmView: View {
                     Button(action: onAccept) {
                         HStack(spacing: 10) {
                             Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 18, weight: .semibold))
+                                .font(.headline)
                             Text("Accept \(entries.count) \(entries.count == 1 ? "entry" : "entries")")
                                 .font(Theme.Typography.bodyMedium)
                         }
@@ -76,14 +77,10 @@ struct ConfirmView: View {
                     }
                     .buttonStyle(.plain)
 
-                    // Token cost
-                    HStack(spacing: 6) {
-                        Image(systemName: "circle.fill")
-                            .font(.system(size: 6))
-                        Text("Total cost: \(entries.reduce(0) { $0 + $1.tokenCost }) tokens")
-                            .font(Theme.Typography.caption)
-                    }
-                    .foregroundStyle(Theme.Colors.textTertiary)
+                    // Entry count
+                    Text("\(entries.count) \(entries.count == 1 ? "entry" : "entries") extracted")
+                        .font(Theme.Typography.caption)
+                        .foregroundStyle(Theme.Colors.textTertiary)
                 }
                 .padding(.horizontal, Theme.Spacing.screenPadding)
                 .padding(.bottom, 40)
@@ -97,11 +94,12 @@ struct ConfirmView: View {
 
     ConfirmView(
         entries: [
-            Entry(
-                summary: "Review the new design system and provide feedback to the team by end of week",
+            ExtractedEntry(
+                content: "Review the new design system and provide feedback to the team by end of week",
                 category: .todo,
-                priority: 2,
-                aiGenerated: true
+                sourceText: "",
+                summary: "Review the new design system and provide feedback to the team by end of week",
+                priority: 1
             )
         ],
         onAccept: { print("Accept") },
@@ -116,22 +114,25 @@ struct ConfirmView: View {
 
     ConfirmView(
         entries: [
-            Entry(
-                summary: "Review the new design system and provide feedback to the team",
+            ExtractedEntry(
+                content: "Review the new design system and provide feedback to the team",
                 category: .todo,
-                priority: 2,
-                aiGenerated: true
+                sourceText: "",
+                summary: "Review the new design system and provide feedback to the team",
+                priority: 1
             ),
-            Entry(
-                summary: "The best interfaces are invisible - they get out of the way",
-                category: .insight,
-                aiGenerated: true
+            ExtractedEntry(
+                content: "The best interfaces are invisible - they get out of the way",
+                category: .thought,
+                sourceText: "",
+                summary: "The best interfaces are invisible - they get out of the way"
             ),
-            Entry(
-                summary: "Build a browser extension for quick voice notes",
+            ExtractedEntry(
+                content: "Build a browser extension for quick voice notes",
                 category: .idea,
-                priority: 1,
-                aiGenerated: true
+                sourceText: "",
+                summary: "Build a browser extension for quick voice notes",
+                priority: 3
             )
         ],
         onAccept: { print("Accept") },

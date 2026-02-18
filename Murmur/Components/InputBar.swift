@@ -35,7 +35,7 @@ struct InputBar: View {
                         }
                     }) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 18))
+                            .font(.headline)
                             .foregroundStyle(Theme.Colors.textTertiary)
                     }
                     .buttonStyle(.plain)

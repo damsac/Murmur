@@ -1,4 +1,5 @@
 import SwiftUI
+import MurmurCore
 
 struct LiveFeedRecordingView: View {
     @Environment(AppState.self) private var appState
@@ -35,7 +36,7 @@ struct LiveFeedRecordingView: View {
                         .modifier(LivePulse())
 
                     Text("LIVE")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.caption2.weight(.bold))
                         .tracking(1.2)
                         .foregroundStyle(Theme.Colors.accentGreen)
                 }
@@ -53,7 +54,7 @@ struct LiveFeedRecordingView: View {
 
                 // Duration
                 Text(formattedTime)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .monospacedDigit()
                     .tracking(1)
@@ -70,7 +71,7 @@ struct LiveFeedRecordingView: View {
                 // Live transcript
                 HStack(spacing: 2) {
                     Text(transcript)
-                        .font(.system(size: 15))
+                        .font(.subheadline)
                         .foregroundStyle(Theme.Colors.textPrimary.opacity(0.6))
                         .lineLimit(2)
                         .multilineTextAlignment(.center)
@@ -107,7 +108,7 @@ struct LiveFeedRecordingView: View {
                         Text("\(inputTokens) in")
                             .foregroundStyle(Theme.Colors.textTertiary)
                     }
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Theme.Typography.label)
                     .monospacedDigit()
                     .tracking(0.3)
 
@@ -121,7 +122,7 @@ struct LiveFeedRecordingView: View {
                         Text("\(outputTokens) out")
                             .foregroundStyle(Theme.Colors.textTertiary)
                     }
-                    .font(.system(size: 12, weight: .medium))
+                    .font(Theme.Typography.label)
                     .monospacedDigit()
                     .tracking(0.3)
                 }
@@ -129,7 +130,7 @@ struct LiveFeedRecordingView: View {
 
                 // Stop hint
                 Text("Tap to stop")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.subheadline.weight(.medium))
                     .foregroundStyle(Theme.Colors.textTertiary)
 
                 Spacer()
@@ -151,7 +152,8 @@ struct LiveFeedRecordingView: View {
 
     private func startSimulation() {
         // Add initial item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        Task {
+            try? await Task.sleep(for: .seconds(0.3))
             materializedItems.append(MaterializedItem(
                 category: .todo,
                 summary: "Pick up dry cleaning before 6pm"
@@ -159,7 +161,8 @@ struct LiveFeedRecordingView: View {
         }
 
         // Add second item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+        Task {
+            try? await Task.sleep(for: .seconds(1.6))
             materializedItems.append(MaterializedItem(
                 category: .reminder,
                 summary: "DMV appointment Thursday"
@@ -238,13 +241,13 @@ private struct MaterializedItemCard: View {
 
             // Category label
             Text(item.category.displayName.uppercased())
-                .font(.system(size: 11, weight: .bold))
+                .font(.caption2.weight(.bold))
                 .tracking(0.6)
                 .foregroundStyle(Theme.categoryColor(item.category))
 
             // Summary
             Text(item.summary)
-                .font(.system(size: 14, weight: .medium))
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(Theme.Colors.textPrimary)
                 .lineLimit(1)
 

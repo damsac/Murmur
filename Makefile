@@ -3,32 +3,45 @@ SCHEME := Murmur
 SIM_NAME := iPhone 17 Pro
 DESTINATION := platform=iOS Simulator,name=$(SIM_NAME),OS=latest
 BUNDLE_ID := $(shell grep 'PRODUCT_BUNDLE_IDENTIFIER_MURMUR:' project.local.yml 2>/dev/null | awk '{print $$2}')
-# Read APP_GROUP_IDENTIFIER from project.local.yml (required)
 APP_GROUP := $(shell grep 'APP_GROUP_IDENTIFIER:' project.local.yml 2>/dev/null | awk '{print $$2}')
 ENTITLEMENTS := Murmur/Murmur.entitlements
 
-# MurmurCore local package (uses swift-clean to bypass Nix SDK)
 CORE_DIR := Packages/MurmurCore
 SWIFT_CLEAN := $(CORE_DIR)/swift-clean
 
-.PHONY: generate build test run lint clean setup help
+.PHONY: help setup generate build test run lint clean
+.PHONY: sim-boot sim-shutdown sim-list sim-screenshot
 .PHONY: core-build core-test core-repl core-scenarios core-clean
 
-generate: ## Generate Xcode project and validate entitlements
+## ── Setup ────────────────────────────────────────────
+
+setup: ## First-time setup: check tools, copy config template
+	@echo "Checking dev tools..."
+	@command -v xcodegen >/dev/null 2>&1 || { echo "ERROR: xcodegen not found — run 'direnv allow'" >&2; exit 1; }
+	@command -v swiftlint >/dev/null 2>&1 || { echo "ERROR: swiftlint not found — run 'direnv allow'" >&2; exit 1; }
+	@command -v xcbeautify >/dev/null 2>&1 || { echo "ERROR: xcbeautify not found — run 'direnv allow'" >&2; exit 1; }
+	@echo "All dev tools available."
 	@if [ ! -f project.local.yml ]; then \
-		echo "ERROR: project.local.yml not found" >&2; \
-		echo "Copy project.local.yml.template to project.local.yml and configure your settings" >&2; \
+		cp project.local.yml.template project.local.yml; \
+		echo "Created project.local.yml — edit it with your Team ID and settings."; \
+	else \
+		echo "project.local.yml already exists."; \
+	fi
+
+## ── App (Xcode) ──────────────────────────────────────
+
+generate: ## Generate Xcode project from project.yml
+	@if [ ! -f project.local.yml ]; then \
+		echo "ERROR: project.local.yml not found. Run 'make setup' first." >&2; \
 		exit 1; \
 	fi
 	@if [ -z "$(APP_GROUP)" ]; then \
 		echo "ERROR: APP_GROUP_IDENTIFIER not set in project.local.yml" >&2; \
-		echo "Set APP_GROUP_IDENTIFIER in project.local.yml (e.g., group.com.yourusername.murmur.shared)" >&2; \
 		exit 1; \
 	fi
 	xcodegen generate
 	@if ! grep -q '$(APP_GROUP)' "$(ENTITLEMENTS)" 2>/dev/null; then \
-		echo "ERROR: $(ENTITLEMENTS) missing App Group identifier '$(APP_GROUP)'" >&2; \
-		echo "Check project.yml entitlements.properties." >&2; \
+		echo "ERROR: $(ENTITLEMENTS) missing App Group '$(APP_GROUP)'" >&2; \
 		exit 1; \
 	fi
 	@echo "Project generated — entitlements validated."
@@ -47,10 +60,7 @@ test: generate ## Run unit tests on simulator
 
 run: build ## Build, install, and launch on simulator
 	@SIM_ID=$$(xcrun simctl list devices available | grep '$(SIM_NAME) (' | head -1 | grep -oE '[0-9A-F-]{36}') && \
-	if [ -z "$$SIM_ID" ]; then \
-		echo "ERROR: Simulator '$(SIM_NAME)' not found" >&2; \
-		exit 1; \
-	fi && \
+	if [ -z "$$SIM_ID" ]; then echo "ERROR: Simulator '$(SIM_NAME)' not found" >&2; exit 1; fi && \
 	xcrun simctl boot "$$SIM_ID" 2>/dev/null || true && \
 	open -a Simulator && \
 	APP_PATH=$$(xcodebuild -scheme $(SCHEME) -destination '$(DESTINATION)' -showBuildSettings 2>/dev/null \
@@ -62,22 +72,33 @@ run: build ## Build, install, and launch on simulator
 lint: ## Lint Swift sources
 	swiftlint lint Murmur/
 
-clean: ## Remove build artifacts
+clean: ## Remove Xcode build artifacts
 	xcodebuild clean -scheme $(SCHEME) 2>/dev/null || true
 	rm -rf build/ DerivedData/
 
-setup: ## Configure git hooks and check tool availability
-	@echo "Checking dev tools..."
-	@command -v xcodegen >/dev/null 2>&1 || { echo "ERROR: xcodegen not found — enter the dev shell (direnv allow)" >&2; exit 1; }
-	@command -v swiftlint >/dev/null 2>&1 || { echo "ERROR: swiftlint not found — enter the dev shell (direnv allow)" >&2; exit 1; }
-	@command -v xcbeautify >/dev/null 2>&1 || { echo "ERROR: xcbeautify not found — enter the dev shell (direnv allow)" >&2; exit 1; }
-	@echo "All dev tools available."
-	@if [ -d .git ]; then \
-		echo "Git hooks are managed by the Nix dev shell (shellHook)."; \
-		echo "Run 'direnv allow' or 'nix develop' to install them."; \
-	fi
+## ── Simulator ────────────────────────────────────────
 
-## ── MurmurCore package ──────────────────────────────
+sim-boot: ## Boot the iOS simulator
+	@SIM_ID=$$(xcrun simctl list devices available | grep '$(SIM_NAME) (' | head -1 | grep -oE '[0-9A-F-]{36}') && \
+	if [ -z "$$SIM_ID" ]; then echo "ERROR: Simulator '$(SIM_NAME)' not found" >&2; exit 1; fi && \
+	xcrun simctl boot "$$SIM_ID" 2>/dev/null || true && \
+	open -a Simulator && \
+	echo "Simulator booted: $(SIM_NAME) ($$SIM_ID)"
+
+sim-shutdown: ## Shutdown all running simulators
+	xcrun simctl shutdown all
+	@echo "All simulators shut down."
+
+sim-list: ## List available iOS simulators
+	@xcrun simctl list devices available | grep -i iphone
+
+sim-screenshot: ## Take a screenshot of the running simulator
+	@mkdir -p screenshots
+	@FILENAME="screenshots/sim-$$(date +%Y%m%d-%H%M%S).png" && \
+	xcrun simctl io booted screenshot "$$FILENAME" && \
+	echo "Screenshot saved: $$FILENAME"
+
+## ── MurmurCore (SPM) ─────────────────────────────────
 
 core-build: ## Build MurmurCore package
 	cd $(CORE_DIR) && $(CURDIR)/$(SWIFT_CLEAN) build
@@ -94,6 +115,12 @@ core-scenarios: core-build ## Run LLM scenario tests (needs PPQ_API_KEY)
 core-clean: ## Clean MurmurCore build artifacts
 	cd $(CORE_DIR) && $(CURDIR)/$(SWIFT_CLEAN) package clean
 
+## ── Help ─────────────────────────────────────────────
+
 help: ## Show available targets
+	@echo ""
+	@echo "  Murmur development commands"
+	@echo "  ─────────────────────────────────────"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+	@echo ""

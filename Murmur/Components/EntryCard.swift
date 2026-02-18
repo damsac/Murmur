@@ -1,4 +1,5 @@
 import SwiftUI
+import MurmurCore
 
 struct EntryCard: View {
     let entry: Entry
@@ -53,28 +54,17 @@ struct EntryCard: View {
                     // Time ago
                     HStack(spacing: 4) {
                         Image(systemName: "clock")
-                            .font(.system(size: 11))
+                            .font(.caption2)
                         Text(timeAgo)
                             .font(Theme.Typography.label)
                     }
                     .foregroundStyle(Theme.Colors.textTertiary)
 
-                    // Tags (if any)
-                    if !entry.tags.isEmpty {
-                        HStack(spacing: 4) {
-                            Image(systemName: "tag")
-                                .font(.system(size: 11))
-                            Text("\(entry.tags.count)")
-                                .font(Theme.Typography.label)
-                        }
-                        .foregroundStyle(Theme.Colors.textTertiary)
-                    }
-
                     // Priority indicator (if high)
-                    if entry.priority == 2 {
+                    if entry.priority.map({ $0 <= 2 }) ?? false {
                         HStack(spacing: 4) {
                             Image(systemName: "exclamationmark.circle.fill")
-                                .font(.system(size: 11))
+                                .font(.caption2)
                             Text("High")
                                 .font(Theme.Typography.label)
                         }
@@ -82,18 +72,13 @@ struct EntryCard: View {
                     }
 
                     Spacer()
-
-                    // AI-generated badge
-                    if entry.aiGenerated {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Theme.Colors.accentPurple)
-                    }
                 }
             }
             .cardStyle()
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Entry: \(entry.summary)")
     }
 }
 
@@ -144,7 +129,7 @@ struct ReminderEntryCard: View {
                 if let dueText {
                     HStack(spacing: 6) {
                         Image(systemName: "calendar")
-                            .font(.system(size: 12))
+                            .font(.caption2)
                         Text(dueText)
                             .font(Theme.Typography.label)
                             .fontWeight(.medium)
@@ -155,6 +140,8 @@ struct ReminderEntryCard: View {
             .reminderCardStyle()
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Reminder: \(entry.summary)")
     }
 }
 
@@ -163,44 +150,50 @@ struct ReminderEntryCard: View {
         VStack(spacing: 16) {
             EntryCard(
                 entry: Entry(
-                    summary: "Review the new design system and provide feedback to the team",
+                    transcript: "",
+                    content: "Review the new design system and provide feedback to the team",
                     category: .todo,
-                    priority: 2,
-                    tags: ["design", "urgent"],
-                    aiGenerated: true
+                    sourceText: "",
+                    summary: "Review the new design system and provide feedback to the team",
+                    priority: 1
                 ),
                 onTap: { print("Tapped") }
             )
 
             EntryCard(
                 entry: Entry(
-                    summary: "The best interfaces are invisible - they get out of the way and let users focus on their work",
-                    category: .insight,
+                    transcript: "",
+                    content: "The best interfaces are invisible - they get out of the way and let users focus on their work",
+                    category: .thought,
+                    sourceText: "",
                     createdAt: Date().addingTimeInterval(-3600),
-                    aiGenerated: false
+                    summary: "The best interfaces are invisible - they get out of the way and let users focus on their work"
                 ),
                 onTap: { print("Tapped") }
             )
 
             EntryCard(
                 entry: Entry(
-                    summary: "Build a browser extension for quick voice notes",
+                    transcript: "",
+                    content: "Build a browser extension for quick voice notes",
                     category: .idea,
+                    sourceText: "",
                     createdAt: Date().addingTimeInterval(-7200),
-                    tags: ["extension"],
-                    aiGenerated: true
+                    summary: "Build a browser extension for quick voice notes"
                 ),
                 onTap: { print("Tapped") }
             )
 
             ReminderEntryCard(
                 entry: Entry(
-                    summary: "Submit quarterly report to management",
+                    transcript: "",
+                    content: "Submit quarterly report to management",
                     category: .reminder,
+                    sourceText: "",
                     createdAt: Date().addingTimeInterval(-1800),
-                    dueDate: Date().addingTimeInterval(86400),
-                    priority: 2,
-                    aiGenerated: true
+                    summary: "Submit quarterly report to management",
+                    priority: 1,
+                    dueDate: Date().addingTimeInterval(86400)
                 ),
                 onTap: { print("Tapped") }
             )

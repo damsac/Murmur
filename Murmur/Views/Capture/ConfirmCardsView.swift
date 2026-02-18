@@ -1,4 +1,5 @@
 import SwiftUI
+import MurmurCore
 
 struct ConfirmCardsView: View {
     @Environment(AppState.self) private var appState
@@ -24,13 +25,13 @@ struct ConfirmCardsView: View {
                     // Progress row
                     HStack {
                         Text("Item ")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Theme.Colors.textSecondary)
                         + Text("\(currentIndex + 1)")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Theme.Colors.textPrimary)
                         + Text(" of \(items.count)")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Theme.Colors.textSecondary)
 
                         Spacer()
@@ -57,15 +58,15 @@ struct ConfirmCardsView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(spacing: 6) {
                                 Image(systemName: "mic")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(.caption2.weight(.semibold))
                                 Text("ORIGINAL TRANSCRIPT")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(.caption2.weight(.semibold))
                                     .tracking(0.6)
                             }
                             .foregroundStyle(Theme.Colors.textTertiary)
 
                             Text("\"\(transcript)\"")
-                                .font(.system(size: 13))
+                                .font(Theme.Typography.caption)
                                 .foregroundStyle(Theme.Colors.textSecondary)
                                 .lineLimit(showTranscript ? nil : 2)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -136,7 +137,7 @@ struct ConfirmCardsView: View {
                                     .frame(width: 52, height: 52)
 
                                 Image(systemName: "xmark")
-                                    .font(.system(size: 22, weight: .medium))
+                                    .font(.title2.weight(.medium))
                                     .foregroundStyle(Theme.Colors.accentRed)
                             }
                         }
@@ -161,7 +162,7 @@ struct ConfirmCardsView: View {
                                     .shadow(color: Theme.Colors.accentPurple.opacity(0.35), radius: 20, y: 4)
 
                                 Image(systemName: "checkmark")
-                                    .font(.system(size: 28, weight: .bold))
+                                    .font(Theme.Typography.title)
                                     .foregroundStyle(Theme.Colors.textPrimary)
                             }
                         }
@@ -181,7 +182,7 @@ struct ConfirmCardsView: View {
                                     .frame(width: 52, height: 52)
 
                                 Image(systemName: "mic")
-                                    .font(.system(size: 20, weight: .medium))
+                                    .font(.title3.weight(.medium))
                                     .foregroundStyle(Theme.Colors.accentYellow)
                             }
                         }
@@ -191,17 +192,17 @@ struct ConfirmCardsView: View {
                     // Labels
                     HStack(spacing: 20) {
                         Text("Discard")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.caption2.weight(.medium))
                             .foregroundStyle(Theme.Colors.textTertiary)
                             .frame(width: 52)
 
                         Text("Accept")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.caption2.weight(.medium))
                             .foregroundStyle(Theme.Colors.textSecondary)
                             .frame(width: 68)
 
                         Text("Correct")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.caption2.weight(.medium))
                             .foregroundStyle(Theme.Colors.textTertiary)
                             .frame(width: 52)
                     }
@@ -245,7 +246,7 @@ private struct ConfirmCardContent: View {
                     .frame(width: 7, height: 7)
 
                 Text(item.category.displayName.uppercased())
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(Theme.Typography.badge)
                     .tracking(0.8)
                     .foregroundStyle(Theme.categoryColor(item.category))
             }
@@ -259,7 +260,7 @@ private struct ConfirmCardContent: View {
 
             // Summary
             Text(item.summary)
-                .font(.system(size: 22, weight: .semibold))
+                .font(Theme.Typography.navTitle)
                 .tracking(-0.3)
                 .foregroundStyle(Theme.Colors.textPrimary)
                 .lineSpacing(4)
@@ -312,12 +313,12 @@ private struct MetadataRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(label)
-                .font(.system(size: 13))
+                .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.Colors.textTertiary)
                 .frame(width: 60, alignment: .leading)
 
             Text(value)
-                .font(.system(size: 13, weight: .medium))
+                .font(.caption.weight(.medium))
                 .foregroundStyle(isAccent ? Theme.Colors.accentYellow : Theme.Colors.textPrimary)
         }
         .padding(.top, 8)

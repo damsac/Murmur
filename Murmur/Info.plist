@@ -24,6 +24,8 @@
 	<string>Murmur uses the microphone to capture your voice notes and turn them into organized entries.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Murmur uses speech recognition to transcribe your voice notes.</string>
+	<key>PPQAPIKey</key>
+	<string>$(PPQ_API_KEY)</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 </dict>
