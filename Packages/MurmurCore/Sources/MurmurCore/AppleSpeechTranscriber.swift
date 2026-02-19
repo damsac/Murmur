@@ -149,12 +149,7 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
             }
         }
         #else
-        // On iOS, use AVAudioSession
-        await withCheckedContinuation { continuation in
-            AVAudioSession.sharedInstance().requestRecordPermission { granted in
-                continuation.resume(returning: granted)
-            }
-        }
+        return await AVAudioApplication.requestRecordPermission()
         #endif
     }
 }
