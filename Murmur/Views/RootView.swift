@@ -173,9 +173,7 @@ struct RootView: View {
                 entries: entries,
                 onMicTap: handleMicTap,
                 onSubmit: handleTextSubmit,
-                onEntryTap: { entry in
-                    print("Entry tapped: \(entry.summary)")
-                }
+                onEntryTap: { _ in }
             )
 
         case .gridAwakens, .viewsEmerge, .fullPower:
@@ -184,9 +182,7 @@ struct RootView: View {
                 entries: entries,
                 onMicTap: handleMicTap,
                 onSubmit: handleTextSubmit,
-                onCardTap: { card in
-                    print("Card tapped: \(card.id)")
-                },
+                onCardTap: { _ in },
                 onSettingsTap: {
                     selectedTab = .settings
                 },
@@ -207,9 +203,7 @@ struct RootView: View {
                 onBack: {
                     selectedTab = .home
                 },
-                onTopUp: {
-                    print("Top up tapped")
-                }
+                onTopUp: {}
             )
 
         case .viewsEmerge, .fullPower:
@@ -217,18 +211,10 @@ struct RootView: View {
                 onBack: {
                     selectedTab = .home
                 },
-                onManageViews: {
-                    print("Manage views tapped")
-                },
-                onExportData: {
-                    print("Export data tapped")
-                },
-                onClearData: {
-                    print("Clear data tapped")
-                },
-                onOpenSourceLicenses: {
-                    print("Open source licenses tapped")
-                }
+                onManageViews: {},
+                onExportData: {},
+                onClearData: {},
+                onOpenSourceLicenses: {}
             )
         }
     }
@@ -293,19 +279,6 @@ struct RootView: View {
         }
 
         Task { @MainActor in
-            // Request mic permission if not yet determined
-            let authStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-            if authStatus == .notDetermined {
-                let granted = await AVCaptureDevice.requestAccess(for: .audio)
-                if !granted {
-                    showToast("Microphone access is required for recording")
-                    return
-                }
-            } else if authStatus == .denied || authStatus == .restricted {
-                showToast("Microphone access denied — enable in Settings")
-                return
-            }
-
             do {
                 try await pipeline.startRecording()
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {

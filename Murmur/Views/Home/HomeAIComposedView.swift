@@ -240,10 +240,6 @@ private struct HabitCard: View {
                 .lineLimit(2)
                 .padding(.bottom, 4)
 
-            // Streak
-            Text("7 day streak")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(Theme.Colors.accentGreen)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardStyle()
