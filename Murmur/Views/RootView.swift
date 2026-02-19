@@ -8,6 +8,7 @@ struct RootView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Entry.createdAt, order: .reverse) private var entries: [Entry]
     @State private var selectedTab: BottomNavBar.Tab = .home
+    @State private var selectedEntry: Entry?
     @State private var inputText = ""
     @State private var transcript = ""
     @State private var showSuccessToast = false
@@ -115,6 +116,22 @@ struct RootView: View {
             DevModeView()
         }
         #endif
+        .sheet(item: $selectedEntry) { entry in
+            EntryDetailView(
+                entry: entry,
+                onBack: { selectedEntry = nil },
+                onEdit: {},
+                onTellMeMore: {},
+                onViewTranscript: {},
+                onArchive: { selectedEntry = nil },
+                onSnooze: { selectedEntry = nil },
+                onDelete: {
+                    modelContext.delete(entry)
+                    selectedEntry = nil
+                }
+            )
+            .environment(appState)
+        }
         .sheet(isPresented: $showTextInput) {
             TextInputView(text: $inputText, onSubmit: handleTextSubmit)
                 .presentationDetents([.medium, .large])
@@ -173,7 +190,7 @@ struct RootView: View {
                 entries: entries,
                 onMicTap: handleMicTap,
                 onSubmit: handleTextSubmit,
-                onEntryTap: { _ in }
+                onEntryTap: { entry in selectedEntry = entry }
             )
 
         case .gridAwakens, .viewsEmerge, .fullPower:
@@ -182,7 +199,13 @@ struct RootView: View {
                 entries: entries,
                 onMicTap: handleMicTap,
                 onSubmit: handleTextSubmit,
-                onCardTap: { _ in },
+                onCardTap: { card in
+                    switch card {
+                    case .reminder(let entry), .habit(let entry): selectedEntry = entry
+                    case .ideas(let entries): selectedEntry = entries.first
+                    case .todoCount: break
+                    }
+                },
                 onSettingsTap: {
                     selectedTab = .settings
                 },
