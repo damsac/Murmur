@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import MurmurCore
 
 enum MockDataService {
     // MARK: - Level 0: Empty (The Void)
@@ -11,135 +12,190 @@ enum MockDataService {
     static func entriesForLevel1() -> [Entry] {
         [
             Entry(
-                summary: "Follow up with Sarah about the design mockups",
+                transcript: "",
+                content: "Follow up with Sarah about the design mockups",
                 category: .todo,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-7200),
-                priority: 2
+                summary: "Follow up with Sarah about the design mockups",
+                priority: 1
             ),
             Entry(
-                summary: "The best ideas come when you're not actively searching for them",
-                category: .insight,
+                transcript: "",
+                content: "The best ideas come when you're not actively searching for them",
+                category: .thought,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-3600),
-                priority: 1
+                summary: "The best ideas come when you're not actively searching for them",
+                priority: 3
             ),
             Entry(
-                summary: "Research voice-first UI patterns for mobile apps",
+                transcript: "",
+                content: "Research voice-first UI patterns for mobile apps",
                 category: .idea,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-1800),
-                priority: 1
+                summary: "Research voice-first UI patterns for mobile apps",
+                priority: 3
             )
         ]
     }
 
     // MARK: - Level 2: Grid Awakens (15 entries, 3+ categories)
+    // swiftlint:disable:next function_body_length
     static func entriesForLevel2() -> [Entry] {
         [
             // TODOs
             Entry(
-                summary: "Review PR #234 for the authentication flow",
+                transcript: "",
+                content: "Review PR #234 for the authentication flow",
                 category: .todo,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-86400),
-                priority: 2
+                summary: "Review PR #234 for the authentication flow",
+                priority: 1
             ),
             Entry(
-                summary: "Update project README with new setup instructions",
+                transcript: "",
+                content: "Update project README with new setup instructions",
                 category: .todo,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-72000),
-                priority: 1
+                summary: "Update project README with new setup instructions",
+                priority: 3
             ),
             Entry(
-                summary: "Schedule team sync for next week",
+                transcript: "",
+                content: "Schedule team sync for next week",
                 category: .todo,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-64800),
-                priority: 1
+                summary: "Schedule team sync for next week",
+                priority: 3
             ),
 
-            // Insights
+            // Thoughts (was Insights)
             Entry(
-                summary: "Progressive disclosure reduces cognitive load in complex interfaces",
-                category: .insight,
+                transcript: "",
+                content: "Progressive disclosure reduces cognitive load in complex interfaces",
+                category: .thought,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-57600),
-                priority: 1
+                summary: "Progressive disclosure reduces cognitive load in complex interfaces",
+                priority: 3
             ),
             Entry(
-                summary: "Voice input is faster than typing for capturing quick thoughts",
-                category: .insight,
+                transcript: "",
+                content: "Voice input is faster than typing for capturing quick thoughts",
+                category: .thought,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-50400),
-                priority: 1
+                summary: "Voice input is faster than typing for capturing quick thoughts",
+                priority: 3
             ),
 
             // Ideas
             Entry(
-                summary: "Build a browser extension for quick voice capture",
+                transcript: "",
+                content: "Build a browser extension for quick voice capture",
                 category: .idea,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-43200),
-                priority: 1
+                summary: "Build a browser extension for quick voice capture",
+                priority: 3
             ),
             Entry(
-                summary: "Explore using AI to automatically categorize entries",
+                transcript: "",
+                content: "Explore using AI to automatically categorize entries",
                 category: .idea,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-36000),
-                priority: 1
+                summary: "Explore using AI to automatically categorize entries",
+                priority: 3
             ),
             Entry(
-                summary: "Add collaborative features for team brainstorming",
+                transcript: "",
+                content: "Add collaborative features for team brainstorming",
                 category: .idea,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-28800),
-                priority: 0
+                summary: "Add collaborative features for team brainstorming",
+                priority: 5
             ),
 
             // Reminders
             Entry(
-                summary: "Call mom this weekend",
+                transcript: "",
+                content: "Call mom this weekend",
                 category: .reminder,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-21600),
-                dueDate: Date().addingTimeInterval(172800),
-                priority: 2
+                summary: "Call mom this weekend",
+                priority: 1,
+                dueDate: Date().addingTimeInterval(172800)
             ),
             Entry(
-                summary: "Pay electricity bill by Friday",
+                transcript: "",
+                content: "Pay electricity bill by Friday",
                 category: .reminder,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-14400),
-                dueDate: Date().addingTimeInterval(259200),
-                priority: 2
+                summary: "Pay electricity bill by Friday",
+                priority: 1,
+                dueDate: Date().addingTimeInterval(259200)
             ),
 
             // Questions
             Entry(
-                summary: "What's the best approach for handling offline sync?",
+                transcript: "",
+                content: "What's the best approach for handling offline sync?",
                 category: .question,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-10800),
-                priority: 1
+                summary: "What's the best approach for handling offline sync?",
+                priority: 3
             ),
             Entry(
-                summary: "Should we use CloudKit or build custom backend?",
+                transcript: "",
+                content: "Should we use CloudKit or build custom backend?",
                 category: .question,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-7200),
-                priority: 1
+                summary: "Should we use CloudKit or build custom backend?",
+                priority: 3
             ),
 
             // Notes
             Entry(
-                summary: "Meeting notes: Discussed Q1 roadmap, focusing on core features first",
+                transcript: "",
+                content: "Meeting notes: Discussed Q1 roadmap, focusing on core features first",
                 category: .note,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-5400),
-                priority: 0
+                summary: "Meeting notes: Discussed Q1 roadmap, focusing on core features first",
+                priority: 5
             ),
 
-            // Decisions
+            // Notes (was Decisions)
             Entry(
-                summary: "Going with SwiftUI for faster iteration speed",
-                category: .decision,
+                transcript: "",
+                content: "Going with SwiftUI for faster iteration speed",
+                category: .note,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-3600),
-                priority: 1
+                summary: "Going with SwiftUI for faster iteration speed",
+                priority: 3
             ),
 
-            // Learning
+            // Habits (was Learning)
             Entry(
-                summary: "Learned about SwiftData model containers and configurations",
-                category: .learning,
+                transcript: "",
+                content: "Learned about SwiftData model containers and configurations",
+                category: .habit,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-1800),
-                priority: 0
+                summary: "Learned about SwiftData model containers and configurations",
+                priority: 5
             )
         ]
     }
@@ -151,65 +207,95 @@ enum MockDataService {
         // Add 10 more entries
         entries.append(contentsOf: [
             Entry(
-                summary: "Refactor the recording state machine",
+                transcript: "",
+                content: "Refactor the recording state machine",
                 category: .todo,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-90000),
-                priority: 2
+                summary: "Refactor the recording state machine",
+                priority: 1
             ),
             Entry(
-                summary: "Write unit tests for entry categorization",
+                transcript: "",
+                content: "Write unit tests for entry categorization",
                 category: .todo,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-82800),
-                priority: 1
+                summary: "Write unit tests for entry categorization",
+                priority: 3
             ),
             Entry(
-                summary: "The constraint of limited tokens makes every word count",
-                category: .insight,
+                transcript: "",
+                content: "The constraint of limited tokens makes every word count",
+                category: .thought,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-75600),
-                priority: 1
+                summary: "The constraint of limited tokens makes every word count",
+                priority: 3
             ),
             Entry(
-                summary: "Add dark mode support (oh wait, it's dark-only!)",
+                transcript: "",
+                content: "Add dark mode support (oh wait, it's dark-only!)",
                 category: .idea,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-68400),
-                priority: 0
+                summary: "Add dark mode support (oh wait, it's dark-only!)",
+                priority: 5
             ),
             Entry(
-                summary: "Doctor appointment on Thursday at 3pm",
+                transcript: "",
+                content: "Doctor appointment on Thursday at 3pm",
                 category: .reminder,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-61200),
-                dueDate: Date().addingTimeInterval(172800),
-                priority: 2
+                summary: "Doctor appointment on Thursday at 3pm",
+                priority: 1,
+                dueDate: Date().addingTimeInterval(172800)
             ),
             Entry(
-                summary: "How to handle really long voice inputs that exceed token limits?",
+                transcript: "",
+                content: "How to handle really long voice inputs that exceed token limits?",
                 category: .question,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-54000),
-                priority: 1
+                summary: "How to handle really long voice inputs that exceed token limits?",
+                priority: 3
             ),
             Entry(
-                summary: "Lunch with Alex: Discussed new project ideas and potential collaboration",
+                transcript: "",
+                content: "Lunch with Alex: Discussed new project ideas and potential collaboration",
                 category: .note,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-46800),
-                priority: 0
+                summary: "Lunch with Alex: Discussed new project ideas and potential collaboration",
+                priority: 5
             ),
             Entry(
-                summary: "Using Nix for reproducible development environments",
-                category: .decision,
+                transcript: "",
+                content: "Using Nix for reproducible development environments",
+                category: .note,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-39600),
-                priority: 1
+                summary: "Using Nix for reproducible development environments",
+                priority: 3
             ),
             Entry(
-                summary: "Discovered XcodeGen for managing project configurations",
-                category: .learning,
+                transcript: "",
+                content: "Discovered XcodeGen for managing project configurations",
+                category: .habit,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-32400),
-                priority: 0
+                summary: "Discovered XcodeGen for managing project configurations",
+                priority: 5
             ),
             Entry(
-                summary: "Build a prototype for gesture-based voice recording",
+                transcript: "",
+                content: "Build a prototype for gesture-based voice recording",
                 category: .idea,
+                sourceText: "",
                 createdAt: Date().addingTimeInterval(-25200),
-                priority: 1
+                summary: "Build a prototype for gesture-based voice recording",
+                priority: 3
             )
         ])
 
@@ -221,57 +307,60 @@ enum MockDataService {
         var entries = entriesForLevel3()
 
         // Add many more varied entries
-        let additionalSummaries = [
-            ("Fix the waveform animation stuttering on older devices", EntryCategory.todo, 2),
-            ("Implement swipe actions for entry cards", EntryCategory.todo, 1),
-            ("Add haptic feedback for recording start/stop", EntryCategory.todo, 1),
-            ("Test voice recognition accuracy in noisy environments", EntryCategory.todo, 1),
-            ("Optimize SwiftData queries for better performance", EntryCategory.todo, 2),
+        let additionalEntries: [(String, EntryCategory, Int?)] = [
+            ("Fix the waveform animation stuttering on older devices", .todo, 1),
+            ("Implement swipe actions for entry cards", .todo, 3),
+            ("Add haptic feedback for recording start/stop", .todo, 3),
+            ("Test voice recognition accuracy in noisy environments", .todo, 3),
+            ("Optimize SwiftData queries for better performance", .todo, 1),
 
-            ("Simplicity is the ultimate sophistication", EntryCategory.insight, 1),
-            ("Users judge interfaces in milliseconds, not minutes", EntryCategory.insight, 1),
-            ("The best interface is no interface", EntryCategory.insight, 0),
-            ("Constraints breed creativity", EntryCategory.insight, 1),
+            ("Simplicity is the ultimate sophistication", .thought, 3),
+            ("Users judge interfaces in milliseconds, not minutes", .thought, 3),
+            ("The best interface is no interface", .thought, 5),
+            ("Constraints breed creativity", .thought, 3),
 
-            ("Explore using machine learning for priority suggestions", EntryCategory.idea, 1),
-            ("Create a watch app for quick voice capture", EntryCategory.idea, 1),
-            ("Add support for multiple languages", EntryCategory.idea, 0),
-            ("Build integration with calendar apps", EntryCategory.idea, 1),
-            ("Create custom views for different entry types", EntryCategory.idea, 1),
+            ("Explore using machine learning for priority suggestions", .idea, 3),
+            ("Create a watch app for quick voice capture", .idea, 3),
+            ("Add support for multiple languages", .idea, 5),
+            ("Build integration with calendar apps", .idea, 3),
+            ("Create custom views for different entry types", .idea, 3),
 
-            ("Submit tax documents by end of month", EntryCategory.reminder, 2),
-            ("Renew gym membership", EntryCategory.reminder, 1),
-            ("Buy groceries for the week", EntryCategory.reminder, 2),
-            ("Water the plants", EntryCategory.reminder, 1),
-            ("Return library books", EntryCategory.reminder, 1),
+            ("Submit tax documents by end of month", .reminder, 1),
+            ("Renew gym membership", .reminder, 3),
+            ("Buy groceries for the week", .reminder, 1),
+            ("Water the plants", .reminder, 3),
+            ("Return library books", .reminder, 3),
 
-            ("What's the best way to handle error states?", EntryCategory.question, 1),
-            ("Should entries be automatically archived after completion?", EntryCategory.question, 1),
-            ("How to balance between features and simplicity?", EntryCategory.question, 1),
-            ("What metrics matter most for voice interfaces?", EntryCategory.question, 1),
+            ("What's the best way to handle error states?", .question, 3),
+            ("Should entries be automatically archived after completion?", .question, 3),
+            ("How to balance between features and simplicity?", .question, 3),
+            ("What metrics matter most for voice interfaces?", .question, 3),
 
-            ("Team standup: Everyone on track for sprint goals", EntryCategory.note, 0),
-            ("Podcast notes: Interview with design leader about AI", EntryCategory.note, 0),
-            ("Book notes: Make It Stick - learning requires effort", EntryCategory.note, 0),
-            ("Conference takeaway: Voice is the next UI frontier", EntryCategory.note, 0),
+            ("Team standup: Everyone on track for sprint goals", .note, 5),
+            ("Podcast notes: Interview with design leader about AI", .note, 5),
+            ("Book notes: Make It Stick - learning requires effort", .note, 5),
+            ("Conference takeaway: Voice is the next UI frontier", .note, 5),
 
-            ("Choosing quality over speed for initial launch", EntryCategory.decision, 1),
-            ("Decided to use progressive disclosure for feature reveal", EntryCategory.decision, 1),
-            ("Going with token-based pricing model", EntryCategory.decision, 1),
+            ("Choosing quality over speed for initial launch", .note, 3),
+            ("Decided to use progressive disclosure for feature reveal", .note, 3),
+            ("Going with token-based pricing model", .note, 3),
 
-            ("Understanding SwiftUI's new Observable macro", EntryCategory.learning, 0),
-            ("Learned about proper git commit message conventions", EntryCategory.learning, 0),
-            ("Discovered the power of keyboard shortcuts in Xcode", EntryCategory.learning, 0),
-            ("Understanding the difference between @State and @Environment", EntryCategory.learning, 0),
-            ("How to properly structure SwiftUI previews", EntryCategory.learning, 0)
+            ("Understanding SwiftUI's new Observable macro", .habit, 5),
+            ("Learned about proper git commit message conventions", .habit, 5),
+            ("Discovered the power of keyboard shortcuts in Xcode", .habit, 5),
+            ("Understanding the difference between @State and @Environment", .habit, 5),
+            ("How to properly structure SwiftUI previews", .habit, 5)
         ]
 
-        for (i, (summary, category, priority)) in additionalSummaries.enumerated() {
+        for (i, (text, category, priority)) in additionalEntries.enumerated() {
             entries.append(
                 Entry(
-                    summary: summary,
+                    transcript: "",
+                    content: text,
                     category: category,
+                    sourceText: "",
                     createdAt: Date().addingTimeInterval(-Double((i + 1) * 3600)),
+                    summary: text,
                     priority: priority
                 )
             )

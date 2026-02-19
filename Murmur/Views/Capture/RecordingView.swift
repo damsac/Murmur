@@ -1,4 +1,5 @@
 import SwiftUI
+import MurmurCore
 
 struct RecordingView: View {
     @Environment(AppState.self) private var appState
@@ -8,7 +9,6 @@ struct RecordingView: View {
     var body: some View {
         RecordingOverlay(
             transcript: transcript,
-            tokenBalance: 4953, // Mock balance
             onStopRecording: onStop
         )
     }

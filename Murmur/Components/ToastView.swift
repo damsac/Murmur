@@ -34,7 +34,7 @@ struct ToastView: View {
         HStack(spacing: 12) {
             // Icon
             Image(systemName: type.icon)
-                .font(.system(size: 20, weight: .semibold))
+                .font(.title3.weight(.semibold))
                 .foregroundStyle(type.color)
 
             // Message
@@ -85,7 +85,7 @@ struct ToastContainer: ViewModifier {
         }
     }
 
-    @State private var workItem: DispatchWorkItem?
+    @State private var dismissTask: Task<Void, Never>?
 
     func body(content: Content) -> some View {
         ZStack(alignment: .top) {
@@ -103,17 +103,13 @@ struct ToastContainer: ViewModifier {
                 .padding(.top, 60)
                 .zIndex(999)
                 .onAppear {
-                    workItem?.cancel()
-                    let task = DispatchWorkItem {
+                    dismissTask?.cancel()
+                    dismissTask = Task {
+                        try? await Task.sleep(for: .seconds(config.duration))
                         withAnimation(Animations.toastSpring) {
                             toast = nil
                         }
                     }
-                    workItem = task
-                    DispatchQueue.main.asyncAfter(
-                        deadline: .now() + config.duration,
-                        execute: task
-                    )
                 }
             }
         }

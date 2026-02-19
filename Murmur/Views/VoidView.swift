@@ -2,10 +2,7 @@ import SwiftUI
 
 struct VoidView: View {
     @Environment(AppState.self) private var appState
-    @Binding var inputText: String
     let onMicTap: () -> Void
-    let onSubmit: () -> Void
-    let onSettingsTap: () -> Void
 
     @State private var pulseScale1: CGFloat = 1.0
     @State private var pulseScale2: CGFloat = 1.0
@@ -21,28 +18,6 @@ struct VoidView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Top bar with token balance and settings
-                HStack {
-                    Spacer()
-
-                    // Settings icon (only visible before hitting disclosure levels)
-                    Button(action: onSettingsTap) {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundStyle(Theme.Colors.textTertiary)
-                            .frame(width: 36, height: 36)
-                    }
-                    .buttonStyle(.plain)
-                    .opacity(appState.effectiveLevel == .void ? 1 : 0)
-
-                    TokenBalanceLabel(
-                        balance: 4953, // Mock balance
-                        showWarning: false
-                    )
-                }
-                .padding(.horizontal, Theme.Spacing.screenPadding)
-                .padding(.top, 12)
-
                 Spacer()
 
                 // Center: Pulsing mic
@@ -73,10 +48,11 @@ struct VoidView: View {
                         // Mic icon
                         Button(action: onMicTap) {
                             Image(systemName: "mic")
-                                .font(.system(size: 36, weight: .regular))
+                                .font(.largeTitle)
                                 .foregroundStyle(Theme.Colors.accentPurple.opacity(0.5))
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Record your first voice note")
                     }
                     .onAppear {
                         startPulseAnimation()
@@ -100,16 +76,7 @@ struct VoidView: View {
                 }
 
                 Spacer()
-
-                // Input bar at bottom
-                InputBar(
-                    text: $inputText,
-                    placeholder: "Type a thought...",
-                    isRecording: appState.recordingState == .recording,
-                    onMicTap: onMicTap,
-                    onSubmit: onSubmit
-                )
-                .padding(.bottom, 36)
+                Spacer()
             }
         }
     }
@@ -144,27 +111,10 @@ struct VoidView: View {
 }
 
 #Preview("Void - Empty") {
-    @Previewable @State var inputText = ""
     @Previewable @State var appState = AppState()
 
     VoidView(
-        inputText: $inputText,
-        onMicTap: { print("Mic tapped") },
-        onSubmit: { print("Submit") },
-        onSettingsTap: { print("Settings") }
-    )
-    .environment(appState)
-}
-
-#Preview("Void - With Text") {
-    @Previewable @State var inputText = "This is a sample thought"
-    @Previewable @State var appState = AppState()
-
-    VoidView(
-        inputText: $inputText,
-        onMicTap: { print("Mic tapped") },
-        onSubmit: { print("Submit") },
-        onSettingsTap: { print("Settings") }
+        onMicTap: { print("Mic tapped") }
     )
     .environment(appState)
 }

@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import MurmurCore
 
 enum PersistenceConfig {
     static let appGroupIdentifier: String = {
@@ -11,15 +12,12 @@ enum PersistenceConfig {
         }
         return identifier
     }()
-    static let schemaVersion = 1
+    static let schemaVersion = 4
 
     static var modelContainer: ModelContainer {
         deleteStoreIfSchemaChanged()
         let schema = Schema([
-            Entry.self,
-            Tag.self,
-            CreditBalance.self,
-            UserProgress.self
+            Entry.self
         ])
         let config = ModelConfiguration(
             "Murmur",

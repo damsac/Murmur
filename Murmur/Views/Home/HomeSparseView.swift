@@ -1,4 +1,5 @@
 import SwiftUI
+import MurmurCore
 
 struct HomeSparseView: View {
     @Environment(AppState.self) private var appState
@@ -30,17 +31,6 @@ struct HomeSparseView: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 16)
             .padding(.bottom, 4)
-
-            // Token balance
-            HStack {
-                Spacer()
-                TokenBalanceLabel(
-                    balance: appState.creditBalance,
-                    showWarning: appState.creditBalance < 100
-                )
-            }
-            .padding(.horizontal, Theme.Spacing.screenPadding)
-            .padding(.bottom, 16)
 
             // Entries
             ScrollView {
@@ -91,22 +81,28 @@ struct HomeSparseView: View {
         inputText: $inputText,
         entries: [
             Entry(
-                summary: "Review the new design system and provide feedback to the team by end of week",
+                transcript: "",
+                content: "Review the new design system and provide feedback to the team by end of week",
                 category: .todo,
-                priority: 2,
-                aiGenerated: true
+                sourceText: "",
+                summary: "Review the new design system and provide feedback to the team by end of week",
+                priority: 1
             ),
             Entry(
-                summary: "Doctor appointment tomorrow at 2pm - bring insurance card",
+                transcript: "",
+                content: "Doctor appointment tomorrow at 2pm - bring insurance card",
                 category: .reminder,
-                dueDate: Calendar.current.date(byAdding: .day, value: 1, to: Date()),
-                aiGenerated: true
+                sourceText: "",
+                summary: "Doctor appointment tomorrow at 2pm - bring insurance card",
+                dueDate: Calendar.current.date(byAdding: .day, value: 1, to: Date())
             ),
             Entry(
-                summary: "Build a browser extension for quick voice notes",
+                transcript: "",
+                content: "Build a browser extension for quick voice notes",
                 category: .idea,
-                priority: 1,
-                aiGenerated: true
+                sourceText: "",
+                summary: "Build a browser extension for quick voice notes",
+                priority: 3
             )
         ],
         onMicTap: { print("Mic tapped") },
@@ -124,9 +120,11 @@ struct HomeSparseView: View {
         inputText: $inputText,
         entries: [
             Entry(
-                summary: "The best interfaces are invisible - they get out of the way",
-                category: .insight,
-                aiGenerated: true
+                transcript: "",
+                content: "The best interfaces are invisible - they get out of the way",
+                category: .thought,
+                sourceText: "",
+                summary: "The best interfaces are invisible - they get out of the way"
             )
         ],
         onMicTap: { print("Mic tapped") },

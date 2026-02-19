@@ -16,6 +16,10 @@ settings:
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_IDENTITY: "Apple Development"
 
+packages:
+  MurmurCore:
+    path: Packages/MurmurCore
+
 targets:
   Murmur:
     type: application
@@ -24,6 +28,20 @@ targets:
       - path: Murmur
         excludes:
           - "**/.DS_Store"
+          # Orphaned views — UI shells not wired to real functionality
+          - "Views/Credits/**"
+          - "Views/Errors/**"
+          - "Views/Dialogs/**"
+          # Orphaned DevMode — complex simulation not needed
+          - "DevMode/DevScreen.swift"
+          - "DevMode/DevComponentGallery.swift"
+          - "DevMode/DevComponent.swift"
+          # Mock data service — no longer used
+          - "Services/MockDataService.swift"
+          # Token balance component — will return when credit system is real
+          - "Components/TokenBalanceLabel.swift"
+    dependencies:
+      - package: MurmurCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(PRODUCT_BUNDLE_IDENTIFIER_MURMUR)
@@ -41,6 +59,7 @@ targets:
         AppGroupIdentifier: "$(APP_GROUP_IDENTIFIER)"
         NSMicrophoneUsageDescription: "Murmur uses the microphone to capture your voice notes and turn them into organized entries."
         NSSpeechRecognitionUsageDescription: "Murmur uses speech recognition to transcribe your voice notes."
+        PPQAPIKey: "$(PPQ_API_KEY)"
     entitlements:
       path: Murmur/Murmur.entitlements
       properties:

@@ -1,4 +1,5 @@
 import SwiftUI
+import MurmurCore
 
 struct ViewsGridView: View {
     @Environment(AppState.self) private var appState
@@ -100,7 +101,7 @@ enum ViewType: CaseIterable {
         case .todo: return .todo
         case .ideas: return .idea
         case .dontForget: return .reminder
-        case .habits: return .learning
+        case .habits: return .habit
         case .allEntries: return nil
         }
     }
@@ -120,13 +121,13 @@ private struct ViewCard: View {
                     .frame(width: 44, height: 44)
 
                 Image(systemName: viewType.icon)
-                    .font(.system(size: 20, weight: .medium))
+                    .font(.title3.weight(.medium))
                     .foregroundStyle(viewType.iconColor)
             }
 
             // Name
             Text(viewType.title)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Theme.Colors.textPrimary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -152,13 +153,13 @@ private struct CreateViewCard: View {
                     .frame(width: 44, height: 44)
 
                 Image(systemName: "plus")
-                    .font(.system(size: 24, weight: .medium))
+                    .font(.title3.weight(.medium))
                     .foregroundStyle(Theme.Colors.textTertiary)
             }
 
             // Label
             Text("Create View")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Theme.Colors.textTertiary)
         }
         .frame(maxWidth: .infinity)

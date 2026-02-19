@@ -1,17 +1,23 @@
 import SwiftUI
+import SwiftData
+import AVFoundation
+import MurmurCore
 
 struct RootView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Entry.createdAt, order: .reverse) private var entries: [Entry]
+    @State private var selectedTab: BottomNavBar.Tab = .home
     @State private var inputText = ""
     @State private var transcript = ""
-    @State private var processedEntries: [Entry] = []
     @State private var showSuccessToast = false
     @State private var toastMessage = ""
     @State private var showDevMode = false
+    @State private var showTextInput = false
 
     var body: some View {
         ZStack {
-            // Main content based on disclosure level
+            // Main content based on selected tab + disclosure level
             mainContent
                 .preferredColorScheme(.dark)
 
@@ -24,7 +30,7 @@ struct RootView: View {
                             showDevMode = true
                         } label: {
                             Image(systemName: "hammer.fill")
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.white)
                                 .frame(width: 36, height: 36)
                                 .background(
@@ -33,6 +39,7 @@ struct RootView: View {
                                 )
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Developer tools")
                         .padding(.leading, 16)
                         .padding(.top, 54)
 
@@ -62,15 +69,11 @@ struct RootView: View {
                 recordingOverlays
             }
 
-            // Focus card overlay (L1)
-            if appState.showFocusCard && !appState.showOnboarding {
+            // Focus card overlay (L1) — show highest priority active entry
+            if appState.showFocusCard && !appState.showOnboarding,
+               let focusEntry = topPriorityEntry {
                 FocusCardView(
-                    entry: Entry(
-                        summary: "Review design mockups and provide feedback",
-                        category: .todo,
-                        priority: 2,
-                        aiGenerated: true
-                    ),
+                    entry: focusEntry,
                     onMarkDone: {
                         withAnimation {
                             appState.showFocusCard = false
@@ -112,49 +115,121 @@ struct RootView: View {
             DevModeView()
         }
         #endif
+        .sheet(isPresented: $showTextInput) {
+            TextInputView(text: $inputText, onSubmit: handleTextSubmit)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .onAppear {
+            updateDisclosureLevel()
+            if !appState.hasCompletedOnboarding {
+                appState.showOnboarding = true
+            }
+        }
+        .onChange(of: entries.count) { _, _ in updateDisclosureLevel() }
     }
 
     // MARK: - Main Content
 
     @ViewBuilder
     private var mainContent: some View {
+        Group {
+            switch selectedTab {
+            case .home:
+                homeContent
+
+            case .settings:
+                settingsContent
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.Colors.bgDeep)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            BottomNavBar(
+                selectedTab: $selectedTab,
+                isRecording: appState.recordingState == .recording,
+                onMicTap: handleMicTap,
+                onKeyboardTap: { showTextInput = true }
+            )
+            .background(
+                Theme.Colors.bgBody.opacity(0.95),
+                ignoresSafeAreaEdges: .bottom
+            )
+        }
+        .ignoresSafeArea(.keyboard)
+    }
+
+    // MARK: - Home Content
+
+    @ViewBuilder
+    private var homeContent: some View {
         switch appState.effectiveLevel {
         case .void:
-            // L0: The Void
-            VoidView(
-                inputText: $inputText,
-                onMicTap: handleMicTap,
-                onSubmit: handleTextSubmit,
-                onSettingsTap: handleSettingsTap
-            )
+            VoidView(onMicTap: handleMicTap)
 
         case .firstLight:
-            // L1: First Light (sparse home with InputBar)
-            VStack(spacing: 0) {
-                HomeSparseView(
-                    inputText: $inputText,
-                    entries: MockDataService.entriesForLevel1(),
-                    onMicTap: handleMicTap,
-                    onSubmit: handleTextSubmit,
-                    onEntryTap: { entry in
-                        print("Entry tapped: \(entry.summary)")
-                    }
-                )
-                .frame(maxHeight: .infinity)
-
-                InputBar(
-                    text: $inputText,
-                    placeholder: "Add a thought...",
-                    isRecording: appState.recordingState == .recording,
-                    onMicTap: handleMicTap,
-                    onSubmit: handleTextSubmit
-                )
-            }
-            .background(Theme.Colors.bgDeep.ignoresSafeArea())
+            HomeSparseView(
+                inputText: $inputText,
+                entries: entries,
+                onMicTap: handleMicTap,
+                onSubmit: handleTextSubmit,
+                onEntryTap: { entry in
+                    print("Entry tapped: \(entry.summary)")
+                }
+            )
 
         case .gridAwakens, .viewsEmerge, .fullPower:
-            // L2-L4: Full tab-based interface
-            MainTabView()
+            HomeAIComposedView(
+                inputText: $inputText,
+                entries: entries,
+                onMicTap: handleMicTap,
+                onSubmit: handleTextSubmit,
+                onCardTap: { card in
+                    print("Card tapped: \(card.id)")
+                },
+                onSettingsTap: {
+                    selectedTab = .settings
+                },
+                onViewsTap: {
+                    // Views tab removed — no-op
+                }
+            )
+        }
+    }
+
+    // MARK: - Settings Content
+
+    @ViewBuilder
+    private var settingsContent: some View {
+        switch appState.effectiveLevel {
+        case .void, .firstLight, .gridAwakens:
+            SettingsMinimalView(
+                onBack: {
+                    selectedTab = .home
+                },
+                onTopUp: {
+                    print("Top up tapped")
+                }
+            )
+
+        case .viewsEmerge, .fullPower:
+            SettingsFullView(
+                onBack: {
+                    selectedTab = .home
+                },
+                onManageViews: {
+                    print("Manage views tapped")
+                },
+                onExportData: {
+                    print("Export data tapped")
+                },
+                onClearData: {
+                    print("Clear data tapped")
+                },
+                onOpenSourceLicenses: {
+                    print("Open source licenses tapped")
+                }
+            )
         }
     }
 
@@ -167,11 +242,7 @@ struct RootView: View {
             RecordingView(
                 transcript: $transcript,
                 onStop: {
-                    withAnimation {
-                        appState.recordingState = .processing
-                        // Create mock entry from transcript
-                        createMockEntry()
-                    }
+                    handleStopRecording()
                 }
             )
             .transition(.opacity)
@@ -179,30 +250,17 @@ struct RootView: View {
 
         case .processing:
             ProcessingView(
-                entries: processedEntries,
+                entries: appState.processedEntries,
                 transcript: transcript.isEmpty ? nil : transcript
             )
-            .onAppear {
-                // Simulate processing delay
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                    withAnimation {
-                        appState.recordingState = .confirming
-                    }
-                }
-            }
             .transition(.opacity)
             .zIndex(30)
 
         case .confirming:
             ConfirmView(
-                entries: processedEntries,
+                entries: appState.processedEntries,
                 onAccept: {
-                    withAnimation {
-                        appState.recordingState = .idle
-                        transcript = ""
-                        processedEntries = []
-                        showToast("Saved successfully")
-                    }
+                    handleAccept()
                 },
                 onVoiceCorrect: { entry in
                     // Handle voice correction
@@ -210,8 +268,8 @@ struct RootView: View {
                 },
                 onDiscard: { entry in
                     withAnimation {
-                        processedEntries.removeAll { $0.id == entry.id }
-                        if processedEntries.isEmpty {
+                        appState.processedEntries.removeAll { $0.id == entry.id }
+                        if appState.processedEntries.isEmpty {
                             appState.recordingState = .idle
                             transcript = ""
                         }
@@ -229,33 +287,132 @@ struct RootView: View {
     // MARK: - Actions
 
     private func handleMicTap() {
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            appState.recordingState = .recording
+        guard let pipeline = appState.pipeline else {
+            showToast("Pipeline not configured — check API key")
+            return
+        }
+
+        Task { @MainActor in
+            // Request mic permission if not yet determined
+            let authStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+            if authStatus == .notDetermined {
+                let granted = await AVCaptureDevice.requestAccess(for: .audio)
+                if !granted {
+                    showToast("Microphone access is required for recording")
+                    return
+                }
+            } else if authStatus == .denied || authStatus == .restricted {
+                showToast("Microphone access denied — enable in Settings")
+                return
+            }
+
+            do {
+                try await pipeline.startRecording()
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                    appState.recordingState = .recording
+                }
+            } catch {
+                print("Failed to start recording: \(error.localizedDescription)")
+                showToast("Recording failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func handleStopRecording() {
+        guard let pipeline = appState.pipeline else {
+            showToast("Pipeline not configured — check API key")
+            return
+        }
+
+        withAnimation {
+            appState.recordingState = .processing
+        }
+
+        Task { @MainActor in
+            do {
+                let result = try await pipeline.stopRecording()
+                transcript = result.transcript.text
+                appState.processedEntries = result.entries
+                appState.processedTranscript = result.transcript.text
+                appState.processedAudioDuration = result.transcript.duration
+                appState.processedSource = .voice
+                withAnimation {
+                    appState.recordingState = .confirming
+                }
+            } catch {
+                print("Stop recording failed: \(error.localizedDescription)")
+                withAnimation {
+                    appState.recordingState = .idle
+                }
+                showToast("Processing failed: \(error.localizedDescription)")
+            }
         }
     }
 
     private func handleTextSubmit() {
         guard !inputText.isEmpty else { return }
 
-        // Store transcript
-        transcript = inputText
+        let text = inputText
+        transcript = text
+        inputText = ""
 
-        // Process text input
+        guard let pipeline = appState.pipeline else {
+            showToast("Pipeline not configured — check API key")
+            return
+        }
+
         withAnimation {
             appState.recordingState = .processing
         }
 
-        // Create mock entry
-        createMockEntry()
-
-        // Clear input
-        inputText = ""
+        Task { @MainActor in
+            do {
+                let result = try await pipeline.extractFromText(text)
+                appState.processedEntries = result.entries
+                appState.processedTranscript = text
+                appState.processedAudioDuration = nil
+                appState.processedSource = .text
+                withAnimation {
+                    appState.recordingState = .confirming
+                }
+            } catch {
+                print("Text extraction failed: \(error.localizedDescription)")
+                withAnimation {
+                    appState.recordingState = .idle
+                }
+                showToast("Extraction failed: \(error.localizedDescription)")
+            }
+        }
     }
 
-    private func handleSettingsTap() {
-        // At L0, this would show SettingsMinimalView as a sheet
-        // For now, just print
-        print("Settings tapped")
+    private func handleAccept() {
+        guard !appState.processedEntries.isEmpty else { return }
+
+        do {
+            for extracted in appState.processedEntries {
+                let entry = Entry(
+                    from: extracted,
+                    transcript: appState.processedTranscript,
+                    source: appState.processedSource,
+                    audioDuration: appState.processedAudioDuration
+                )
+                modelContext.insert(entry)
+            }
+            try modelContext.save()
+        } catch {
+            print("Failed to save entries: \(error.localizedDescription)")
+            showToast("Save failed: \(error.localizedDescription)")
+            return
+        }
+
+        withAnimation {
+            appState.recordingState = .idle
+            transcript = ""
+            appState.processedEntries = []
+            appState.processedTranscript = ""
+            appState.processedAudioDuration = nil
+            showToast("Saved successfully")
+        }
     }
 
     private func showToast(_ message: String) {
@@ -264,22 +421,29 @@ struct RootView: View {
             showSuccessToast = true
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+        Task {
+            try? await Task.sleep(for: .seconds(2.5))
             withAnimation {
                 showSuccessToast = false
             }
         }
     }
 
-    private func createMockEntry() {
-        // Create a mock entry from the transcript
-        let mockEntry = Entry(
-            summary: transcript.isEmpty ? "Sample thought" : transcript,
-            category: .todo,
-            priority: 1,
-            aiGenerated: true
-        )
-        processedEntries = [mockEntry]
+    /// Highest-priority active entry for the focus card.
+    private var topPriorityEntry: Entry? {
+        entries
+            .filter { $0.status == .active && $0.priority != nil }
+            .min { ($0.priority ?? 5) < ($1.priority ?? 5) }
+    }
+
+    /// Update disclosure level based on real entry count — only advances, never regresses.
+    private func updateDisclosureLevel() {
+        let level = DisclosureLevel.from(entryCount: entries.count)
+        if level > appState.disclosureLevel {
+            withAnimation {
+                appState.disclosureLevel = level
+            }
+        }
     }
 }
 

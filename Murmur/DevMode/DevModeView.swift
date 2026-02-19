@@ -1,10 +1,9 @@
 import SwiftUI
+import MurmurCore
 
 struct DevModeView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
-    @State private var selectedScreen: DevScreen?
-    @State private var showComponentGallery = false
 
     var body: some View {
         @Bindable var appState = appState
@@ -18,7 +17,7 @@ struct DevModeView: View {
                         // Level Picker
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Progressive Disclosure Level")
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(.body.weight(.semibold))
                                 .foregroundStyle(Theme.Colors.textPrimary)
 
                             HStack(spacing: 10) {
@@ -42,9 +41,9 @@ struct DevModeView: View {
                             if appState.devOverrideLevel != nil {
                                 HStack(spacing: 6) {
                                     Image(systemName: "info.circle.fill")
-                                        .font(.system(size: 12))
+                                        .font(.caption2)
                                     Text("Overriding natural level (\(appState.disclosureLevel.displayName))")
-                                        .font(.system(size: 12))
+                                        .font(.caption2)
                                 }
                                 .foregroundStyle(Theme.Colors.accentYellow)
                                 .padding(.top, 4)
@@ -56,42 +55,10 @@ struct DevModeView: View {
                         Divider()
                             .background(Theme.Colors.borderSubtle)
 
-                        // Data Controls
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Data Controls")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(Theme.Colors.textPrimary)
-
-                            // Credit balance
-                            HStack {
-                                Text("Credit Balance")
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(Theme.Colors.textSecondary)
-
-                                Spacer()
-
-                                Stepper(
-                                    value: $appState.creditBalance,
-                                    in: 0...10000,
-                                    step: 100
-                                ) {
-                                    Text("\(appState.creditBalance)")
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .foregroundStyle(Theme.Colors.textPrimary)
-                                        .monospacedDigit()
-                                        .frame(width: 60, alignment: .trailing)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, Theme.Spacing.screenPadding)
-
-                        Divider()
-                            .background(Theme.Colors.borderSubtle)
-
                         // State Toggles
                         VStack(alignment: .leading, spacing: 12) {
                             Text("State Toggles")
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(.body.weight(.semibold))
                                 .foregroundStyle(Theme.Colors.textPrimary)
 
                             VStack(spacing: 8) {
@@ -108,7 +75,7 @@ struct DevModeView: View {
                                 // Recording state buttons
                                 HStack {
                                     Text("Recording State")
-                                        .font(.system(size: 14))
+                                        .font(.subheadline)
                                         .foregroundStyle(Theme.Colors.textSecondary)
 
                                     Spacer()
@@ -129,11 +96,11 @@ struct DevModeView: View {
                                     } label: {
                                         HStack(spacing: 4) {
                                             Text(recordingStateLabel)
-                                                .font(.system(size: 14, weight: .medium))
+                                                .font(.subheadline.weight(.medium))
                                                 .foregroundStyle(Theme.Colors.accentPurple)
 
                                             Image(systemName: "chevron.down")
-                                                .font(.system(size: 12, weight: .semibold))
+                                                .font(Theme.Typography.badge)
                                                 .foregroundStyle(Theme.Colors.accentPurple)
                                         }
                                     }
@@ -143,81 +110,104 @@ struct DevModeView: View {
                         }
                         .padding(.horizontal, Theme.Spacing.screenPadding)
 
-                        // Component Gallery
-                        Button {
-                            showComponentGallery = true
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: "square.grid.2x2")
-                                    .font(.system(size: 20, weight: .semibold))
-                                    .foregroundStyle(Theme.Colors.accentPurple)
-                                    .frame(width: 40, height: 40)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .fill(Theme.Colors.accentPurple.opacity(0.1))
-                                    )
+                        Divider()
+                            .background(Theme.Colors.borderSubtle)
 
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Component Gallery")
-                                        .font(.system(size: 16, weight: .semibold))
-                                        .foregroundStyle(Theme.Colors.textPrimary)
+                        // Pipeline Debug Info
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Pipeline Status")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(Theme.Colors.textPrimary)
 
-                                    Text("Browse all \(DevComponent.allCases.count) UI components")
-                                        .font(.system(size: 13))
-                                        .foregroundStyle(Theme.Colors.textTertiary)
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text("Pipeline")
+                                        .font(.subheadline)
+                                        .foregroundStyle(Theme.Colors.textSecondary)
+                                    Spacer()
+                                    Text(appState.pipeline != nil ? "Configured" : "Not configured")
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundStyle(appState.pipeline != nil ? Theme.Colors.accentGreen : Theme.Colors.accentRed)
                                 }
 
-                                Spacer()
+                                if let error = appState.pipelineError {
+                                    HStack(alignment: .top) {
+                                        Text("Error")
+                                            .font(.subheadline)
+                                            .foregroundStyle(Theme.Colors.textSecondary)
+                                        Spacer()
+                                        Text(error)
+                                            .font(Theme.Typography.caption)
+                                            .foregroundStyle(Theme.Colors.accentRed)
+                                            .multilineTextAlignment(.trailing)
+                                    }
+                                }
 
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(Theme.Colors.textTertiary)
+                                HStack {
+                                    Text("Processed Entries")
+                                        .font(.subheadline)
+                                        .foregroundStyle(Theme.Colors.textSecondary)
+                                    Spacer()
+                                    Text("\(appState.processedEntries.count)")
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundStyle(Theme.Colors.textPrimary)
+                                        .monospacedDigit()
+                                }
+
+                                if !appState.processedTranscript.isEmpty {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Last Transcript")
+                                            .font(.subheadline)
+                                            .foregroundStyle(Theme.Colors.textSecondary)
+                                        Text(appState.processedTranscript)
+                                            .font(Theme.Typography.caption)
+                                            .foregroundStyle(Theme.Colors.textTertiary)
+                                            .lineLimit(3)
+                                    }
+                                }
                             }
-                            .padding(16)
+                        }
+                        .padding(.horizontal, Theme.Spacing.screenPadding)
+
+                        Divider()
+                            .background(Theme.Colors.borderSubtle)
+
+                        // Onboarding Reset
+                        Button {
+                            appState.hasCompletedOnboarding = false
+                            appState.showOnboarding = true
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.counterclockwise.circle")
+                                    .font(.body.weight(.semibold))
+
+                                Text("Reset Onboarding")
+                                    .font(.body.weight(.semibold))
+                            }
+                            .foregroundStyle(Theme.Colors.accentYellow)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
                             .background(
                                 RoundedRectangle(cornerRadius: 14)
-                                    .fill(Theme.Colors.bgCard)
+                                    .fill(Theme.Colors.accentYellow.opacity(0.1))
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 14)
-                                            .stroke(Theme.Colors.accentPurple.opacity(0.2), lineWidth: 1)
+                                            .stroke(Theme.Colors.accentYellow.opacity(0.2), lineWidth: 1)
                                     )
                             )
                         }
                         .buttonStyle(.plain)
                         .padding(.horizontal, Theme.Spacing.screenPadding)
 
-                        Divider()
-                            .background(Theme.Colors.borderSubtle)
-
-                        // Screen Browser
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Screen Browser")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(Theme.Colors.textPrimary)
-                                .padding(.horizontal, Theme.Spacing.screenPadding)
-
-                            Text("Tap any screen to preview in isolation")
-                                .font(.system(size: 13))
-                                .foregroundStyle(Theme.Colors.textTertiary)
-                                .padding(.horizontal, Theme.Spacing.screenPadding)
-
-                            LazyVStack(spacing: 1) {
-                                ForEach(DevScreen.allCases) { screen in
-                                    ScreenBrowserRow(screen: screen) {
-                                        selectedScreen = screen
-                                    }
-                                }
-                            }
-                        }
-
                         // Reset Button
                         Button(action: resetAllState) {
                             HStack(spacing: 8) {
                                 Image(systemName: "arrow.counterclockwise")
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(.body.weight(.semibold))
 
                                 Text("Reset All Dev Overrides")
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(.body.weight(.semibold))
                             }
                             .foregroundStyle(Theme.Colors.accentRed)
                             .frame(maxWidth: .infinity)
@@ -248,25 +238,6 @@ struct DevModeView: View {
                     .foregroundStyle(Theme.Colors.accentPurple)
                 }
             }
-            .sheet(isPresented: $showComponentGallery) {
-                DevComponentGallery()
-                    .environment(appState)
-            }
-            .sheet(item: $selectedScreen) { screen in
-                NavigationStack {
-                    screen.view
-                        .navigationTitle(screen.rawValue)
-                        .navigationBarTitleDisplayMode(.inline)
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button("Close") {
-                                    selectedScreen = nil
-                                }
-                                .foregroundStyle(Theme.Colors.accentPurple)
-                            }
-                        }
-                }
-            }
         }
     }
 
@@ -285,7 +256,6 @@ struct DevModeView: View {
             appState.recordingState = .idle
             appState.showOnboarding = false
             appState.showFocusCard = false
-            appState.creditBalance = 1000
         }
     }
 }
@@ -302,7 +272,7 @@ private struct LevelButton: View {
         Button(action: action) {
             VStack(spacing: 4) {
                 Text(levelShortName)
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.subheadline.weight(.bold))
                     .foregroundStyle(
                         isSelected
                             ? Theme.Colors.textPrimary
@@ -358,72 +328,13 @@ private struct StateToggleRow: View {
     var body: some View {
         HStack {
             Text(label)
-                .font(.system(size: 14))
+                .font(.subheadline)
                 .foregroundStyle(Theme.Colors.textSecondary)
 
             Spacer()
 
             Toggle("", isOn: $isOn)
                 .tint(Theme.Colors.accentPurple)
-        }
-    }
-}
-
-// MARK: - Screen Browser Row
-
-private struct ScreenBrowserRow: View {
-    let screen: DevScreen
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                // Level indicator
-                Text(levelIndicator)
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(levelColor)
-                    .frame(width: 28, height: 28)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(levelColor.opacity(0.1))
-                    )
-
-                // Screen name
-                Text(screen.rawValue)
-                    .font(.system(size: 14))
-                    .foregroundStyle(Theme.Colors.textPrimary)
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Colors.textTertiary)
-            }
-            .padding(.horizontal, Theme.Spacing.screenPadding)
-            .padding(.vertical, 12)
-            .background(Theme.Colors.bgCard)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var levelIndicator: String {
-        switch screen.level {
-        case .void: return "L0"
-        case .firstLight: return "L1"
-        case .gridAwakens: return "L2"
-        case .viewsEmerge: return "L3"
-        case .fullPower: return "L4"
-        }
-    }
-
-    private var levelColor: Color {
-        switch screen.level {
-        case .void: return Theme.Colors.textMuted
-        case .firstLight: return Theme.Colors.accentYellow
-        case .gridAwakens: return Theme.Colors.accentPurple
-        case .viewsEmerge: return Theme.Colors.accentBlue
-        case .fullPower: return Theme.Colors.accentGreen
         }
     }
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import MurmurCore
 
 struct FocusOverlay: View {
     let entry: Entry
@@ -82,13 +83,14 @@ struct FocusOverlay: View {
                                 withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
                                     cardScale = 0.95
                                 }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                Task {
+                                    try? await Task.sleep(for: .seconds(0.2))
                                     onMarkDone()
                                 }
                             }) {
                                 HStack(spacing: 10) {
                                     Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 18, weight: .semibold))
+                                        .font(.headline)
                                     Text("Mark as Done")
                                         .font(Theme.Typography.bodyMedium)
                                 }
@@ -127,7 +129,7 @@ struct FocusOverlay: View {
                                 }) {
                                     HStack(spacing: 8) {
                                         Image(systemName: "clock")
-                                            .font(.system(size: 16, weight: .semibold))
+                                            .font(.body.weight(.semibold))
                                         Text("Snooze")
                                             .font(Theme.Typography.bodyMedium)
                                     }
@@ -150,7 +152,7 @@ struct FocusOverlay: View {
                             Button(action: onDismiss) {
                                 HStack(spacing: 8) {
                                     Image(systemName: "xmark")
-                                        .font(.system(size: 16, weight: .semibold))
+                                        .font(.body.weight(.semibold))
                                     Text("Dismiss")
                                         .font(Theme.Typography.bodyMedium)
                                 }
@@ -196,18 +198,18 @@ struct FocusOverlay: View {
             return "Complete this task"
         case .reminder:
             return "Don't forget"
-        case .insight:
+        case .thought:
             return "Reflect on this"
         case .idea:
             return "Explore this idea"
         case .question:
             return "Consider this"
-        case .decision:
-            return "Make this decision"
+        case .list:
+            return "Review this list"
         case .note:
             return "Remember this"
-        case .learning:
-            return "Learn this"
+        case .habit:
+            return "Build this habit"
         }
     }
 }
@@ -215,11 +217,12 @@ struct FocusOverlay: View {
 #Preview("Focus - Todo") {
     FocusOverlay(
         entry: Entry(
-            summary: "Review the new design system and provide feedback to the team by end of week",
+            transcript: "",
+            content: "Review the new design system and provide feedback to the team by end of week",
             category: .todo,
-            priority: 2,
-            tags: ["design", "urgent"],
-            aiGenerated: true
+            sourceText: "",
+            summary: "Review the new design system and provide feedback to the team by end of week",
+            priority: 1
         ),
         onMarkDone: { print("Mark done") },
         onSnooze: { print("Snooze") },
@@ -230,10 +233,12 @@ struct FocusOverlay: View {
 #Preview("Focus - Insight") {
     FocusOverlay(
         entry: Entry(
-            summary: "The best interfaces are invisible - they get out of the way and let users focus on their work",
-            category: .insight,
+            transcript: "",
+            content: "The best interfaces are invisible - they get out of the way and let users focus on their work",
+            category: .thought,
+            sourceText: "",
             createdAt: Date().addingTimeInterval(-3600),
-            aiGenerated: true
+            summary: "The best interfaces are invisible - they get out of the way and let users focus on their work"
         ),
         onMarkDone: nil,
         onSnooze: nil,
@@ -244,11 +249,13 @@ struct FocusOverlay: View {
 #Preview("Focus - Reminder") {
     FocusOverlay(
         entry: Entry(
-            summary: "Submit quarterly report to management",
+            transcript: "",
+            content: "Submit quarterly report to management",
             category: .reminder,
-            dueDate: Date().addingTimeInterval(86400),
-            priority: 2,
-            aiGenerated: true
+            sourceText: "",
+            summary: "Submit quarterly report to management",
+            priority: 1,
+            dueDate: Date().addingTimeInterval(86400)
         ),
         onMarkDone: { print("Mark done") },
         onSnooze: { print("Snooze") },
@@ -259,12 +266,13 @@ struct FocusOverlay: View {
 #Preview("Focus - Idea") {
     FocusOverlay(
         entry: Entry(
-            summary: "Build a browser extension for quick voice notes that syncs with mobile app seamlessly",
+            transcript: "",
+            content: "Build a browser extension for quick voice notes that syncs with mobile app seamlessly",
             category: .idea,
+            sourceText: "",
             createdAt: Date().addingTimeInterval(-7200),
-            priority: 1,
-            tags: ["extension", "mobile"],
-            aiGenerated: true
+            summary: "Build a browser extension for quick voice notes that syncs with mobile app seamlessly",
+            priority: 3
         ),
         onMarkDone: nil,
         onSnooze: nil,
@@ -275,9 +283,11 @@ struct FocusOverlay: View {
 #Preview("Focus - Question") {
     FocusOverlay(
         entry: Entry(
-            summary: "What's the best way to implement real-time collaboration in SwiftUI?",
+            transcript: "",
+            content: "What's the best way to implement real-time collaboration in SwiftUI?",
             category: .question,
-            tags: ["swift", "architecture"]
+            sourceText: "",
+            summary: "What's the best way to implement real-time collaboration in SwiftUI?"
         ),
         onMarkDone: nil,
         onSnooze: nil,

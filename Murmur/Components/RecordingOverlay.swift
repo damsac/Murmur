@@ -2,7 +2,6 @@ import SwiftUI
 
 struct RecordingOverlay: View {
     let transcript: String
-    let tokenBalance: Int
     let onStopRecording: () -> Void
 
     @State private var showTranscript = false
@@ -22,17 +21,6 @@ struct RecordingOverlay: View {
             .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Top section with token balance
-                HStack {
-                    Spacer()
-                    TokenBalanceLabel(
-                        balance: tokenBalance,
-                        showWarning: tokenBalance < 100
-                    )
-                }
-                .padding(.horizontal, Theme.Spacing.screenPadding)
-                .padding(.top, 60)
-
                 Spacer()
 
                 // Center: Pulsing mic and waveform
@@ -72,7 +60,7 @@ struct RecordingOverlay: View {
                     Button(action: onStopRecording) {
                         HStack(spacing: 10) {
                             Image(systemName: "stop.fill")
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(.body.weight(.semibold))
                             Text("Stop Recording")
                                 .font(Theme.Typography.bodyMedium)
                         }
@@ -118,7 +106,6 @@ struct RecordingOverlay: View {
 #Preview("Recording - Empty") {
     RecordingOverlay(
         transcript: "",
-        tokenBalance: 1250,
         onStopRecording: { print("Stop recording") }
     )
 }
@@ -126,7 +113,6 @@ struct RecordingOverlay: View {
 #Preview("Recording - With Transcript") {
     RecordingOverlay(
         transcript: "Review the new design system and provide feedback to the team by end of week",
-        tokenBalance: 850,
         onStopRecording: { print("Stop recording") }
     )
 }
@@ -134,23 +120,6 @@ struct RecordingOverlay: View {
 #Preview("Recording - Long Transcript") {
     RecordingOverlay(
         transcript: "Review the new design system and provide feedback to the team by end of week. Check typography and spacing.",
-        tokenBalance: 450,
-        onStopRecording: { print("Stop recording") }
-    )
-}
-
-#Preview("Recording - Low Balance") {
-    RecordingOverlay(
-        transcript: "This is a recording with low token balance",
-        tokenBalance: 75,
-        onStopRecording: { print("Stop recording") }
-    )
-}
-
-#Preview("Recording - Zero Balance") {
-    RecordingOverlay(
-        transcript: "Running out of tokens during recording",
-        tokenBalance: 0,
         onStopRecording: { print("Stop recording") }
     )
 }

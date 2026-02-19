@@ -1,9 +1,12 @@
 import SwiftUI
+import MurmurCore
 
+// swiftlint:disable:next type_body_length
 enum DevScreen: String, CaseIterable, Identifiable {
     // Onboarding (Pre-L0)
-    case onboardingWelcome = "Onboarding: Welcome"
-    case onboardingMicPrompt = "Onboarding: Mic Permission"
+    case onboardingTranscript = "Onboarding: Transcript"
+    case onboardingProcessing = "Onboarding: Processing"
+    case onboardingConfirm = "Onboarding: Confirm"
     case onboardingFlow = "Onboarding: Flow"
 
     // Level 0: The Void
@@ -62,7 +65,7 @@ enum DevScreen: String, CaseIterable, Identifiable {
 
     var level: DisclosureLevel {
         switch self {
-        case .onboardingWelcome, .onboardingMicPrompt, .onboardingFlow:
+        case .onboardingTranscript, .onboardingProcessing, .onboardingConfirm, .onboardingFlow:
             return .void
 
         case .void, .voidRecording, .voidProcessing, .voidConfirm, .voidTextProcessing, .voidTextConfirm, .settingsMinimal:
@@ -92,10 +95,39 @@ enum DevScreen: String, CaseIterable, Identifiable {
         Group {
             switch self {
             // Onboarding
-            case .onboardingWelcome:
-                OnboardingWelcomeView(onContinue: {})
-            case .onboardingMicPrompt:
-                OnboardingMicPromptView(onAllow: {}, onSkip: {})
+            case .onboardingTranscript:
+                OnboardingTranscriptView(
+                    transcript: "hmm I keep forgetting things... I should try capturing ideas when they come up",
+                    onComplete: {}
+                )
+            case .onboardingProcessing:
+                ProcessingView(
+                    entries: [
+                        ExtractedEntry(
+                            content: "Start capturing ideas as they come up",
+                            category: .todo,
+                            sourceText: "",
+                            summary: "Start capturing ideas as they come up",
+                            priority: 2
+                        )
+                    ],
+                    transcript: "hmm I keep forgetting things..."
+                )
+            case .onboardingConfirm:
+                ConfirmView(
+                    entries: [
+                        ExtractedEntry(
+                            content: "Start capturing ideas as they come up",
+                            category: .todo,
+                            sourceText: "",
+                            summary: "Start capturing ideas as they come up",
+                            priority: 2
+                        )
+                    ],
+                    onAccept: {},
+                    onVoiceCorrect: { _ in },
+                    onDiscard: { _ in }
+                )
             case .onboardingFlow:
                 OnboardingFlowView(onComplete: {})
 
@@ -115,14 +147,14 @@ enum DevScreen: String, CaseIterable, Identifiable {
             case .voidProcessing:
                 ProcessingView(
                     entries: [
-                        Entry(summary: "Pick up dry cleaning", category: .todo, aiGenerated: true)
+                        ExtractedEntry(content: "Pick up dry cleaning", category: .todo, sourceText: "", summary: "Pick up dry cleaning")
                     ],
                     transcript: "I need to pick up dry cleaning"
                 )
             case .voidConfirm:
                 ConfirmView(
                     entries: [
-                        Entry(summary: "Pick up dry cleaning", category: .todo, aiGenerated: true)
+                        ExtractedEntry(content: "Pick up dry cleaning", category: .todo, sourceText: "", summary: "Pick up dry cleaning")
                     ],
                     onAccept: {},
                     onVoiceCorrect: { _ in },
@@ -131,14 +163,14 @@ enum DevScreen: String, CaseIterable, Identifiable {
             case .voidTextProcessing:
                 ProcessingView(
                     entries: [
-                        Entry(summary: "Call dentist tomorrow", category: .reminder, aiGenerated: true)
+                        ExtractedEntry(content: "Call dentist tomorrow", category: .reminder, sourceText: "", summary: "Call dentist tomorrow")
                     ],
                     transcript: "Call dentist tomorrow"
                 )
             case .voidTextConfirm:
                 ConfirmView(
                     entries: [
-                        Entry(summary: "Call dentist tomorrow", category: .reminder, aiGenerated: true)
+                        ExtractedEntry(content: "Call dentist tomorrow", category: .reminder, sourceText: "", summary: "Call dentist tomorrow")
                     ],
                     onAccept: {},
                     onVoiceCorrect: { _ in },
@@ -162,10 +194,12 @@ enum DevScreen: String, CaseIterable, Identifiable {
             case .focusTodo:
                 FocusCardView(
                     entry: Entry(
-                        summary: "Review design mockups and provide feedback",
+                        transcript: "",
+                        content: "Review design mockups and provide feedback",
                         category: .todo,
-                        priority: 2,
-                        aiGenerated: true
+                        sourceText: "",
+                        summary: "Review design mockups and provide feedback",
+                        priority: 1
                     ),
                     onMarkDone: {},
                     onSnooze: {},
@@ -174,9 +208,11 @@ enum DevScreen: String, CaseIterable, Identifiable {
             case .focusInsight:
                 FocusCardView(
                     entry: Entry(
-                        summary: "The best interfaces are invisible",
-                        category: .insight,
-                        aiGenerated: true
+                        transcript: "",
+                        content: "The best interfaces are invisible",
+                        category: .thought,
+                        sourceText: "",
+                        summary: "The best interfaces are invisible"
                     ),
                     onMarkDone: nil,
                     onSnooze: nil,
@@ -185,9 +221,11 @@ enum DevScreen: String, CaseIterable, Identifiable {
             case .focusDismissed:
                 FocusCardView(
                     entry: Entry(
-                        summary: "Team standup at 10am",
+                        transcript: "",
+                        content: "Team standup at 10am",
                         category: .reminder,
-                        aiGenerated: true
+                        sourceText: "",
+                        summary: "Team standup at 10am"
                     ),
                     onMarkDone: {},
                     onSnooze: {},
@@ -221,10 +259,12 @@ enum DevScreen: String, CaseIterable, Identifiable {
             case .entryDetail:
                 EntryDetailView(
                     entry: Entry(
-                        summary: "Review design system and provide feedback",
+                        transcript: "",
+                        content: "Review design system and provide feedback",
                         category: .todo,
-                        priority: 2,
-                        aiGenerated: true
+                        sourceText: "",
+                        summary: "Review design system and provide feedback",
+                        priority: 1
                     ),
                     onBack: {},
                     onEdit: {},
@@ -237,10 +277,11 @@ enum DevScreen: String, CaseIterable, Identifiable {
             case .entryDetailVariants:
                 EntryDetailView(
                     entry: Entry(
-                        summary: "Voice-controlled home garden watering system",
+                        transcript: "",
+                        content: "Voice-controlled home garden watering system",
                         category: .idea,
-                        tags: ["app-idea", "garden"],
-                        aiGenerated: true
+                        sourceText: "",
+                        summary: "Voice-controlled home garden watering system"
                     ),
                     onBack: {},
                     onEdit: {},

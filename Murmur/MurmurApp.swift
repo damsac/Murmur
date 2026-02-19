@@ -1,10 +1,12 @@
 import SwiftUI
 import SwiftData
+import MurmurCore
 
 @main
 struct MurmurApp: App {
     let modelContainer = PersistenceConfig.modelContainer
     @State private var appState = AppState()
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         #if DEBUG
@@ -24,7 +26,20 @@ struct MurmurApp: App {
             RootView()
                 .environment(appState)
                 .preferredColorScheme(.dark)
+                .task {
+                    appState.configurePipeline()
+                }
         }
         .modelContainer(modelContainer)
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .background {
+                if appState.recordingState == .recording {
+                    Task {
+                        try? await appState.pipeline?.stopRecording()
+                        appState.recordingState = .idle
+                    }
+                }
+            }
+        }
     }
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import MurmurCore
 
 struct CategoryBadge: View {
     let category: EntryCategory

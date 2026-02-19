@@ -1,4 +1,5 @@
 import SwiftUI
+import MurmurCore
 
 struct VoiceCorrectionView: View {
     @Environment(AppState.self) private var appState
@@ -23,12 +24,12 @@ struct VoiceCorrectionView: View {
                     // Header
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Review")
-                            .font(.system(size: 22, weight: .bold))
+                            .font(.title2.weight(.bold))
                             .tracking(-0.3)
                             .foregroundStyle(Theme.Colors.textPrimary)
 
                         Text("Correcting item \(editingIndex + 1) of \(items.count)")
-                            .font(.system(size: 14))
+                            .font(.subheadline)
                             .foregroundStyle(Theme.Colors.textTertiary)
                     }
                     .padding(.top, 70)
@@ -39,9 +40,9 @@ struct VoiceCorrectionView: View {
                         HStack {
                             HStack(spacing: 6) {
                                 Image(systemName: "mic")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(.caption2.weight(.semibold))
                                 Text("TRANSCRIPT")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(.caption2.weight(.semibold))
                                     .tracking(0.6)
                             }
                             .foregroundStyle(Theme.Colors.textTertiary)
@@ -49,12 +50,12 @@ struct VoiceCorrectionView: View {
                             Spacer()
 
                             Text(formattedDuration)
-                                .font(.system(size: 11))
+                                .font(.caption2)
                                 .foregroundStyle(Theme.Colors.textMuted)
                         }
 
                         Text("\"\(transcript)\"")
-                            .font(.system(size: 14))
+                            .font(.subheadline)
                             .foregroundStyle(Theme.Colors.textSecondary)
                             .italic()
                             .lineSpacing(2)
@@ -78,14 +79,14 @@ struct VoiceCorrectionView: View {
                     // Items header
                     HStack {
                         Text("EXTRACTED")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.caption.weight(.semibold))
                             .tracking(0.8)
                             .foregroundStyle(Theme.Colors.textSecondary)
 
                         Spacer()
 
                         Text("\(items.count) items")
-                            .font(.system(size: 12))
+                            .font(.caption2)
                             .foregroundStyle(Theme.Colors.textTertiary)
                     }
                     .padding(.bottom, 12)
@@ -121,7 +122,7 @@ struct VoiceCorrectionView: View {
                 VStack(spacing: 0) {
                     Button(action: {}) {
                         Text("Finish correction to continue")
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.headline)
                             .foregroundStyle(Theme.Colors.textSecondary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 18)
@@ -176,7 +177,7 @@ private struct VoiceCorrectionItemCard: View {
                     .frame(width: 6, height: 6)
 
                 Text(item.category.displayName.uppercased())
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.caption2.weight(.semibold))
                     .tracking(0.5)
                     .foregroundStyle(Theme.categoryColor(item.category))
             }
@@ -190,7 +191,7 @@ private struct VoiceCorrectionItemCard: View {
 
             // Summary
             Text(item.summary)
-                .font(.system(size: 16, weight: .semibold))
+                .font(.body.weight(.semibold))
                 .foregroundStyle(Theme.Colors.textPrimary)
                 .lineSpacing(2)
                 .padding(.bottom, 12)
@@ -198,12 +199,12 @@ private struct VoiceCorrectionItemCard: View {
             // Original value (struck through)
             VStack(alignment: .leading, spacing: 4) {
                 Text("ORIGINAL")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(Theme.Typography.badge)
                     .tracking(0.6)
                     .foregroundStyle(Theme.Colors.textTertiary)
 
                 Text(item.summary)
-                    .font(.system(size: 14))
+                    .font(.subheadline)
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .strikethrough(true, color: Theme.Colors.accentRed.opacity(0.4))
             }
@@ -226,25 +227,25 @@ private struct VoiceCorrectionItemCard: View {
                             .frame(width: 40, height: 40)
 
                         Image(systemName: "mic")
-                            .font(.system(size: 18, weight: .medium))
+                            .font(.headline.weight(.medium))
                             .foregroundStyle(Theme.Colors.accentYellow)
                     }
                     .modifier(PulsingRingModifier(color: Theme.Colors.accentYellow))
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Recording correction...")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Theme.Colors.accentYellow)
 
                         Text("Speak your fix")
-                            .font(.system(size: 12))
+                            .font(.caption2)
                             .foregroundStyle(Theme.Colors.textTertiary)
                     }
 
                     Spacer()
 
                     Text(formattedCorrectionDuration)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Theme.Colors.textTertiary)
                         .monospacedDigit()
                 }
@@ -262,7 +263,7 @@ private struct VoiceCorrectionItemCard: View {
                 // Live transcript
                 HStack(spacing: 0) {
                     Text("\"\(correctionTranscript)")
-                        .font(.system(size: 14))
+                        .font(.subheadline)
                         .foregroundStyle(Theme.Colors.textPrimary)
                         .italic()
                         .lineSpacing(2)
@@ -282,7 +283,7 @@ private struct VoiceCorrectionItemCard: View {
 
                 // Hint
                 Text("Original + correction sent to LLM to fix")
-                    .font(.system(size: 11))
+                    .font(.caption2)
                     .foregroundStyle(Theme.Colors.textMuted)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.top, 10)
@@ -347,7 +348,7 @@ private struct DimmedItemCard: View {
                     .frame(width: 6, height: 6)
 
                 Text(item.category.displayName.uppercased())
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.caption2.weight(.semibold))
                     .tracking(0.5)
                     .foregroundStyle(Theme.categoryColor(item.category))
             }
@@ -360,7 +361,7 @@ private struct DimmedItemCard: View {
 
             // Summary
             Text(item.summary)
-                .font(.system(size: 16, weight: .semibold))
+                .font(.body.weight(.semibold))
                 .foregroundStyle(Theme.Colors.textPrimary)
                 .lineSpacing(2)
         }

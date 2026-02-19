@@ -1,4 +1,5 @@
 import SwiftUI
+import MurmurCore
 
 struct CategoryListView: View {
     @Environment(AppState.self) private var appState
@@ -66,7 +67,7 @@ struct CategoryListView: View {
                         // Completed section
                         if !completedEntries.isEmpty {
                             Text("COMPLETED")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(Theme.Typography.badge)
                                 .tracking(1)
                                 .foregroundStyle(Theme.Colors.textTertiary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -149,7 +150,7 @@ private struct SimpleEntryRow: View {
             // Content
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.summary)
-                    .font(.system(size: 16, weight: .medium))
+                    .font(Theme.Typography.bodyMedium)
                     .foregroundStyle(
                         entry.status == .completed ?
                         Theme.Colors.textTertiary :
@@ -226,26 +227,34 @@ private struct SimpleEntryRow: View {
         category: .todo,
         entries: [
             Entry(
-                summary: "Pick up dry cleaning",
+                transcript: "",
+                content: "Pick up dry cleaning",
                 category: .todo,
-                aiGenerated: true
+                sourceText: "",
+                summary: "Pick up dry cleaning"
             ),
             Entry(
+                transcript: "",
+                content: "DMV appointment",
+                category: .todo,
+                sourceText: "",
                 summary: "DMV appointment",
-                category: .todo,
-                dueDate: Calendar.current.date(byAdding: .day, value: 2, to: Date()),
-                aiGenerated: true
+                dueDate: Calendar.current.date(byAdding: .day, value: 2, to: Date())
             ),
             Entry(
-                summary: "Fix the leaky faucet",
+                transcript: "",
+                content: "Fix the leaky faucet",
                 category: .todo,
-                aiGenerated: true
+                sourceText: "",
+                summary: "Fix the leaky faucet"
             ),
             Entry(
+                transcript: "",
+                content: "Buy groceries",
+                category: .todo,
+                sourceText: "",
                 summary: "Buy groceries",
-                category: .todo,
-                status: .completed,
-                aiGenerated: true
+                status: .completed
             )
         ],
         onBack: { print("Back") },
@@ -265,20 +274,26 @@ private struct SimpleEntryRow: View {
         category: .idea,
         entries: [
             Entry(
-                summary: "Voice-controlled home garden watering system",
+                transcript: "",
+                content: "Voice-controlled home garden watering system",
                 category: .idea,
-                aiGenerated: true
+                sourceText: "",
+                summary: "Voice-controlled home garden watering system"
             ),
             Entry(
-                summary: "App that turns grocery receipts into meal plans",
+                transcript: "",
+                content: "App that turns grocery receipts into meal plans",
                 category: .idea,
-                aiGenerated: true
+                sourceText: "",
+                summary: "App that turns grocery receipts into meal plans"
             ),
             Entry(
+                transcript: "",
+                content: "Browser extension for quick voice notes",
+                category: .idea,
+                sourceText: "",
                 summary: "Browser extension for quick voice notes",
-                category: .idea,
-                priority: 1,
-                aiGenerated: true
+                priority: 3
             )
         ],
         onBack: { print("Back") },

@@ -1,4 +1,5 @@
 import SwiftUI
+import MurmurCore
 
 enum Theme {
     // MARK: - Colors
@@ -27,16 +28,16 @@ enum Theme {
         static let borderFaint = Color.white.opacity(0.04)
     }
 
-    // MARK: - Typography
+    // MARK: - Typography (Dynamic Type-aware)
     enum Typography {
-        static let title = Font.system(size: 28, weight: .bold)
-        static let navTitle = Font.system(size: 22, weight: .semibold)
-        static let body = Font.system(size: 16, weight: .regular)
-        static let bodyMedium = Font.system(size: 16, weight: .medium)
-        static let caption = Font.system(size: 13, weight: .regular)
-        static let label = Font.system(size: 12, weight: .medium)
-        static let badge = Font.system(size: 10, weight: .semibold)
-        static let navLabel = Font.system(size: 10, weight: .medium)
+        static let title = Font.title.weight(.bold)
+        static let navTitle = Font.title2.weight(.semibold)
+        static let body = Font.body
+        static let bodyMedium = Font.body.weight(.medium)
+        static let caption = Font.caption
+        static let label = Font.caption2.weight(.medium)
+        static let badge = Font.caption2.weight(.semibold)
+        static let navLabel = Font.caption2.weight(.medium)
     }
 
     // MARK: - Spacing
@@ -46,9 +47,12 @@ enum Theme {
         static let cardGap: CGFloat = 16
         static let cardRadius: CGFloat = 16
         static let pillRadius: CGFloat = 10
-        static let micButtonSize: CGFloat = 64
+        static let micButtonSize: CGFloat = 72
         static let micButtonSizeSmall: CGFloat = 52
-        static let bottomNavHeight: CGFloat = 80
+        static let bottomNavHeight: CGFloat = 44
+        static let notchRadius: CGFloat = 39
+        static let notchDepth: CGFloat = 12
+        static let notchCurveOffset: CGFloat = 14
     }
 
     // MARK: - Gradients
@@ -63,7 +67,7 @@ enum Theme {
         switch category {
         case .todo:
             return Colors.accentPurple
-        case .insight:
+        case .thought:
             return Colors.accentBlue
         case .idea:
             return Colors.accentYellow
@@ -73,9 +77,9 @@ enum Theme {
             return Colors.textSecondary
         case .question:
             return Colors.accentPurpleLight
-        case .decision:
+        case .list:
             return Colors.accentGreen
-        case .learning:
+        case .habit:
             return Colors.accentBlue
         }
     }

@@ -1,7 +1,8 @@
 import SwiftUI
+import MurmurCore
 
 struct ProcessingOverlay: View {
-    let entries: [Entry]
+    let entries: [ExtractedEntry]
     let transcript: String?
 
     @State private var showCards = false
@@ -84,10 +85,9 @@ struct ProcessingOverlay: View {
                 }
             }
         }
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                showCards = true
-            }
+        .task {
+            try? await Task.sleep(for: .seconds(0.5))
+            showCards = true
         }
     }
 }
@@ -102,11 +102,12 @@ struct ProcessingOverlay: View {
 #Preview("Processing - Single Card") {
     ProcessingOverlay(
         entries: [
-            Entry(
-                summary: "Review the new design system and provide feedback to the team",
+            ExtractedEntry(
+                content: "Review the new design system and provide feedback to the team",
                 category: .todo,
-                priority: 2,
-                aiGenerated: true
+                sourceText: "",
+                summary: "Review the new design system and provide feedback to the team",
+                priority: 1
             )
         ],
         transcript: nil
@@ -116,22 +117,25 @@ struct ProcessingOverlay: View {
 #Preview("Processing - Multiple Cards") {
     ProcessingOverlay(
         entries: [
-            Entry(
-                summary: "Review the new design system and provide feedback to the team by end of week",
+            ExtractedEntry(
+                content: "Review the new design system and provide feedback to the team by end of week",
                 category: .todo,
-                priority: 2,
-                aiGenerated: true
+                sourceText: "",
+                summary: "Review the new design system and provide feedback to the team by end of week",
+                priority: 1
             ),
-            Entry(
-                summary: "The best interfaces are invisible - they get out of the way and let users focus on their work",
-                category: .insight,
-                aiGenerated: true
+            ExtractedEntry(
+                content: "The best interfaces are invisible - they get out of the way and let users focus on their work",
+                category: .thought,
+                sourceText: "",
+                summary: "The best interfaces are invisible - they get out of the way and let users focus on their work"
             ),
-            Entry(
-                summary: "Build a browser extension for quick voice notes that syncs with mobile app",
+            ExtractedEntry(
+                content: "Build a browser extension for quick voice notes that syncs with mobile app",
                 category: .idea,
-                priority: 1,
-                aiGenerated: true
+                sourceText: "",
+                summary: "Build a browser extension for quick voice notes that syncs with mobile app",
+                priority: 3
             )
         ],
         transcript: "Review the design system, thought about invisible interfaces, idea for browser extension"
@@ -141,28 +145,38 @@ struct ProcessingOverlay: View {
 #Preview("Processing - Many Cards") {
     ProcessingOverlay(
         entries: [
-            Entry(
+            ExtractedEntry(
+                content: "Complete quarterly performance reviews",
+                category: .todo,
+                sourceText: "",
                 summary: "Complete quarterly performance reviews",
-                category: .todo,
-                priority: 2
+                priority: 1
             ),
-            Entry(
+            ExtractedEntry(
+                content: "Schedule 1:1s with direct reports",
+                category: .todo,
+                sourceText: "",
                 summary: "Schedule 1:1s with direct reports",
-                category: .todo,
-                priority: 1
+                priority: 3
             ),
-            Entry(
-                summary: "Good design is as little design as possible",
-                category: .insight
+            ExtractedEntry(
+                content: "Good design is as little design as possible",
+                category: .thought,
+                sourceText: "",
+                summary: "Good design is as little design as possible"
             ),
-            Entry(
-                summary: "Create a design system for the new product",
+            ExtractedEntry(
+                content: "Create a design system for the new product",
                 category: .idea,
-                priority: 1
+                sourceText: "",
+                summary: "Create a design system for the new product",
+                priority: 3
             ),
-            Entry(
-                summary: "What's the difference between UX and UI?",
-                category: .question
+            ExtractedEntry(
+                content: "What's the difference between UX and UI?",
+                category: .question,
+                sourceText: "",
+                summary: "What's the difference between UX and UI?"
             )
         ],
         transcript: nil

@@ -137,7 +137,7 @@ private struct SectionHeader: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 12, weight: .semibold))
+            .font(Theme.Typography.badge)
             .tracking(1)
             .foregroundStyle(Theme.Colors.textTertiary)
             .frame(maxWidth: .infinity, alignment: .leading)

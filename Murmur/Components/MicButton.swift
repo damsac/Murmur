@@ -12,14 +12,14 @@ struct MicButton: View {
         var diameter: CGFloat {
             switch self {
             case .small: return 52
-            case .large: return 64
+            case .large: return 72
             }
         }
 
         var iconSize: CGFloat {
             switch self {
             case .small: return 24
-            case .large: return 28
+            case .large: return 30
             }
         }
 
@@ -79,6 +79,7 @@ struct MicButton: View {
             }
         }
         .buttonStyle(MicButtonStyle(isPressed: $isPressed))
+        .accessibilityLabel(isRecording ? "Stop recording" : "Record voice note")
     }
 }
 

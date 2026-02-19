@@ -1,7 +1,8 @@
 import SwiftUI
+import MurmurCore
 
 struct ConfirmItemCard: View {
-    let entry: Entry
+    let entry: ExtractedEntry
     let onVoiceCorrect: () -> Void
     let onDiscard: () -> Void
 
@@ -26,7 +27,7 @@ struct ConfirmItemCard: View {
                 Button(action: onVoiceCorrect) {
                     HStack(spacing: 8) {
                         Image(systemName: "waveform")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.subheadline.weight(.semibold))
                         Text("Voice Correct")
                             .font(Theme.Typography.bodyMedium)
                     }
@@ -48,7 +49,7 @@ struct ConfirmItemCard: View {
                 Button(action: onDiscard) {
                     HStack(spacing: 8) {
                         Image(systemName: "trash")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.subheadline.weight(.semibold))
                         Text("Discard")
                             .font(Theme.Typography.bodyMedium)
                     }
@@ -69,31 +70,15 @@ struct ConfirmItemCard: View {
 
             // Metadata footer
             HStack(spacing: 12) {
-                // Token cost
-                HStack(spacing: 4) {
-                    Image(systemName: "circle.fill")
-                        .font(.system(size: 6))
-                    Text("\(entry.tokenCost) tokens")
-                        .font(Theme.Typography.label)
-                }
-                .foregroundStyle(Theme.Colors.textTertiary)
+                CategoryBadge(category: entry.category, size: .small)
 
                 Spacer()
-
-                // AI generated badge
-                if entry.aiGenerated {
-                    HStack(spacing: 4) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 11))
-                        Text("AI Enhanced")
-                            .font(Theme.Typography.label)
-                    }
-                    .foregroundStyle(Theme.Colors.accentPurple)
-                }
             }
         }
         .padding(Theme.Spacing.cardPadding)
         .cardStyle()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(entry.category.displayName) entry: \(entry.summary)")
         .scaleEffect(isAppearing ? 1 : 0.92)
         .opacity(isAppearing ? 1 : 0)
         .onAppear {
@@ -108,32 +93,35 @@ struct ConfirmItemCard: View {
     ScrollView {
         VStack(spacing: 16) {
             ConfirmItemCard(
-                entry: Entry(
-                    summary: "Review the new design system and provide feedback to the team by end of week",
+                entry: ExtractedEntry(
+                    content: "Review the new design system and provide feedback to the team by end of week",
                     category: .todo,
-                    priority: 2,
-                    aiGenerated: true
+                    sourceText: "",
+                    summary: "Review the new design system and provide feedback to the team by end of week",
+                    priority: 1
                 ),
                 onVoiceCorrect: { print("Voice correct") },
                 onDiscard: { print("Discard") }
             )
 
             ConfirmItemCard(
-                entry: Entry(
-                    summary: "The best interfaces are invisible - they get out of the way and let users focus on their work",
-                    category: .insight,
-                    aiGenerated: true
+                entry: ExtractedEntry(
+                    content: "The best interfaces are invisible - they get out of the way and let users focus on their work",
+                    category: .thought,
+                    sourceText: "",
+                    summary: "The best interfaces are invisible - they get out of the way and let users focus on their work"
                 ),
                 onVoiceCorrect: { print("Voice correct") },
                 onDiscard: { print("Discard") }
             )
 
             ConfirmItemCard(
-                entry: Entry(
-                    summary: "Build a browser extension for quick voice notes that syncs with mobile",
+                entry: ExtractedEntry(
+                    content: "Build a browser extension for quick voice notes that syncs with mobile",
                     category: .idea,
-                    priority: 1,
-                    aiGenerated: true
+                    sourceText: "",
+                    summary: "Build a browser extension for quick voice notes that syncs with mobile",
+                    priority: 3
                 ),
                 onVoiceCorrect: { print("Voice correct") },
                 onDiscard: { print("Discard") }
@@ -147,18 +135,22 @@ struct ConfirmItemCard: View {
 #Preview("Staggered Appear") {
     VStack(spacing: 16) {
         ConfirmItemCard(
-            entry: Entry(
-                summary: "First item appearing",
-                category: .todo
+            entry: ExtractedEntry(
+                content: "First item appearing",
+                category: .todo,
+                sourceText: "",
+                summary: "First item appearing"
             ),
             onVoiceCorrect: { },
             onDiscard: { }
         )
 
         ConfirmItemCard(
-            entry: Entry(
-                summary: "Second item appearing",
-                category: .insight
+            entry: ExtractedEntry(
+                content: "Second item appearing",
+                category: .thought,
+                sourceText: "",
+                summary: "Second item appearing"
             ),
             onVoiceCorrect: { },
             onDiscard: { }
@@ -166,9 +158,11 @@ struct ConfirmItemCard: View {
         .animation(Animations.cardAppear.delay(0.1), value: true)
 
         ConfirmItemCard(
-            entry: Entry(
-                summary: "Third item appearing",
-                category: .idea
+            entry: ExtractedEntry(
+                content: "Third item appearing",
+                category: .idea,
+                sourceText: "",
+                summary: "Third item appearing"
             ),
             onVoiceCorrect: { },
             onDiscard: { }
