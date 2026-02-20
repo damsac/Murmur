@@ -36,6 +36,9 @@ public final class Entry {
     /// One-liner summary for cards/lists
     public var summary: String
 
+    /// User-added supplementary notes
+    public var notes: String = ""
+
     /// Priority 1-5 scale (1 = highest)
     public var priority: Int?
 

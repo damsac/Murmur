@@ -95,7 +95,7 @@ struct RootView: View {
                 .zIndex(50)
             }
 
-            // Success toast
+            // Success toast (tap to dismiss)
             if showSuccessToast {
                 VStack {
                     ToastView(
@@ -105,6 +105,11 @@ struct RootView: View {
                     )
                     .padding(.top, 60)
                     .transition(.move(edge: .top).combined(with: .opacity))
+                    .onTapGesture {
+                        withAnimation {
+                            showSuccessToast = false
+                        }
+                    }
 
                     Spacer()
                 }
@@ -121,7 +126,6 @@ struct RootView: View {
                 entry: entry,
                 onBack: { selectedEntry = nil },
                 onEdit: {},
-                onTellMeMore: {},
                 onViewTranscript: {},
                 onArchive: { selectedEntry = nil },
                 onSnooze: { selectedEntry = nil },
@@ -199,12 +203,8 @@ struct RootView: View {
                 entries: entries,
                 onMicTap: handleMicTap,
                 onSubmit: handleTextSubmit,
-                onCardTap: { card in
-                    switch card {
-                    case .reminder(let entry), .habit(let entry): selectedEntry = entry
-                    case .ideas(let entries): selectedEntry = entries.first
-                    case .todoCount: break
-                    }
+                onEntryTap: { entry in
+                    selectedEntry = entry
                 },
                 onSettingsTap: {
                     selectedTab = .settings
@@ -415,13 +415,6 @@ struct RootView: View {
         toastMessage = message
         withAnimation {
             showSuccessToast = true
-        }
-
-        Task {
-            try? await Task.sleep(for: .seconds(2.5))
-            withAnimation {
-                showSuccessToast = false
-            }
         }
     }
 

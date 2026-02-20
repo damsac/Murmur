@@ -3,14 +3,19 @@ import MurmurCore
 
 struct EntryDetailView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.modelContext) private var modelContext
     let entry: Entry
     let onBack: () -> Void
     let onEdit: () -> Void
-    let onTellMeMore: () -> Void
     let onViewTranscript: () -> Void
     let onArchive: () -> Void
     let onSnooze: () -> Void
     let onDelete: () -> Void
+
+    @State private var showNotesSheet = false
+    @State private var draftNotes: String = ""
+    @State private var showDeleteConfirm = false
+    @State private var showSnoozeDialog = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -47,12 +52,24 @@ struct EntryDetailView: View {
                             .foregroundStyle(Theme.Colors.textPrimary)
                             .padding(.bottom, 32)
 
-                        // Tell me more button
-                        Button(action: onTellMeMore) {
+                        // Existing notes (shown when non-empty)
+                        if !entry.notes.isEmpty {
+                            Text(entry.notes)
+                                .font(Theme.Typography.body)
+                                .foregroundStyle(Theme.Colors.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.bottom, 24)
+                        }
+
+                        // Tell me more / Edit notes button
+                        Button {
+                            draftNotes = entry.notes
+                            showNotesSheet = true
+                        } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: "plus.circle")
                                     .font(Theme.Typography.bodyMedium)
-                                Text("Tell me more")
+                                Text(entry.notes.isEmpty ? "Tell me more" : "Edit notes")
                                     .font(.subheadline.weight(.medium))
                             }
                             .foregroundStyle(Theme.Colors.accentPurpleLight)
@@ -119,11 +136,62 @@ struct EntryDetailView: View {
             VStack {
                 Spacer()
                 EntryActionBar(
-                    onArchive: onArchive,
-                    onSnooze: onSnooze,
-                    onDelete: onDelete
+                    onArchive: {
+                        entry.status = .archived
+                        entry.updatedAt = Date()
+                        try? modelContext.save()
+                        onArchive()
+                    },
+                    onSnooze: { showSnoozeDialog = true },
+                    onDelete: { showDeleteConfirm = true }
                 )
             }
+
+        }
+        .sheet(isPresented: $showNotesSheet) {
+            NotesEditSheet(
+                notes: $draftNotes,
+                onSave: {
+                    entry.notes = draftNotes
+                    entry.updatedAt = Date()
+                    try? modelContext.save()
+                    showNotesSheet = false
+                },
+                onDismiss: { showNotesSheet = false }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .alert("Delete entry?", isPresented: $showDeleteConfirm) {
+            Button("Delete", role: .destructive) { onDelete() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This can't be undone.")
+        }
+        .confirmationDialog("Snooze until...", isPresented: $showSnoozeDialog) {
+            Button("In 1 hour") {
+                entry.snoozeUntil = Calendar.current.date(byAdding: .hour, value: 1, to: Date())
+                entry.status = .snoozed
+                entry.updatedAt = Date()
+                try? modelContext.save()
+                onSnooze()
+            }
+            Button("Tomorrow morning") {
+                let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+                entry.snoozeUntil = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow)
+                entry.status = .snoozed
+                entry.updatedAt = Date()
+                try? modelContext.save()
+                onSnooze()
+            }
+            Button("Next week") {
+                entry.snoozeUntil = Calendar.current.date(byAdding: .weekOfYear, value: 1, to: Date())
+                entry.status = .snoozed
+                entry.updatedAt = Date()
+                try? modelContext.save()
+                onSnooze()
+            }
+            Button("Cancel", role: .cancel) {}
         }
     }
 
@@ -216,6 +284,40 @@ private struct ActionButton: View {
     }
 }
 
+// MARK: - Notes Edit Sheet
+
+private struct NotesEditSheet: View {
+    @Binding var notes: String
+    let onSave: () -> Void
+    let onDismiss: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        NavigationStack {
+            TextEditor(text: $notes)
+                .font(Theme.Typography.body)
+                .foregroundStyle(Theme.Colors.textPrimary)
+                .scrollContentBackground(.hidden)
+                .background(Theme.Colors.bgDeep)
+                .padding(.horizontal, Theme.Spacing.screenPadding)
+                .focused($focused)
+                .navigationTitle("Notes")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save", action: onSave)
+                            .fontWeight(.semibold)
+                    }
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel", action: onDismiss)
+                    }
+                }
+        }
+        .background(Theme.Colors.bgDeep)
+        .onAppear { focused = true }
+    }
+}
+
 #Preview("Entry Detail - Idea") {
     @Previewable @State var appState = AppState()
 
@@ -229,7 +331,6 @@ private struct ActionButton: View {
         ),
         onBack: { print("Back") },
         onEdit: { print("Edit") },
-        onTellMeMore: { print("Tell me more") },
         onViewTranscript: { print("View transcript") },
         onArchive: { print("Archive") },
         onSnooze: { print("Snooze") },
@@ -252,7 +353,6 @@ private struct ActionButton: View {
         ),
         onBack: { print("Back") },
         onEdit: { print("Edit") },
-        onTellMeMore: { print("Tell me more") },
         onViewTranscript: { print("View transcript") },
         onArchive: { print("Archive") },
         onSnooze: { print("Snooze") },
@@ -274,7 +374,6 @@ private struct ActionButton: View {
         ),
         onBack: { print("Back") },
         onEdit: { print("Edit") },
-        onTellMeMore: { print("Tell me more") },
         onViewTranscript: { print("View transcript") },
         onArchive: { print("Archive") },
         onSnooze: { print("Snooze") },
