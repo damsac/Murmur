@@ -102,9 +102,9 @@ struct PulsingMicView: View {
                     )
 
                 // Microphone icon
-                MicrophoneIcon()
-                    .frame(width: 32, height: 32)
-                    .foregroundStyle(Theme.Colors.textPrimary)
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 32, weight: .medium))
+                    .foregroundStyle(.white)
             }
         }
         .onAppear {
@@ -141,43 +141,6 @@ struct PulsingMicView: View {
             pulse3Scale = 1.8
             pulse3Opacity = 0.0
         }
-    }
-}
-
-// Custom microphone icon
-private struct MicrophoneIcon: View {
-    var body: some View {
-        ZStack {
-            // Mic capsule
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.white)
-                .frame(width: 16, height: 24)
-                .offset(y: -4)
-
-            // Mic stand
-            Path { path in
-                path.move(to: CGPoint(x: 8, y: 12))
-                path.addCurve(
-                    to: CGPoint(x: 8, y: 24),
-                    control1: CGPoint(x: -2, y: 16),
-                    control2: CGPoint(x: -2, y: 20)
-                )
-                path.addCurve(
-                    to: CGPoint(x: 8, y: 24),
-                    control1: CGPoint(x: 18, y: 20),
-                    control2: CGPoint(x: 18, y: 16)
-                )
-            }
-            .stroke(Color.white, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-
-            // Base line
-            Path { path in
-                path.move(to: CGPoint(x: 2, y: 28))
-                path.addLine(to: CGPoint(x: 14, y: 28))
-            }
-            .stroke(Color.white, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-        }
-        .frame(width: 32, height: 32)
     }
 }
 

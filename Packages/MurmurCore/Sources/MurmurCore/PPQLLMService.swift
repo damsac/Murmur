@@ -9,7 +9,7 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
 
     private static let endpoint = URL(string: "https://api.ppq.ai/chat/completions")!
 
-    public init(apiKey: String, model: String = "claude-sonnet-4.5", prompt: LLMPrompt = .entryExtraction, session: URLSession = .shared) {
+    public init(apiKey: String, model: String = "anthropic/claude-sonnet-4.6", prompt: LLMPrompt = .entryExtraction, session: URLSession = .shared) {
         self.apiKey = apiKey
         self.model = model
         self.prompt = prompt
@@ -31,11 +31,7 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         }
 
         let request = try buildRequest(messages: requestMessages)
-        let (data, response) = try await session.data(for: request)
-
-        guard let http = response as? HTTPURLResponse else {
-            throw PPQError.invalidResponse
-        }
+        let (data, http) = try await performWithRetry(request)
 
         guard http.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? "<no body>"
@@ -48,6 +44,40 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         updateConversation(conversation, requestMessages: requestMessages, responseData: data)
 
         return entries
+    }
+
+    // MARK: - Retry
+
+    /// Executes a URLRequest, retrying up to `maxAttempts` times on transient errors (404, 5xx).
+    private func performWithRetry(
+        _ request: URLRequest,
+        maxAttempts: Int = 3
+    ) async throws -> (Data, HTTPURLResponse) {
+        var lastError: Error?
+        for attempt in 1...maxAttempts {
+            do {
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse else {
+                    throw PPQError.invalidResponse
+                }
+                // Success or non-retryable client error — return immediately
+                guard http.statusCode == 404 || http.statusCode >= 500 else {
+                    return (data, http)
+                }
+                // Retryable: record error and wait before next attempt
+                let body = String(data: data, encoding: .utf8) ?? "<no body>"
+                lastError = PPQError.httpError(statusCode: http.statusCode, body: body)
+                if attempt < maxAttempts {
+                    try await Task.sleep(for: .seconds(Double(attempt)))
+                }
+            } catch {
+                lastError = error
+                if attempt < maxAttempts {
+                    try await Task.sleep(for: .seconds(Double(attempt)))
+                }
+            }
+        }
+        throw lastError ?? PPQError.invalidResponse
     }
 
     // MARK: - Request Building

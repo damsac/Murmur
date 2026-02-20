@@ -35,48 +35,45 @@ struct MicButton: View {
 
     var body: some View {
         Button(action: action) {
-            ZStack {
-                // Button background with gradient
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Theme.Colors.accentPurple,
-                                Theme.Colors.accentPurpleLight
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Theme.Colors.accentPurple,
+                            Theme.Colors.accentPurpleLight
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
                     )
-                    .frame(width: size.diameter, height: size.diameter)
-                    .shadow(
-                        color: Theme.Colors.accentPurple.opacity(isPressed ? 0.6 : 0.4),
-                        radius: size.shadowRadius,
-                        x: 0,
-                        y: isPressed ? 2 : 4
-                    )
-                    .shadow(
-                        color: Theme.Colors.accentPurple.opacity(0.2),
-                        radius: size.shadowRadius * 1.5,
-                        x: 0,
-                        y: 0
-                    )
-                    .scaleEffect(isPressed ? 0.95 : 1.0)
-
-                // Microphone icon
-                MicrophoneIcon()
-                    .frame(width: size.iconSize, height: size.iconSize)
-                    .foregroundStyle(Theme.Colors.textPrimary)
-
-                // Recording indicator - pulsing red dot
-                if isRecording {
-                    Circle()
-                        .fill(Theme.Colors.accentRed)
-                        .frame(width: 8, height: 8)
-                        .offset(x: size.diameter / 3, y: -size.diameter / 3)
-                        .modifier(PulsingDot())
+                )
+                .frame(width: size.diameter, height: size.diameter)
+                .shadow(
+                    color: Theme.Colors.accentPurple.opacity(isPressed ? 0.6 : 0.4),
+                    radius: size.shadowRadius,
+                    x: 0,
+                    y: isPressed ? 2 : 4
+                )
+                .shadow(
+                    color: Theme.Colors.accentPurple.opacity(0.2),
+                    radius: size.shadowRadius * 1.5,
+                    x: 0,
+                    y: 0
+                )
+                .overlay {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: size.iconSize, weight: .medium))
+                        .foregroundStyle(.white)
                 }
-            }
+                .overlay(alignment: .topTrailing) {
+                    if isRecording {
+                        Circle()
+                            .fill(Theme.Colors.accentRed)
+                            .frame(width: 10, height: 10)
+                            .offset(x: 2, y: -2)
+                            .modifier(PulsingDot())
+                    }
+                }
+                .scaleEffect(isPressed ? 0.95 : 1.0)
         }
         .buttonStyle(MicButtonStyle(isPressed: $isPressed))
         .accessibilityLabel(isRecording ? "Stop recording" : "Record voice note")
@@ -113,47 +110,6 @@ private struct PulsingDot: ViewModifier {
                     isPulsing = true
                 }
             }
-    }
-}
-
-// Microphone icon component
-private struct MicrophoneIcon: View {
-    var body: some View {
-        GeometryReader { geometry in
-            let size = geometry.size.width
-            let scale = size / 32.0
-
-            ZStack {
-                // Mic capsule
-                RoundedRectangle(cornerRadius: 8 * scale)
-                    .fill(Color.white)
-                    .frame(width: 16 * scale, height: 24 * scale)
-                    .offset(y: -4 * scale)
-
-                // Mic stand
-                Path { path in
-                    path.move(to: CGPoint(x: size / 2, y: 12 * scale))
-                    path.addCurve(
-                        to: CGPoint(x: size / 2, y: 24 * scale),
-                        control1: CGPoint(x: (size / 2) - 10 * scale, y: 16 * scale),
-                        control2: CGPoint(x: (size / 2) - 10 * scale, y: 20 * scale)
-                    )
-                    path.addCurve(
-                        to: CGPoint(x: size / 2, y: 24 * scale),
-                        control1: CGPoint(x: (size / 2) + 10 * scale, y: 20 * scale),
-                        control2: CGPoint(x: (size / 2) + 10 * scale, y: 16 * scale)
-                    )
-                }
-                .stroke(Color.white, style: StrokeStyle(lineWidth: 2 * scale, lineCap: .round))
-
-                // Base line
-                Path { path in
-                    path.move(to: CGPoint(x: (size / 2) - 6 * scale, y: 28 * scale))
-                    path.addLine(to: CGPoint(x: (size / 2) + 6 * scale, y: 28 * scale))
-                }
-                .stroke(Color.white, style: StrokeStyle(lineWidth: 2 * scale, lineCap: .round))
-            }
-        }
     }
 }
 
