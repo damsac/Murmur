@@ -6,14 +6,23 @@ import Foundation
 public final class Pipeline {
     private let transcriber: any Transcriber
     private let llm: any LLMService
+    private let creditGate: (any CreditGate)?
+    private let llmPricing: ServicePricing
 
     /// Conversation state from the most recent extraction session.
     /// Used by refine methods for multi-turn LLM context.
     public private(set) var currentConversation: LLMConversation?
 
-    public init(transcriber: any Transcriber, llm: any LLMService) {
+    public init(
+        transcriber: any Transcriber,
+        llm: any LLMService,
+        creditGate: (any CreditGate)? = nil,
+        llmPricing: ServicePricing = .zero
+    ) {
         self.transcriber = transcriber
         self.llm = llm
+        self.creditGate = creditGate
+        self.llmPricing = llmPricing
     }
 
     // MARK: - Recording Flow
@@ -46,10 +55,14 @@ public final class Pipeline {
         }
 
         let conversation = LLMConversation()
-        let entries = try await extractEntries(from: transcript.text, conversation: conversation)
+        let extraction = try await extractEntries(from: transcript.text, conversation: conversation)
         currentConversation = conversation
 
-        return RecordingResult(entries: entries, transcript: transcript)
+        return RecordingResult(
+            entries: extraction.entries,
+            transcript: transcript,
+            receipt: extraction.receipt
+        )
     }
 
     // MARK: - Text Extraction Flow
@@ -62,10 +75,14 @@ public final class Pipeline {
         }
 
         let conversation = LLMConversation()
-        let entries = try await extractEntries(from: text, conversation: conversation)
+        let extraction = try await extractEntries(from: text, conversation: conversation)
         currentConversation = conversation
 
-        return TextResult(entries: entries, inputText: text)
+        return TextResult(
+            entries: extraction.entries,
+            inputText: text,
+            receipt: extraction.receipt
+        )
     }
 
     // MARK: - Refinement Flow
@@ -91,9 +108,13 @@ public final class Pipeline {
             throw PipelineError.emptyTranscript
         }
 
-        let entries = try await extractEntries(from: transcript.text, conversation: conversation)
+        let extraction = try await extractEntries(from: transcript.text, conversation: conversation)
 
-        return RecordingResult(entries: entries, transcript: transcript)
+        return RecordingResult(
+            entries: extraction.entries,
+            transcript: transcript,
+            receipt: extraction.receipt
+        )
     }
 
     /// Refine via text using multi-turn conversation context.
@@ -105,9 +126,13 @@ public final class Pipeline {
             throw PipelineError.emptyTranscript
         }
 
-        let entries = try await extractEntries(from: newInput, conversation: conversation)
+        let extraction = try await extractEntries(from: newInput, conversation: conversation)
 
-        return TextResult(entries: entries, inputText: newInput)
+        return TextResult(
+            entries: extraction.entries,
+            inputText: newInput,
+            receipt: extraction.receipt
+        )
     }
 
     /// Check if currently recording
@@ -130,19 +155,48 @@ public final class Pipeline {
     private func extractEntries(
         from text: String,
         conversation: LLMConversation
-    ) async throws -> [ExtractedEntry] {
-        let extractedEntries: [ExtractedEntry]
+    ) async throws -> (entries: [ExtractedEntry], receipt: CreditReceipt?) {
+        var authorization: CreditAuthorization?
+        if let creditGate {
+            do {
+                authorization = try await creditGate.authorize()
+            } catch let error as CreditError {
+                switch error {
+                case .insufficientBalance(let current):
+                    throw PipelineError.insufficientCredits(current: current)
+                default:
+                    throw PipelineError.creditAuthorizationFailed(underlying: error)
+                }
+            } catch {
+                throw PipelineError.creditAuthorizationFailed(underlying: error)
+            }
+        }
+
+        let llmResult: LLMResult
         do {
-            extractedEntries = try await llm.extractEntries(from: text, conversation: conversation)
+            llmResult = try await llm.extractEntries(from: text, conversation: conversation)
         } catch {
             throw PipelineError.extractionFailed(underlying: error)
         }
 
-        guard !extractedEntries.isEmpty else {
+        guard !llmResult.entries.isEmpty else {
             throw PipelineError.noEntriesExtracted
         }
 
-        return extractedEntries
+        var receipt: CreditReceipt?
+        if let creditGate, let authorization {
+            do {
+                receipt = try await creditGate.charge(
+                    authorization,
+                    usage: llmResult.usage,
+                    pricing: llmPricing
+                )
+            } catch {
+                throw PipelineError.creditChargeFailed(underlying: error)
+            }
+        }
+
+        return (llmResult.entries, receipt)
     }
 
 }
@@ -156,10 +210,12 @@ public struct RecordingResult {
 
     /// The full transcript from the recording
     public let transcript: Transcript
+    public let receipt: CreditReceipt?
 
-    public init(entries: [ExtractedEntry], transcript: Transcript) {
+    public init(entries: [ExtractedEntry], transcript: Transcript, receipt: CreditReceipt? = nil) {
         self.entries = entries
         self.transcript = transcript
+        self.receipt = receipt
     }
 }
 
@@ -170,10 +226,12 @@ public struct TextResult {
 
     /// The original text input
     public let inputText: String
+    public let receipt: CreditReceipt?
 
-    public init(entries: [ExtractedEntry], inputText: String) {
+    public init(entries: [ExtractedEntry], inputText: String, receipt: CreditReceipt? = nil) {
         self.entries = entries
         self.inputText = inputText
+        self.receipt = receipt
     }
 }
 
@@ -187,6 +245,9 @@ public enum PipelineError: LocalizedError, Sendable {
     case extractionFailed(underlying: any Error)
     case noEntriesExtracted
     case noActiveSession
+    case insufficientCredits(current: Int64)
+    case creditAuthorizationFailed(underlying: any Error)
+    case creditChargeFailed(underlying: any Error)
 
     public var errorDescription: String? {
         switch self {
@@ -204,6 +265,12 @@ public enum PipelineError: LocalizedError, Sendable {
             return "No entries were extracted from the transcript"
         case .noActiveSession:
             return "No active extraction session to refine"
+        case .insufficientCredits(let current):
+            return "Insufficient credits (\(current)). Top up to continue."
+        case .creditAuthorizationFailed(let error):
+            return "Credit authorization failed: \(error.localizedDescription)"
+        case .creditChargeFailed(let error):
+            return "Credit charge failed: \(error.localizedDescription)"
         }
     }
 }

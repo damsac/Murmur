@@ -258,8 +258,8 @@ func run() async {
         output += scenario.transcript + "\n\n"
 
         do {
-            let entries = try await llm.extractEntries(from: scenario.transcript, conversation: conversation)
-            output += formatEntries(entries, turn: 1)
+            let result = try await llm.extractEntries(from: scenario.transcript, conversation: conversation)
+            output += formatEntries(result.entries, turn: 1)
         } catch {
             output += "### ERROR\n\(error.localizedDescription)\n\n"
             print("  ERROR on turn 1: \(error.localizedDescription)")
@@ -273,8 +273,8 @@ func run() async {
             output += followUp + "\n\n"
 
             do {
-                let entries = try await llm.extractEntries(from: followUp, conversation: conversation)
-                output += formatEntries(entries, turn: turnNum)
+                let result = try await llm.extractEntries(from: followUp, conversation: conversation)
+                output += formatEntries(result.entries, turn: turnNum)
             } catch {
                 output += "### ERROR\n\(error.localizedDescription)\n\n"
                 print("  ERROR on turn \(turnNum): \(error.localizedDescription)")

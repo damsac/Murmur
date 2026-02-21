@@ -29,7 +29,6 @@ targets:
         excludes:
           - "**/.DS_Store"
           # Orphaned views — UI shells not wired to real functionality
-          - "Views/Credits/**"
           - "Views/Errors/**"
           - "Views/Dialogs/**"
           # Orphaned DevMode — complex simulation not needed
@@ -66,6 +65,7 @@ targets:
         com.apple.security.application-groups:
           - group.com.damsac.murmur.shared
     scheme:
+      storeKitConfiguration: Murmur/Config/StoreKit/Murmur.storekit
       testTargets:
         - MurmurTests
 

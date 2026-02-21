@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SettingsMinimalView: View {
+    let creditBalance: Int64
     let onBack: () -> Void
     let onTopUp: () -> Void
 
@@ -80,7 +81,7 @@ struct SettingsMinimalView: View {
                                     icon: "bolt.fill",
                                     iconColor: Theme.Colors.accentPurple,
                                     label: "Balance",
-                                    value: "4,312 tokens",
+                                    value: "\(creditBalance.formatted()) credits",
                                     valueColor: Theme.Colors.textPrimary,
                                     boldValue: true
                                 )
@@ -221,6 +222,7 @@ private struct SettingsInfoRow: View {
 
 #Preview("Settings Minimal") {
     SettingsMinimalView(
+        creditBalance: 4_312,
         onBack: { print("Back") },
         onTopUp: { print("Top up") }
     )

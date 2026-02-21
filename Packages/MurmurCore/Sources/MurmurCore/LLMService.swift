@@ -169,7 +169,17 @@ public protocol LLMService: Sendable {
     /// Extract entries from a transcript with auto-categorization.
     /// The conversation accumulates message history across calls —
     /// pass the same instance for multi-turn refinement.
-    func extractEntries(from transcript: String, conversation: LLMConversation) async throws -> [ExtractedEntry]
+    func extractEntries(from transcript: String, conversation: LLMConversation) async throws -> LLMResult
+}
+
+public struct LLMResult: Sendable {
+    public let entries: [ExtractedEntry]
+    public let usage: TokenUsage
+
+    public init(entries: [ExtractedEntry], usage: TokenUsage) {
+        self.entries = entries
+        self.usage = usage
+    }
 }
 
 /// An entry extracted by the LLM — pure value type, no persistence dependency.

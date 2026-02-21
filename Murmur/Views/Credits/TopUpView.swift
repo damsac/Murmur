@@ -2,10 +2,10 @@ import SwiftUI
 
 struct TopUpView: View {
     @Environment(AppState.self) private var appState
+    let packs: [CreditPack]
+    let isLoading: Bool
     let onBack: () -> Void
-    let onPurchase: (TokenPack) -> Void
-
-    @State private var selectedTab: TopUpTab = .card
+    let onPurchase: (CreditPack) -> Void
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -29,43 +29,20 @@ struct TopUpView: View {
                         .tracking(-0.8)
                         .foregroundStyle(Theme.Colors.textPrimary)
 
-                    Text("tokens remaining")
+                    Text("credits remaining")
                         .font(.system(size: 14))
                         .foregroundStyle(Theme.Colors.textTertiary)
                 }
                 .padding(.top, 28)
                 .padding(.bottom, 24)
 
-                // Tab bar
-                HStack(spacing: 3) {
-                    ForEach(TopUpTab.allCases, id: \.self) { tab in
-                        TopUpTabButton(
-                            title: tab.rawValue,
-                            isSelected: selectedTab == tab,
-                            action: { selectedTab = tab }
-                        )
-                    }
-                }
-                .padding(.horizontal, Theme.Spacing.screenPadding)
-                .padding(.bottom, 20)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color(red: 0.071, green: 0.071, blue: 0.102)) // #12121A
-                        .padding(.horizontal, Theme.Spacing.screenPadding)
-                        .padding(.vertical, 3)
-                )
-
-                // Tab content
                 ScrollView {
                     VStack(spacing: 0) {
-                        switch selectedTab {
-                        case .card:
-                            CardTabContent(onPurchase: onPurchase)
-                        case .cashu:
-                            CashuTabContent()
-                        case .subscribe:
-                            SubscribeTabContent()
-                        }
+                        CardTabContent(
+                            packs: packs,
+                            isLoading: isLoading,
+                            onPurchase: onPurchase
+                        )
                     }
                     .padding(.horizontal, Theme.Spacing.screenPadding)
                     .padding(.bottom, 80) // Space for disclaimer
@@ -84,61 +61,30 @@ struct TopUpView: View {
     }
 }
 
-// MARK: - Top Up Tab
-
-enum TopUpTab: String, CaseIterable {
-    case card = "Card"
-    case cashu = "Cashu"
-    case subscribe = "Subscribe"
-}
-
-// MARK: - Tab Button
-
-private struct TopUpTabButton: View {
-    let title: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(isSelected ? .white : Theme.Colors.textTertiary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(isSelected ? Theme.Colors.accentPurple : Color.clear)
-                )
-        }
-        .buttonStyle(.plain)
-    }
-}
-
 // MARK: - Card Tab Content
 
 private struct CardTabContent: View {
-    let onPurchase: (TokenPack) -> Void
+    let packs: [CreditPack]
+    let isLoading: Bool
+    let onPurchase: (CreditPack) -> Void
 
     var body: some View {
         VStack(spacing: 12) {
-            // Pack 1: 10,000 tokens
-            PackCard(
-                pack: TokenPack(tokens: 10_000, price: "$0.99", isPopular: false, isBestValue: false),
-                onPurchase: onPurchase
-            )
-
-            // Pack 2: 50,000 tokens (Popular)
-            PackCard(
-                pack: TokenPack(tokens: 50_000, price: "$3.99", isPopular: true, isBestValue: false),
-                onPurchase: onPurchase
-            )
-
-            // Pack 3: 100,000 tokens (Best Value)
-            PackCard(
-                pack: TokenPack(tokens: 100_000, price: "$6.99", isPopular: false, isBestValue: true),
-                onPurchase: onPurchase
-            )
+            if isLoading && packs.isEmpty {
+                ProgressView("Loading purchases...")
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .padding(.top, 24)
+            } else if packs.isEmpty {
+                Text("No credit packs available. Verify StoreKit product configuration.")
+                    .font(.system(size: 14))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .padding(.top, 24)
+            } else {
+                ForEach(packs) { pack in
+                    PackCard(pack: pack, onPurchase: onPurchase)
+                }
+            }
         }
     }
 }
@@ -146,15 +92,15 @@ private struct CardTabContent: View {
 // MARK: - Pack Card
 
 private struct PackCard: View {
-    let pack: TokenPack
-    let onPurchase: (TokenPack) -> Void
+    let pack: CreditPack
+    let onPurchase: (CreditPack) -> Void
 
     var body: some View {
         Button(action: { onPurchase(pack) }) {
             HStack(spacing: 0) {
                 // Left side
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("\(pack.tokens.formatted()) tokens")
+                    Text("\(pack.credits.formatted()) credits")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(Theme.Colors.textPrimary)
 
@@ -179,8 +125,7 @@ private struct PackCard: View {
                         .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(Theme.Colors.textPrimary)
 
-                    // Apple Pay button
-                    Text("Pay")
+                    Text("Buy")
                         .font(.system(size: 11, weight: .bold))
                         .tracking(-0.2)
                         .foregroundStyle(.black)
@@ -225,112 +170,11 @@ private struct PackCard: View {
     }
 }
 
-// MARK: - Cashu Tab Content
+// MARK: - Credit Pack Model
 
-private struct CashuTabContent: View {
-    @State private var cashuToken: String = ""
-
-    var body: some View {
-        VStack(spacing: 12) {
-            // Paste input
-            HStack(spacing: 12) {
-                TextField("Paste cashu token...", text: $cashuToken)
-                    .font(.system(size: 15))
-                    .foregroundStyle(Theme.Colors.textTertiary)
-                    .padding(.leading, 4)
-            }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Theme.Colors.bgCard)
-            )
-
-            // Scan QR button
-            Button(action: { print("Scan QR") }) {
-                HStack(spacing: 8) {
-                    Image(systemName: "qrcode.viewfinder")
-                        .font(.system(size: 20, weight: .medium))
-
-                    Text("Scan QR Code")
-                        .font(.system(size: 15, weight: .semibold))
-                }
-                .foregroundStyle(Theme.Colors.accentPurpleLight)
-                .frame(maxWidth: .infinity)
-                .padding(14)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Theme.Colors.accentPurple.opacity(0.1))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Theme.Colors.accentPurple.opacity(0.2), lineWidth: 1)
-                        )
-                )
-            }
-            .buttonStyle(.plain)
-        }
-    }
-}
-
-// MARK: - Subscribe Tab Content
-
-private struct SubscribeTabContent: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Murmur Pro")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(Theme.Colors.textPrimary)
-                .padding(.bottom, 4)
-
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text("$4.99")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(Theme.Colors.accentPurple)
-
-                Text("/ month")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Theme.Colors.textTertiary)
-            }
-            .padding(.bottom, 12)
-
-            // Features
-            FeatureRow(text: "100,000 tokens per month")
-            FeatureRow(text: "Priority processing")
-            FeatureRow(text: "Auto-renew, cancel anytime")
-        }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Theme.Colors.bgCard)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Theme.Colors.accentPurple.opacity(0.2), lineWidth: 1)
-                )
-        )
-    }
-}
-
-private struct FeatureRow: View {
-    let text: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "checkmark")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Theme.Colors.accentGreen)
-
-            Text(text)
-                .font(.system(size: 14))
-                .foregroundStyle(Theme.Colors.textSecondary)
-        }
-        .padding(.bottom, 8)
-    }
-}
-
-// MARK: - Token Pack Model
-
-struct TokenPack: Identifiable {
+struct CreditPack: Identifiable {
     let id = UUID()
-    let tokens: Int
+    let credits: Int
     let price: String
     let isPopular: Bool
     let isBestValue: Bool
@@ -340,8 +184,14 @@ struct TokenPack: Identifiable {
     @Previewable @State var appState = AppState()
 
     TopUpView(
+        packs: [
+            CreditPack(credits: 1_000, price: "$0.99", isPopular: false, isBestValue: false),
+            CreditPack(credits: 5_000, price: "$3.99", isPopular: true, isBestValue: false),
+            CreditPack(credits: 10_000, price: "$6.99", isPopular: false, isBestValue: true),
+        ],
+        isLoading: false,
         onBack: { print("Back") },
-        onPurchase: { print("Purchase:", $0.tokens) }
+        onPurchase: { print("Purchase:", $0.credits) }
     )
     .environment(appState)
 }

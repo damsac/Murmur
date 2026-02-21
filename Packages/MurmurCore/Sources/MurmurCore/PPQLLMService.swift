@@ -23,7 +23,7 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         return formatter
     }()
 
-    public func extractEntries(from transcript: String, conversation: LLMConversation) async throws -> [ExtractedEntry] {
+    public func extractEntries(from transcript: String, conversation: LLMConversation) async throws -> LLMResult {
         // Build messages: fresh (empty conversation) or multi-turn (append to history)
         let requestMessages: [[String: Any]]
         if conversation.messages.isEmpty {
@@ -51,11 +51,12 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         }
 
         let entries = try parseToolCalls(from: data)
+        let usage = parseUsage(from: data)
 
         // Update conversation with full history (including assistant response + tool results)
         updateConversation(conversation, requestMessages: requestMessages, responseData: data)
 
-        return entries
+        return LLMResult(entries: entries, usage: usage)
     }
 
     // MARK: - Request Building
@@ -148,6 +149,38 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         }
 
         return entries
+    }
+
+    private func parseUsage(from data: Data) -> TokenUsage {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let usage = json["usage"] as? [String: Any]
+        else {
+            return .zero
+        }
+
+        let inputTokens = intValue(
+            usage["prompt_tokens"]
+        ) ?? intValue(
+            usage["input_tokens"]
+        ) ?? 0
+
+        let outputTokens = intValue(
+            usage["completion_tokens"]
+        ) ?? intValue(
+            usage["output_tokens"]
+        ) ?? 0
+
+        return TokenUsage(inputTokens: inputTokens, outputTokens: outputTokens)
+    }
+
+    private func intValue(_ value: Any?) -> Int? {
+        if let int = value as? Int {
+            return int
+        }
+        if let number = value as? NSNumber {
+            return number.intValue
+        }
+        return nil
     }
 }
 
