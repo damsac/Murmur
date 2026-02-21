@@ -16,6 +16,9 @@ struct EntryDetailView: View {
     @State private var draftNotes: String = ""
     @State private var showDeleteConfirm = false
     @State private var showSnoozeDialog = false
+    @State private var showDueDateSheet = false
+    @State private var draftHasDueDate: Bool = false
+    @State private var draftDueDate: Date = Date()
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -86,6 +89,91 @@ struct EntryDetailView: View {
                         }
                         .buttonStyle(.plain)
                         .padding(.bottom, 28)
+
+                        // Due date row (todos and reminders only)
+                        if entry.category == .todo || entry.category == .reminder {
+                            Button {
+                                draftHasDueDate = entry.dueDate != nil
+                                draftDueDate = entry.dueDate ?? Date()
+                                showDueDateSheet = true
+                            } label: {
+                                HStack {
+                                    Image(systemName: "calendar")
+                                        .font(.system(size: 14))
+                                        .foregroundStyle(entry.dueDate != nil
+                                            ? Theme.Colors.accentYellow
+                                            : Theme.Colors.textSecondary)
+                                    if let dueDate = entry.dueDate {
+                                        Text(dueDate, style: .date)
+                                            .font(Theme.Typography.body)
+                                            .foregroundStyle(Theme.Colors.accentYellow)
+                                        let hour = Calendar.current.component(.hour, from: dueDate)
+                                        let minute = Calendar.current.component(.minute, from: dueDate)
+                                        if hour != 0 || minute != 0 {
+                                            Text(dueDate, style: .time)
+                                                .font(Theme.Typography.body)
+                                                .foregroundStyle(Theme.Colors.accentYellow)
+                                        }
+                                    } else {
+                                        Text("Add due date")
+                                            .font(Theme.Typography.body)
+                                            .foregroundStyle(Theme.Colors.textSecondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption2)
+                                        .foregroundStyle(Theme.Colors.textTertiary)
+                                }
+                                .padding(.bottom, 24)
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        // Cadence pill row (habits only)
+                        if entry.category == .habit {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Cadence")
+                                    .font(Theme.Typography.label)
+                                    .foregroundStyle(Theme.Colors.textSecondary)
+
+                                HStack(spacing: 8) {
+                                    ForEach(HabitCadence.allCases, id: \.self) { cadence in
+                                        Button {
+                                            entry.cadence = entry.cadence == cadence ? nil : cadence
+                                            entry.updatedAt = Date()
+                                            try? modelContext.save()
+                                        } label: {
+                                            Text(cadence.displayName)
+                                                .font(Theme.Typography.label)
+                                                .fontWeight(.medium)
+                                                .padding(.horizontal, 12)
+                                                .padding(.vertical, 6)
+                                                .background(
+                                                    entry.cadence == cadence
+                                                        ? Theme.Colors.accentGreen.opacity(0.15)
+                                                        : Theme.Colors.bgCard
+                                                )
+                                                .foregroundStyle(
+                                                    entry.cadence == cadence
+                                                        ? Theme.Colors.accentGreen
+                                                        : Theme.Colors.textSecondary
+                                                )
+                                                .clipShape(Capsule())
+                                                .overlay(
+                                                    Capsule().stroke(
+                                                        entry.cadence == cadence
+                                                            ? Theme.Colors.accentGreen.opacity(0.4)
+                                                            : Theme.Colors.borderFaint,
+                                                        lineWidth: 1
+                                                    )
+                                                )
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                            .padding(.bottom, 24)
+                        }
 
                         // Divider
                         Rectangle()
@@ -158,6 +246,21 @@ struct EntryDetailView: View {
                     showNotesSheet = false
                 },
                 onDismiss: { showNotesSheet = false }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showDueDateSheet) {
+            DueDateEditSheet(
+                isEnabled: $draftHasDueDate,
+                date: $draftDueDate,
+                onSave: {
+                    entry.dueDate = draftHasDueDate ? draftDueDate : nil
+                    entry.updatedAt = Date()
+                    try? modelContext.save()
+                    showDueDateSheet = false
+                },
+                onDismiss: { showDueDateSheet = false }
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
@@ -281,6 +384,79 @@ private struct ActionButton: View {
             )
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Due Date Edit Sheet
+
+private struct DueDateEditSheet: View {
+    @Binding var isEnabled: Bool
+    @Binding var date: Date
+    let onSave: () -> Void
+    let onDismiss: () -> Void
+
+    @State private var hasTime: Bool = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 0) {
+                Toggle("Set due date", isOn: $isEnabled)
+                    .padding(Theme.Spacing.screenPadding)
+
+                if isEnabled {
+                    DatePicker(
+                        "",
+                        selection: $date,
+                        displayedComponents: [.date]
+                    )
+                    .datePickerStyle(.graphical)
+                    .padding(.horizontal, Theme.Spacing.screenPadding)
+
+                    Divider()
+                        .padding(.horizontal, Theme.Spacing.screenPadding)
+
+                    Toggle("Add time", isOn: $hasTime)
+                        .padding(Theme.Spacing.screenPadding)
+
+                    if hasTime {
+                        DatePicker(
+                            "",
+                            selection: $date,
+                            displayedComponents: [.hourAndMinute]
+                        )
+                        .datePickerStyle(.wheel)
+                        .labelsHidden()
+                        .padding(.horizontal, Theme.Spacing.screenPadding)
+                    }
+                }
+
+                Spacer()
+            }
+            .background(Theme.Colors.bgDeep)
+            .navigationTitle("Due date")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        if isEnabled && !hasTime {
+                            date = Calendar.current.startOfDay(for: date)
+                        }
+                        onSave()
+                    }
+                    .fontWeight(.semibold)
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onDismiss)
+                }
+            }
+        }
+        .background(Theme.Colors.bgDeep)
+        .onAppear {
+            guard isEnabled else { return }
+            let hour = Calendar.current.component(.hour, from: date)
+            let minute = Calendar.current.component(.minute, from: date)
+            hasTime = hour != 0 || minute != 0
+        }
     }
 }
 

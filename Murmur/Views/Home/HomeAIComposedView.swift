@@ -37,6 +37,7 @@ struct HomeAIComposedView: View {
                     }
                 }
                 .padding(.horizontal, Theme.Spacing.screenPadding)
+                .padding(.top, 10)
                 .padding(.bottom, 16)
             }
         }

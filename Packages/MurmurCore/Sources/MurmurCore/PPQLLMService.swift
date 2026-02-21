@@ -20,8 +20,13 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         // Build messages: fresh (empty conversation) or multi-turn (append to history)
         let requestMessages: [[String: Any]]
         if conversation.messages.isEmpty {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "EEEE, MMMM d, yyyy 'at' h:mm a zzz"
+            formatter.timeZone = .current
+            let currentDateTime = formatter.string(from: Date())
+            let systemContent = "Current date and time: \(currentDateTime)\n\n" + prompt.systemPrompt
             requestMessages = [
-                ["role": "system", "content": prompt.systemPrompt],
+                ["role": "system", "content": systemContent],
                 ["role": "user", "content": transcript],
             ]
         } else {
@@ -163,7 +168,8 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
                     sourceText: raw.sourceText,
                     summary: raw.summary ?? "",
                     priority: raw.priority,
-                    dueDateDescription: raw.dueDate
+                    dueDateDescription: raw.dueDate,
+                    cadence: raw.cadence
                 )
             })
         }
@@ -185,6 +191,7 @@ private struct RawEntry: Decodable {
     let summary: String?
     let priority: Int?
     let dueDate: String?
+    let cadence: HabitCadence?
 
     enum CodingKeys: String, CodingKey {
         case content
@@ -193,6 +200,7 @@ private struct RawEntry: Decodable {
         case summary
         case priority
         case dueDate = "due_date"
+        case cadence
     }
 }
 

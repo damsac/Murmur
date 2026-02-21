@@ -88,6 +88,14 @@ public struct LLMPrompt: @unchecked Sendable {
             Only use "thought" for reflections the speaker seems to intentionally want to capture, \
             not passing observations. \
             \
+            HABIT CADENCE: \
+            For habit entries, include cadence (daily / weekdays / weekly / monthly). \
+            Infer from phrasing: "every day" / "every morning" / "daily" → daily; \
+            "on weekdays" / "Monday through Friday" → weekdays; \
+            "every week" / "weekly" / "once a week" → weekly; \
+            "once a month" / "monthly" → monthly. \
+            Omit cadence for non-habit entries. \
+            \
             MULTI-TURN REFINEMENT: \
             In follow-up messages, the user may ask you to modify your previous extraction. \
             They are speaking conversationally — things like "change the first one", \
@@ -137,6 +145,11 @@ public struct LLMPrompt: @unchecked Sendable {
                                             "type": "string",
                                             "description": "Verbatim time/date phrase from the transcript, if any (e.g. 'next Thursday', 'by Friday')",
                                         ],
+                                        "cadence": [
+                                            "type": "string",
+                                            "enum": ["daily", "weekdays", "weekly", "monthly"],
+                                            "description": "For habit entries only: how often the habit repeats. Omit for non-habits.",
+                                        ],
                                     ] as [String: Any],
                                     "required": ["content", "category", "source_text", "summary"],
                                 ] as [String: Any],
@@ -182,8 +195,11 @@ public struct ExtractedEntry: Sendable, Codable, Identifiable {
     /// Raw time phrase from transcript (e.g. "next Thursday"), nil if none
     public let dueDateDescription: String?
 
+    /// How often this habit repeats, nil for non-habits
+    public let cadence: HabitCadence?
+
     enum CodingKeys: String, CodingKey {
-        case content, category, sourceText, summary, priority, dueDateDescription
+        case content, category, sourceText, summary, priority, dueDateDescription, cadence
     }
 
     public init(from decoder: Decoder) throws {
@@ -195,6 +211,7 @@ public struct ExtractedEntry: Sendable, Codable, Identifiable {
         self.summary = try container.decodeIfPresent(String.self, forKey: .summary) ?? ""
         self.priority = try container.decodeIfPresent(Int.self, forKey: .priority)
         self.dueDateDescription = try container.decodeIfPresent(String.self, forKey: .dueDateDescription)
+        self.cadence = try container.decodeIfPresent(HabitCadence.self, forKey: .cadence)
     }
 
     public init(
@@ -203,7 +220,8 @@ public struct ExtractedEntry: Sendable, Codable, Identifiable {
         sourceText: String,
         summary: String = "",
         priority: Int? = nil,
-        dueDateDescription: String? = nil
+        dueDateDescription: String? = nil,
+        cadence: HabitCadence? = nil
     ) {
         self.id = UUID()
         self.content = content
@@ -212,5 +230,6 @@ public struct ExtractedEntry: Sendable, Codable, Identifiable {
         self.summary = summary
         self.priority = priority
         self.dueDateDescription = dueDateDescription
+        self.cadence = cadence
     }
 }
