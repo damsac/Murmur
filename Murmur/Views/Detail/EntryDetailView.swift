@@ -4,6 +4,7 @@ import MurmurCore
 struct EntryDetailView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.modelContext) private var modelContext
+    @Environment(NotificationPreferences.self) private var notifPrefs
     let entry: Entry
     let onBack: () -> Void
     let onEdit: () -> Void
@@ -16,6 +17,7 @@ struct EntryDetailView: View {
     @State private var draftNotes: String = ""
     @State private var showDeleteConfirm = false
     @State private var showSnoozeDialog = false
+    @State private var showCustomSnoozeSheet = false
     @State private var showDueDateSheet = false
     @State private var draftHasDueDate: Bool = false
     @State private var draftDueDate: Date = Date()
@@ -224,11 +226,20 @@ struct EntryDetailView: View {
             VStack {
                 Spacer()
                 EntryActionBar(
+                    isArchived: entry.status == .archived,
                     onArchive: {
                         entry.status = .archived
                         entry.updatedAt = Date()
                         try? modelContext.save()
+                        NotificationService.shared.cancel(entry)
                         onArchive()
+                    },
+                    onUnarchive: {
+                        entry.status = .active
+                        entry.updatedAt = Date()
+                        try? modelContext.save()
+                        NotificationService.shared.sync(entry, preferences: notifPrefs)
+                        onBack()
                     },
                     onSnooze: { showSnoozeDialog = true },
                     onDelete: { showDeleteConfirm = true }
@@ -258,6 +269,7 @@ struct EntryDetailView: View {
                     entry.dueDate = draftHasDueDate ? draftDueDate : nil
                     entry.updatedAt = Date()
                     try? modelContext.save()
+                    NotificationService.shared.sync(entry, preferences: notifPrefs)
                     showDueDateSheet = false
                 },
                 onDismiss: { showDueDateSheet = false }
@@ -266,7 +278,10 @@ struct EntryDetailView: View {
             .presentationDragIndicator(.visible)
         }
         .alert("Delete entry?", isPresented: $showDeleteConfirm) {
-            Button("Delete", role: .destructive) { onDelete() }
+            Button("Delete", role: .destructive) {
+                NotificationService.shared.cancel(entry)
+                onDelete()
+            }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This can't be undone.")
@@ -277,6 +292,7 @@ struct EntryDetailView: View {
                 entry.status = .snoozed
                 entry.updatedAt = Date()
                 try? modelContext.save()
+                NotificationService.shared.sync(entry, preferences: notifPrefs)
                 onSnooze()
             }
             Button("Tomorrow morning") {
@@ -285,6 +301,7 @@ struct EntryDetailView: View {
                 entry.status = .snoozed
                 entry.updatedAt = Date()
                 try? modelContext.save()
+                NotificationService.shared.sync(entry, preferences: notifPrefs)
                 onSnooze()
             }
             Button("Next week") {
@@ -292,9 +309,29 @@ struct EntryDetailView: View {
                 entry.status = .snoozed
                 entry.updatedAt = Date()
                 try? modelContext.save()
+                NotificationService.shared.sync(entry, preferences: notifPrefs)
                 onSnooze()
             }
+            Button("Custom time...") {
+                showCustomSnoozeSheet = true
+            }
             Button("Cancel", role: .cancel) {}
+        }
+        .sheet(isPresented: $showCustomSnoozeSheet) {
+            CustomSnoozeSheet(
+                onSave: { date in
+                    entry.snoozeUntil = date
+                    entry.status = .snoozed
+                    entry.updatedAt = Date()
+                    try? modelContext.save()
+                    NotificationService.shared.sync(entry, preferences: notifPrefs)
+                    showCustomSnoozeSheet = false
+                    onSnooze()
+                },
+                onDismiss: { showCustomSnoozeSheet = false }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -315,18 +352,29 @@ struct EntryDetailView: View {
 // MARK: - Entry Action Bar
 
 private struct EntryActionBar: View {
+    let isArchived: Bool
     let onArchive: () -> Void
+    let onUnarchive: () -> Void
     let onSnooze: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            ActionButton(
-                icon: "archivebox",
-                label: "Archive",
-                color: Theme.Colors.textSecondary,
-                action: onArchive
-            )
+            if isArchived {
+                ActionButton(
+                    icon: "arrow.uturn.left",
+                    label: "Unarchive",
+                    color: Theme.Colors.accentGreen,
+                    action: onUnarchive
+                )
+            } else {
+                ActionButton(
+                    icon: "archivebox",
+                    label: "Archive",
+                    color: Theme.Colors.textSecondary,
+                    action: onArchive
+                )
+            }
 
             ActionButton(
                 icon: "clock",
@@ -460,6 +508,44 @@ private struct DueDateEditSheet: View {
     }
 }
 
+// MARK: - Custom Snooze Sheet
+
+private struct CustomSnoozeSheet: View {
+    @State private var date: Date = Date().addingTimeInterval(3600)
+    let onSave: (Date) -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 0) {
+                DatePicker(
+                    "",
+                    selection: $date,
+                    in: Date()...,
+                    displayedComponents: [.date, .hourAndMinute]
+                )
+                .datePickerStyle(.graphical)
+                .padding(.horizontal, Theme.Spacing.screenPadding)
+
+                Spacer()
+            }
+            .background(Theme.Colors.bgDeep)
+            .navigationTitle("Snooze until")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Snooze") { onSave(date) }
+                        .fontWeight(.semibold)
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onDismiss)
+                }
+            }
+        }
+        .background(Theme.Colors.bgDeep)
+    }
+}
+
 // MARK: - Notes Edit Sheet
 
 private struct NotesEditSheet: View {
@@ -496,6 +582,7 @@ private struct NotesEditSheet: View {
 
 #Preview("Entry Detail - Idea") {
     @Previewable @State var appState = AppState()
+    @Previewable @State var notifPrefs = NotificationPreferences()
 
     EntryDetailView(
         entry: Entry(
@@ -513,10 +600,12 @@ private struct NotesEditSheet: View {
         onDelete: { print("Delete") }
     )
     .environment(appState)
+    .environment(notifPrefs)
 }
 
 #Preview("Entry Detail - Todo") {
     @Previewable @State var appState = AppState()
+    @Previewable @State var notifPrefs = NotificationPreferences()
 
     EntryDetailView(
         entry: Entry(
@@ -535,10 +624,12 @@ private struct NotesEditSheet: View {
         onDelete: { print("Delete") }
     )
     .environment(appState)
+    .environment(notifPrefs)
 }
 
 #Preview("Entry Detail - Insight") {
     @Previewable @State var appState = AppState()
+    @Previewable @State var notifPrefs = NotificationPreferences()
 
     EntryDetailView(
         entry: Entry(
@@ -556,4 +647,5 @@ private struct NotesEditSheet: View {
         onDelete: { print("Delete") }
     )
     .environment(appState)
+    .environment(notifPrefs)
 }

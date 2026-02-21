@@ -5,7 +5,9 @@ import MurmurCore
 
 struct RootView: View {
     @Environment(AppState.self) private var appState
+    @Environment(NotificationPreferences.self) private var notifPrefs
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \Entry.createdAt, order: .reverse) private var entries: [Entry]
     @State private var selectedTab: BottomNavBar.Tab = .home
     @State private var selectedEntry: Entry?
@@ -142,12 +144,20 @@ struct RootView: View {
                 .presentationDragIndicator(.visible)
         }
         .onAppear {
+            wakeUpSnoozedEntries()
             updateDisclosureLevel()
             if !appState.hasCompletedOnboarding {
                 appState.showOnboarding = true
             }
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { wakeUpSnoozedEntries() }
+        }
         .onChange(of: entries.count) { _, _ in updateDisclosureLevel() }
+        .onReceive(NotificationCenter.default.publisher(for: .murmurOpenEntry)) { notification in
+            guard let uuid = notification.userInfo?["entryID"] as? UUID else { return }
+            selectedEntry = entries.first { $0.id == uuid }
+        }
     }
 
     // MARK: - Main Content
@@ -158,6 +168,12 @@ struct RootView: View {
             switch selectedTab {
             case .home:
                 homeContent
+
+            case .archive:
+                ArchiveView(
+                    entries: archivedEntries,
+                    onEntryTap: { entry in selectedEntry = entry }
+                )
 
             case .settings:
                 settingsContent
@@ -191,7 +207,7 @@ struct RootView: View {
         case .firstLight:
             HomeSparseView(
                 inputText: $inputText,
-                entries: entries,
+                entries: activeEntries,
                 onMicTap: handleMicTap,
                 onSubmit: handleTextSubmit,
                 onEntryTap: { entry in selectedEntry = entry }
@@ -200,7 +216,7 @@ struct RootView: View {
         case .gridAwakens, .viewsEmerge, .fullPower:
             HomeAIComposedView(
                 inputText: $inputText,
-                entries: entries,
+                entries: activeEntries,
                 onMicTap: handleMicTap,
                 onSubmit: handleTextSubmit,
                 onEntryTap: { entry in
@@ -384,6 +400,7 @@ struct RootView: View {
     private func handleAccept() {
         guard !appState.processedEntries.isEmpty else { return }
 
+        var savedEntries: [Entry] = []
         do {
             for extracted in appState.processedEntries {
                 let entry = Entry(
@@ -393,12 +410,17 @@ struct RootView: View {
                     audioDuration: appState.processedAudioDuration
                 )
                 modelContext.insert(entry)
+                savedEntries.append(entry)
             }
             try modelContext.save()
         } catch {
             print("Failed to save entries: \(error.localizedDescription)")
             showToast("Save failed: \(error.localizedDescription)")
             return
+        }
+
+        for entry in savedEntries {
+            NotificationService.shared.sync(entry, preferences: notifPrefs)
         }
 
         withAnimation {
@@ -418,16 +440,46 @@ struct RootView: View {
         }
     }
 
-    /// Highest-priority active entry for the focus card.
-    private var topPriorityEntry: Entry? {
-        entries
-            .filter { $0.status == .active && $0.priority != nil }
+}
+
+// MARK: - Helpers
+
+private extension RootView {
+    var activeEntries: [Entry] {
+        entries.filter { $0.status == .active }
+    }
+
+    var archivedEntries: [Entry] {
+        entries.filter { $0.status == .archived }
+    }
+
+    var topPriorityEntry: Entry? {
+        activeEntries
+            .filter { $0.priority != nil }
             .min { ($0.priority ?? 5) < ($1.priority ?? 5) }
     }
 
-    /// Update disclosure level based on real entry count — only advances, never regresses.
-    private func updateDisclosureLevel() {
-        let level = DisclosureLevel.from(entryCount: entries.count)
+    func wakeUpSnoozedEntries() {
+        let now = Date()
+        var woken: [Entry] = []
+        for entry in entries where entry.status == .snoozed {
+            if let snoozeUntil = entry.snoozeUntil, snoozeUntil <= now {
+                entry.status = .active
+                entry.snoozeUntil = nil
+                entry.updatedAt = now
+                woken.append(entry)
+            }
+        }
+        if !woken.isEmpty {
+            try? modelContext.save()
+            for entry in woken {
+                NotificationService.shared.sync(entry, preferences: notifPrefs)
+            }
+        }
+    }
+
+    func updateDisclosureLevel() {
+        let level = DisclosureLevel.from(entryCount: activeEntries.count)
         if level > appState.disclosureLevel {
             withAnimation {
                 appState.disclosureLevel = level

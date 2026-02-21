@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsFullView: View {
     @Environment(AppState.self) private var appState
+    @Environment(NotificationPreferences.self) private var notifPrefs
     let onBack: () -> Void
     let onManageViews: () -> Void
     let onExportData: () -> Void
@@ -26,8 +27,14 @@ struct SettingsFullView: View {
                 // Settings content
                 ScrollView {
                     VStack(spacing: 0) {
+                        // Notifications section
+                        SectionHeader(title: "NOTIFICATIONS")
+
+                        notificationsSection
+
                         // AI Backend section
                         SectionHeader(title: "AI BACKEND")
+                            .padding(.top, 32)
 
                         SettingsRow(
                             icon: "waveform",
@@ -128,6 +135,34 @@ struct SettingsFullView: View {
             }
         }
     }
+
+    // MARK: - Notifications Section
+
+    @ViewBuilder
+    private var notificationsSection: some View {
+        @Bindable var prefs = notifPrefs
+
+        SettingsToggleRow(
+            icon: "bell.fill",
+            iconColor: Theme.Colors.accentPurple,
+            label: "Reminders",
+            isOn: $prefs.remindersEnabled
+        )
+
+        SettingsToggleRow(
+            icon: "clock.fill",
+            iconColor: Theme.Colors.accentYellow,
+            label: "Due Soon (todos)",
+            isOn: $prefs.dueSoonEnabled
+        )
+
+        SettingsToggleRow(
+            icon: "moon.zzz.fill",
+            iconColor: Theme.Colors.accentBlue,
+            label: "Snooze Wake-Up",
+            isOn: $prefs.snoozeWakeUpEnabled
+        )
+    }
 }
 
 // MARK: - Section Header
@@ -148,6 +183,7 @@ private struct SectionHeader: View {
 
 #Preview("Settings Full") {
     @Previewable @State var appState = AppState()
+    @Previewable @State var notifPrefs = NotificationPreferences()
 
     SettingsFullView(
         onBack: { print("Back") },
@@ -157,4 +193,5 @@ private struct SectionHeader: View {
         onOpenSourceLicenses: { print("Licenses") }
     )
     .environment(appState)
+    .environment(notifPrefs)
 }
