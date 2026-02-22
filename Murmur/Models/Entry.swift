@@ -180,3 +180,60 @@ public enum EntryStatus: String, Codable, Sendable, CaseIterable {
         self = EntryStatus(rawValue: rawValue) ?? .active
     }
 }
+
+// MARK: - Entry Actions
+
+enum EntryAction {
+    case snooze(until: Date?)  // nil = default 1 hour
+    case complete
+    case archive
+    case unarchive
+    case delete
+}
+
+extension Entry {
+    /// Single source of truth for all entry status mutations.
+    func perform(_ action: EntryAction, in context: ModelContext, preferences: NotificationPreferences) {
+        switch action {
+        case .snooze(let until):
+            let target = until ?? Calendar.current.date(byAdding: .hour, value: 1, to: Date())
+            snoozeUntil = target
+            status = .snoozed
+            updatedAt = Date()
+            save(in: context)
+            NotificationService.shared.sync(self, preferences: preferences)
+
+        case .complete:
+            status = .completed
+            completedAt = Date()
+            updatedAt = Date()
+            save(in: context)
+            NotificationService.shared.cancel(self)
+
+        case .archive:
+            status = .archived
+            updatedAt = Date()
+            save(in: context)
+            NotificationService.shared.cancel(self)
+
+        case .unarchive:
+            status = .active
+            updatedAt = Date()
+            save(in: context)
+            NotificationService.shared.sync(self, preferences: preferences)
+
+        case .delete:
+            NotificationService.shared.cancel(self)
+            context.delete(self)
+            save(in: context)
+        }
+    }
+
+    private func save(in context: ModelContext) {
+        do {
+            try context.save()
+        } catch {
+            print("Failed to save entry: \(error.localizedDescription)")
+        }
+    }
+}

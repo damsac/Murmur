@@ -8,8 +8,10 @@ struct HomeSparseView: View {
     let onMicTap: () -> Void
     let onSubmit: () -> Void
     let onEntryTap: (Entry) -> Void
+    let onAction: (Entry, EntryAction) -> Void
 
     @State private var appeared = false
+    @State private var activeSwipeID: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,14 +38,21 @@ struct HomeSparseView: View {
             ScrollView {
                 VStack(spacing: Theme.Spacing.cardGap) {
                     ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                        EntryCard(entry: entry, onTap: { onEntryTap(entry) })
-                            .opacity(appeared ? 1 : 0)
-                            .offset(y: appeared ? 0 : 20)
-                            .animation(
-                                .spring(response: 0.6, dampingFraction: 0.8)
-                                    .delay(Double(index) * 0.1),
-                                value: appeared
-                            )
+                        SwipeableCard(
+                            actions: buildSwipeActions(for: entry),
+                            activeSwipeID: $activeSwipeID,
+                            entryID: entry.id,
+                            onTap: { onEntryTap(entry) }
+                        ) {
+                            EntryCard(entry: entry, showCategory: true)
+                        }
+                        .opacity(appeared ? 1 : 0)
+                        .offset(y: appeared ? 0 : 20)
+                        .animation(
+                            .spring(response: 0.6, dampingFraction: 0.8)
+                                .delay(Double(index) * 0.1),
+                            value: appeared
+                        )
                     }
                 }
                 .padding(.horizontal, Theme.Spacing.screenPadding)
@@ -54,6 +63,32 @@ struct HomeSparseView: View {
         .onAppear {
             appeared = true
         }
+    }
+
+    private func buildSwipeActions(for entry: Entry) -> [CardSwipeAction] {
+        var actions: [CardSwipeAction] = []
+        switch entry.category {
+        case .reminder:
+            actions.append(CardSwipeAction(icon: "moon.zzz.fill", label: "Snooze",
+                color: Theme.Colors.accentYellow) { onAction(entry, .snooze(until: nil)) })
+            actions.append(CardSwipeAction(icon: "archivebox.fill", label: "Archive",
+                color: Theme.Colors.accentBlue) { onAction(entry, .archive) })
+            actions.append(CardSwipeAction(icon: "trash.fill", label: "Delete",
+                color: Theme.Colors.accentRed) { onAction(entry, .delete) })
+        case .todo:
+            actions.append(CardSwipeAction(icon: "checkmark.circle.fill", label: "Done",
+                color: Theme.Colors.accentGreen) { onAction(entry, .complete) })
+            actions.append(CardSwipeAction(icon: "archivebox.fill", label: "Archive",
+                color: Theme.Colors.accentBlue) { onAction(entry, .archive) })
+            actions.append(CardSwipeAction(icon: "trash.fill", label: "Delete",
+                color: Theme.Colors.accentRed) { onAction(entry, .delete) })
+        default:
+            actions.append(CardSwipeAction(icon: "archivebox.fill", label: "Archive",
+                color: Theme.Colors.accentBlue) { onAction(entry, .archive) })
+            actions.append(CardSwipeAction(icon: "trash.fill", label: "Delete",
+                color: Theme.Colors.accentRed) { onAction(entry, .delete) })
+        }
+        return actions
     }
 
     private var greeting: String { Greeting.current }
@@ -93,7 +128,8 @@ struct HomeSparseView: View {
         ],
         onMicTap: { print("Mic tapped") },
         onSubmit: { print("Submit:", inputText) },
-        onEntryTap: { print("Entry tapped:", $0.summary) }
+        onEntryTap: { print("Entry tapped:", $0.summary) },
+        onAction: { entry, action in print("Action:", action, entry.summary) }
     )
     .environment(appState)
 }
@@ -115,7 +151,8 @@ struct HomeSparseView: View {
         ],
         onMicTap: { print("Mic tapped") },
         onSubmit: { print("Submit:", inputText) },
-        onEntryTap: { print("Entry tapped:", $0.summary) }
+        onEntryTap: { print("Entry tapped:", $0.summary) },
+        onAction: { entry, action in print("Action:", action, entry.summary) }
     )
     .environment(appState)
 }

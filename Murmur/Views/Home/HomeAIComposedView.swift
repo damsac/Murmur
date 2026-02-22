@@ -10,10 +10,7 @@ struct HomeAIComposedView: View {
     let onEntryTap: (Entry) -> Void
     let onSettingsTap: () -> Void
     let onViewsTap: () -> Void
-    let onSnooze: (Entry) -> Void
-    let onComplete: (Entry) -> Void
-    let onArchive: (Entry) -> Void
-    let onDelete: (Entry) -> Void
+    let onAction: (Entry, EntryAction) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -96,9 +93,7 @@ struct HomeAIComposedView: View {
                 labelPlural: "Reminders",
                 accentColor: Theme.Colors.accentYellow,
                 onTap: onEntryTap,
-                onSnooze: onSnooze,
-                onArchive: onArchive,
-                onDelete: onDelete
+                onAction: onAction
             )
         case .todos(let entries):
             ExpandableStackCard(
@@ -108,9 +103,7 @@ struct HomeAIComposedView: View {
                 labelPlural: "Todos",
                 accentColor: Theme.Colors.accentPurple,
                 onTap: onEntryTap,
-                onComplete: onComplete,
-                onArchive: onArchive,
-                onDelete: onDelete
+                onAction: onAction
             )
         case .habits(let entries):
             ExpandableStackCard(
@@ -119,7 +112,8 @@ struct HomeAIComposedView: View {
                 label: "Habit",
                 labelPlural: "Habits",
                 accentColor: Theme.Colors.accentGreen,
-                onTap: onEntryTap
+                onTap: onEntryTap,
+                onAction: onAction
             )
         case .ideas(let entries):
             IdeasCard(entries: entries, onTap: onEntryTap)
@@ -154,13 +148,11 @@ private struct ExpandableStackCard: View {
     let labelPlural: String
     let accentColor: Color
     let onTap: (Entry) -> Void
-    var onSnooze: ((Entry) -> Void)?
-    var onComplete: ((Entry) -> Void)?
-    var onArchive: ((Entry) -> Void)?
-    var onDelete: ((Entry) -> Void)?
+    var onAction: ((Entry, EntryAction) -> Void)?
 
     @State private var isExpanded = false
     @State private var cardHeight: CGFloat = 86
+    @State private var activeSwipeEntryID: UUID?
 
     private let peekOffset: CGFloat = 20
     private let expandedSpacing: CGFloat = 12
@@ -213,23 +205,30 @@ private struct ExpandableStackCard: View {
     }
 
     private func buildSwipeActions(for entry: Entry, index: Int) -> [CardSwipeAction] {
-        guard index == 0 || isExpanded else { return [] }
+        guard index == 0 || isExpanded, let onAction else { return [] }
         var actions: [CardSwipeAction] = []
-        if let onSnooze {
+        switch entry.category {
+        case .reminder:
             actions.append(CardSwipeAction(icon: "moon.zzz.fill", label: "Snooze",
-                color: Theme.Colors.accentYellow) { onSnooze(entry) })
-        }
-        if let onComplete {
-            actions.append(CardSwipeAction(icon: "checkmark.circle.fill", label: "Done",
-                color: Theme.Colors.accentGreen) { onComplete(entry) })
-        }
-        if let onArchive {
+                color: Theme.Colors.accentYellow) { onAction(entry, .snooze(until: nil)) })
             actions.append(CardSwipeAction(icon: "archivebox.fill", label: "Archive",
-                color: Theme.Colors.accentBlue) { onArchive(entry) })
-        }
-        if let onDelete {
+                color: Theme.Colors.accentBlue) { onAction(entry, .archive) })
             actions.append(CardSwipeAction(icon: "trash.fill", label: "Delete",
-                color: Theme.Colors.accentRed) { onDelete(entry) })
+                color: Theme.Colors.accentRed) { onAction(entry, .delete) })
+        case .todo:
+            actions.append(CardSwipeAction(icon: "moon.zzz.fill", label: "Snooze",
+                color: Theme.Colors.accentYellow) { onAction(entry, .snooze(until: nil)) })
+            actions.append(CardSwipeAction(icon: "checkmark.circle.fill", label: "Done",
+                color: Theme.Colors.accentGreen) { onAction(entry, .complete) })
+            actions.append(CardSwipeAction(icon: "archivebox.fill", label: "Archive",
+                color: Theme.Colors.accentBlue) { onAction(entry, .archive) })
+            actions.append(CardSwipeAction(icon: "trash.fill", label: "Delete",
+                color: Theme.Colors.accentRed) { onAction(entry, .delete) })
+        default:
+            actions.append(CardSwipeAction(icon: "archivebox.fill", label: "Archive",
+                color: Theme.Colors.accentBlue) { onAction(entry, .archive) })
+            actions.append(CardSwipeAction(icon: "trash.fill", label: "Delete",
+                color: Theme.Colors.accentRed) { onAction(entry, .delete) })
         }
         return actions
     }
@@ -243,6 +242,9 @@ private struct ExpandableStackCard: View {
 
         SwipeableCard(
             actions: buildSwipeActions(for: entry, index: index),
+            activeSwipeID: $activeSwipeEntryID,
+            entryID: entry.id,
+            onHeightChange: isFront ? { h in cardHeight = h } : nil,
             onTap: {
                 if isSingle || !isFront {
                     onTap(entry)
@@ -308,17 +310,6 @@ private struct ExpandableStackCard: View {
                     .buttonStyle(.plain)
                 }
             }
-            // Measure front card height for accurate expanded offsets
-            .background(
-                Group {
-                    if isFront {
-                        GeometryReader { geo in
-                            Color.clear.onAppear { cardHeight = geo.size.height }
-                        }
-                    }
-                }
-                .allowsHitTesting(false)
-            )
         }
         .shadow(
             color: .black.opacity(isFront ? 0.14 : 0.06),
@@ -338,7 +329,7 @@ private struct ExpandableStackCard: View {
 
 // MARK: - Card Swipe Actions
 
-private struct CardSwipeAction: Identifiable {
+struct CardSwipeAction: Identifiable {
     let id = UUID()
     let icon: String
     let label: String
@@ -346,17 +337,21 @@ private struct CardSwipeAction: Identifiable {
     let handler: () -> Void
 }
 
-private struct SwipeableCard<Content: View>: View {
+struct SwipeableCard<Content: View>: View {
     let actions: [CardSwipeAction]
+    @Binding var activeSwipeID: UUID?
+    let entryID: UUID
+    var onHeightChange: ((CGFloat) -> Void)?
     let onTap: () -> Void
     @ViewBuilder let content: () -> Content
 
     @State private var dragOffset: CGFloat = 0
     @State private var revealed = false
-    @State private var hasDragged = false
+    @State private var lastDragEndTime: Date = .distantPast
     @State private var cardHeight: CGFloat = 0
 
     private let actionWidth: CGFloat = 74
+    private let swipeVisibilityThreshold: CGFloat = -1
     private var totalWidth: CGFloat { actionWidth * CGFloat(actions.count) }
 
     var body: some View {
@@ -386,7 +381,7 @@ private struct SwipeableCard<Content: View>: View {
             .clipShape(RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius))
             // Hide when not swiping so colored buttons don't bleed through the card
             // background when the card is at reduced opacity (e.g. in collapsed stack).
-            .opacity(revealed || dragOffset < -1 ? 1 : 0)
+            .opacity(revealed || dragOffset < swipeVisibilityThreshold ? 1 : 0)
             // offset() moves the card visually but not its hit-test frame, so the card's
             // invisible frame still overlaps the buttons. Raise zIndex when revealed so
             // the buttons win the hit-test in their area.
@@ -397,15 +392,21 @@ private struct SwipeableCard<Content: View>: View {
                 .background(
                     GeometryReader { geo in
                         Color.clear
-                            .onAppear { cardHeight = geo.size.height }
-                            .onChange(of: geo.size.height) { _, h in cardHeight = h }
+                            .onAppear {
+                                cardHeight = geo.size.height
+                                onHeightChange?(geo.size.height)
+                            }
+                            .onChange(of: geo.size.height) { _, h in
+                                cardHeight = h
+                                onHeightChange?(h)
+                            }
                     }
                     .allowsHitTesting(false)
                 )
                 .offset(x: dragOffset)
                 .onTapGesture {
-                    // If a drag just occurred, suppress the tap to prevent accidental navigation
-                    guard !hasDragged else { return }
+                    // If a drag just ended, suppress the tap to prevent accidental navigation
+                    guard Date().timeIntervalSince(lastDragEndTime) > 0.15 else { return }
                     if revealed {
                         snap(reveal: false)
                     } else {
@@ -419,7 +420,7 @@ private struct SwipeableCard<Content: View>: View {
                             let dx = value.translation.width
                             let dy = value.translation.height
                             guard abs(dx) > abs(dy) * 0.6 else { return }
-                            if abs(dx) > 5 { hasDragged = true }
+                            if abs(dx) > 5 { activeSwipeID = entryID }
                             let base: CGFloat = revealed ? -totalWidth : 0
                             dragOffset = min(0, max(-totalWidth, base + dx))
                         }
@@ -429,11 +430,15 @@ private struct SwipeableCard<Content: View>: View {
                             let dy = value.translation.height
                             guard abs(dx) > abs(dy) * 0.6 else { return }
                             snap(reveal: -dragOffset > totalWidth * 0.35)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                hasDragged = false
-                            }
+                            lastDragEndTime = Date()
                         }
                 )
+        }
+        .onChange(of: activeSwipeID) { _, newID in
+            // Mutual exclusion: close this card if another card started swiping
+            if newID != entryID && revealed {
+                snap(reveal: false)
+            }
         }
     }
 
@@ -551,10 +556,7 @@ private struct IdeasCard: View {
         onEntryTap: { print("Entry tapped:", $0.summary) },
         onSettingsTap: { print("Settings tapped") },
         onViewsTap: { print("Views tapped") },
-        onSnooze: { print("Snooze:", $0.summary) },
-        onComplete: { print("Complete:", $0.summary) },
-        onArchive: { print("Archive:", $0.summary) },
-        onDelete: { print("Delete:", $0.summary) }
+        onAction: { entry, action in print("Action:", action, entry.summary) }
     )
     .environment(appState)
     .background(Theme.Colors.bgDeep)

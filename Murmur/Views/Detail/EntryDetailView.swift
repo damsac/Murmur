@@ -165,17 +165,11 @@ struct EntryDetailView: View {
                 EntryActionBar(
                     isArchived: entry.status == .archived,
                     onArchive: {
-                        entry.status = .archived
-                        entry.updatedAt = Date()
-                        save()
-                        NotificationService.shared.cancel(entry)
+                        entry.perform(.archive, in: modelContext, preferences: notifPrefs)
                         onArchive()
                     },
                     onUnarchive: {
-                        entry.status = .active
-                        entry.updatedAt = Date()
-                        save()
-                        NotificationService.shared.sync(entry, preferences: notifPrefs)
+                        entry.perform(.unarchive, in: modelContext, preferences: notifPrefs)
                         onBack()
                     },
                     onSnooze: { showSnoozeDialog = true },
@@ -223,7 +217,7 @@ struct EntryDetailView: View {
         }
         .alert("Delete entry?", isPresented: $showDeleteConfirm) {
             Button("Delete", role: .destructive) {
-                NotificationService.shared.cancel(entry)
+                entry.perform(.delete, in: modelContext, preferences: notifPrefs)
                 onDelete()
             }
             Button("Cancel", role: .cancel) {}
@@ -270,11 +264,7 @@ struct EntryDetailView: View {
     }
 
     private func snooze(until date: Date?) {
-        entry.snoozeUntil = date
-        entry.status = .snoozed
-        entry.updatedAt = Date()
-        save()
-        NotificationService.shared.sync(entry, preferences: notifPrefs)
+        entry.perform(.snooze(until: date), in: modelContext, preferences: notifPrefs)
         onSnooze()
     }
 

@@ -78,62 +78,73 @@ struct EntryCard: View {
     // MARK: - Body
 
     var body: some View {
-        Button(action: { onTap?() }) {
-            VStack(alignment: .leading, spacing: 12) {
-                // Category badge (suppress dot glow for timeless entries)
-                if showCategory {
-                    CategoryBadge(category: entry.category, size: .small, showDotGlow: !isIdea)
-                }
+        cardContent
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Entry: \(entry.summary)")
+    }
 
-                // Summary text
-                Text(entry.summary)
-                    .font(Theme.Typography.body)
-                    .foregroundStyle(isCompleted ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
-                    .strikethrough(isCompleted, color: Theme.Colors.textTertiary)
-                    .lineLimit(3)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    @ViewBuilder
+    private var cardContent: some View {
+        if let onTap {
+            Button(action: onTap) { cardBody }
+                .buttonStyle(.plain)
+        } else {
+            cardBody
+        }
+    }
 
-                // Metadata row — suppressed for timeless entries (ideas, thoughts)
-                if !isIdea && !isCompleted {
-                    HStack(spacing: 12) {
+    private var cardBody: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Category badge (suppress dot glow for timeless entries)
+            if showCategory {
+                CategoryBadge(category: entry.category, size: .small, showDotGlow: !isIdea)
+            }
+
+            // Summary text
+            Text(entry.summary)
+                .font(Theme.Typography.body)
+                .foregroundStyle(isCompleted ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
+                .strikethrough(isCompleted, color: Theme.Colors.textTertiary)
+                .lineLimit(3)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Metadata row — suppressed for timeless entries (ideas, thoughts)
+            if !isIdea && !isCompleted {
+                HStack(spacing: 12) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock")
+                            .font(.caption2)
+                        Text(timeAgo)
+                            .font(Theme.Typography.label)
+                    }
+                    .foregroundStyle(Theme.Colors.textTertiary)
+
+                    if let dueText {
                         HStack(spacing: 4) {
-                            Image(systemName: "clock")
+                            Image(systemName: isOverdue ? "exclamationmark.circle.fill" : "calendar")
                                 .font(.caption2)
-                            Text(timeAgo)
+                            Text(dueText)
+                                .font(Theme.Typography.label)
+                                .fontWeight(.medium)
+                        }
+                        .foregroundStyle(isOverdue ? Theme.Colors.accentRed : Theme.Colors.accentYellow)
+                    } else if entry.priority.map({ $0 <= 2 }) ?? false {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .font(.caption2)
+                            Text("High")
                                 .font(Theme.Typography.label)
                         }
-                        .foregroundStyle(Theme.Colors.textTertiary)
-
-                        if let dueText {
-                            HStack(spacing: 4) {
-                                Image(systemName: isOverdue ? "exclamationmark.circle.fill" : "calendar")
-                                    .font(.caption2)
-                                Text(dueText)
-                                    .font(Theme.Typography.label)
-                                    .fontWeight(.medium)
-                            }
-                            .foregroundStyle(isOverdue ? Theme.Colors.accentRed : Theme.Colors.accentYellow)
-                        } else if entry.priority.map({ $0 <= 2 }) ?? false {
-                            HStack(spacing: 4) {
-                                Image(systemName: "exclamationmark.circle.fill")
-                                    .font(.caption2)
-                                Text("High")
-                                    .font(Theme.Typography.label)
-                            }
-                            .foregroundStyle(Theme.Colors.accentRed)
-                        }
-
-                        Spacer()
+                        .foregroundStyle(Theme.Colors.accentRed)
                     }
+
+                    Spacer()
                 }
             }
-            .cardStyle(accent: cardAccent, intensity: cardIntensity)
-            .opacity(cardOpacity)
         }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Entry: \(entry.summary)")
+        .cardStyle(accent: cardAccent, intensity: cardIntensity)
+        .opacity(cardOpacity)
     }
 }
 

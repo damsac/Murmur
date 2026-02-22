@@ -119,7 +119,7 @@ struct RootView: View {
                 onArchive: { selectedEntry = nil },
                 onSnooze: { selectedEntry = nil },
                 onDelete: {
-                    modelContext.delete(entry)
+                    entry.perform(.delete, in: modelContext, preferences: notifPrefs)
                     selectedEntry = nil
                 }
             )
@@ -214,7 +214,10 @@ struct RootView: View {
                 entries: activeEntries,
                 onMicTap: handleMicTap,
                 onSubmit: handleTextSubmit,
-                onEntryTap: { entry in selectedEntry = entry }
+                onEntryTap: { entry in selectedEntry = entry },
+                onAction: { entry, action in
+                    entry.perform(action, in: modelContext, preferences: notifPrefs)
+                }
             )
 
         case .gridAwakens, .viewsEmerge, .fullPower:
@@ -232,29 +235,8 @@ struct RootView: View {
                 onViewsTap: {
                     // Views tab removed — no-op
                 },
-                onSnooze: { entry in
-                    entry.status = .snoozed
-                    entry.snoozeUntil = Calendar.current.date(byAdding: .hour, value: 1, to: Date())
-                    entry.updatedAt = Date()
-                    try? modelContext.save()
-                    NotificationService.shared.sync(entry, preferences: notifPrefs)
-                },
-                onComplete: { entry in
-                    entry.status = .completed
-                    entry.updatedAt = Date()
-                    try? modelContext.save()
-                    NotificationService.shared.cancel(entry)
-                },
-                onArchive: { entry in
-                    entry.status = .archived
-                    entry.updatedAt = Date()
-                    try? modelContext.save()
-                    NotificationService.shared.cancel(entry)
-                },
-                onDelete: { entry in
-                    NotificationService.shared.cancel(entry)
-                    modelContext.delete(entry)
-                    try? modelContext.save()
+                onAction: { entry, action in
+                    entry.perform(action, in: modelContext, preferences: notifPrefs)
                 }
             )
         }
