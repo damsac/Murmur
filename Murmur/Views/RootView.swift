@@ -398,6 +398,11 @@ struct RootView: View {
                 withAnimation {
                     appState.recordingState = .idle
                 }
+                // Empty transcript = user said nothing — just return to idle silently
+                if case PipelineError.emptyTranscript = error {
+                    transcript = ""
+                    return
+                }
                 handlePipelineError(error, fallbackPrefix: "Processing failed")
             }
         }
