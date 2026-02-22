@@ -1,68 +1,14 @@
 import SwiftUI
 
 struct PulsingMicView: View {
-    @State private var pulse1Scale: CGFloat = 1.0
-    @State private var pulse1Opacity: Double = 0.6
-    @State private var pulse2Scale: CGFloat = 1.0
-    @State private var pulse2Opacity: Double = 0.6
-    @State private var pulse3Scale: CGFloat = 1.0
-    @State private var pulse3Opacity: Double = 0.6
-
     private let micSize: CGFloat = 88
     private let ringSize: CGFloat = 160
 
     var body: some View {
         ZStack {
-            // Outermost ring (pulse 3)
-            Circle()
-                .stroke(
-                    LinearGradient(
-                        colors: [
-                            Theme.Colors.accentPurple,
-                            Theme.Colors.accentPurpleLight
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 2
-                )
-                .frame(width: ringSize, height: ringSize)
-                .scaleEffect(pulse3Scale)
-                .opacity(pulse3Opacity)
-
-            // Middle ring (pulse 2)
-            Circle()
-                .stroke(
-                    LinearGradient(
-                        colors: [
-                            Theme.Colors.accentPurple,
-                            Theme.Colors.accentPurpleLight
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 2
-                )
-                .frame(width: ringSize * 0.75, height: ringSize * 0.75)
-                .scaleEffect(pulse2Scale)
-                .opacity(pulse2Opacity)
-
-            // Inner ring (pulse 1)
-            Circle()
-                .stroke(
-                    LinearGradient(
-                        colors: [
-                            Theme.Colors.accentPurple,
-                            Theme.Colors.accentPurpleLight
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 2.5
-                )
-                .frame(width: ringSize * 0.5, height: ringSize * 0.5)
-                .scaleEffect(pulse1Scale)
-                .opacity(pulse1Opacity)
+            PulseRing(diameter: ringSize, lineWidth: 2, delay: 1.0)
+            PulseRing(diameter: ringSize * 0.75, lineWidth: 2, delay: 0.5)
+            PulseRing(diameter: ringSize * 0.5, lineWidth: 2.5, delay: 0)
 
             // Center microphone
             ZStack {
@@ -107,40 +53,45 @@ struct PulsingMicView: View {
                     .foregroundStyle(.white)
             }
         }
-        .onAppear {
-            startPulsing()
-        }
     }
+}
 
-    private func startPulsing() {
-        // Pulse 1 - fastest, innermost
-        withAnimation(
-            Animation.easeOut(duration: 1.5)
-                .repeatForever(autoreverses: false)
-        ) {
-            pulse1Scale = 1.8
-            pulse1Opacity = 0.0
-        }
+// MARK: - Pulse Ring
 
-        // Pulse 2 - medium speed
-        withAnimation(
-            Animation.easeOut(duration: 1.5)
-                .repeatForever(autoreverses: false)
-                .delay(0.5)
-        ) {
-            pulse2Scale = 1.8
-            pulse2Opacity = 0.0
-        }
+private struct PulseRing: View {
+    let diameter: CGFloat
+    let lineWidth: CGFloat
+    let delay: Double
 
-        // Pulse 3 - slowest, outermost
-        withAnimation(
-            Animation.easeOut(duration: 1.5)
-                .repeatForever(autoreverses: false)
-                .delay(1.0)
-        ) {
-            pulse3Scale = 1.8
-            pulse3Opacity = 0.0
-        }
+    @State private var scale: CGFloat = 1.0
+    @State private var opacity: Double = 0.6
+
+    var body: some View {
+        Circle()
+            .stroke(
+                LinearGradient(
+                    colors: [
+                        Theme.Colors.accentPurple,
+                        Theme.Colors.accentPurpleLight
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: lineWidth
+            )
+            .frame(width: diameter, height: diameter)
+            .scaleEffect(scale)
+            .opacity(opacity)
+            .onAppear {
+                withAnimation(
+                    Animation.easeOut(duration: 1.5)
+                        .repeatForever(autoreverses: false)
+                        .delay(delay)
+                ) {
+                    scale = 1.8
+                    opacity = 0.0
+                }
+            }
     }
 }
 

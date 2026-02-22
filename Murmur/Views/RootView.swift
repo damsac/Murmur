@@ -137,6 +137,7 @@ struct RootView: View {
                 }
             )
             .environment(appState)
+            .environment(notifPrefs)
         }
         .sheet(isPresented: $showTextInput) {
             TextInputView(text: $inputText, onSubmit: handleTextSubmit)
@@ -471,7 +472,11 @@ private extension RootView {
             }
         }
         if !woken.isEmpty {
-            try? modelContext.save()
+            do {
+                try modelContext.save()
+            } catch {
+                print("Failed to save woken entries: \(error.localizedDescription)")
+            }
             for entry in woken {
                 NotificationService.shared.sync(entry, preferences: notifPrefs)
             }
