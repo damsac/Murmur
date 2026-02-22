@@ -119,7 +119,7 @@ struct RootView: View {
                 onArchive: { selectedEntry = nil },
                 onSnooze: { selectedEntry = nil },
                 onDelete: {
-                    modelContext.delete(entry)
+                    entry.perform(.delete, in: modelContext, preferences: notifPrefs)
                     selectedEntry = nil
                 }
             )
@@ -214,7 +214,10 @@ struct RootView: View {
                 entries: activeEntries,
                 onMicTap: handleMicTap,
                 onSubmit: handleTextSubmit,
-                onEntryTap: { entry in selectedEntry = entry }
+                onEntryTap: { entry in selectedEntry = entry },
+                onAction: { entry, action in
+                    entry.perform(action, in: modelContext, preferences: notifPrefs)
+                }
             )
 
         case .gridAwakens, .viewsEmerge, .fullPower:
@@ -231,6 +234,9 @@ struct RootView: View {
                 },
                 onViewsTap: {
                     // Views tab removed — no-op
+                },
+                onAction: { entry, action in
+                    entry.perform(action, in: modelContext, preferences: notifPrefs)
                 }
             )
         }

@@ -10,6 +10,7 @@ struct HomeAIComposedView: View {
     let onEntryTap: (Entry) -> Void
     let onSettingsTap: () -> Void
     let onViewsTap: () -> Void
+    let onAction: (Entry, EntryAction) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -91,7 +92,8 @@ struct HomeAIComposedView: View {
                 label: "Reminder",
                 labelPlural: "Reminders",
                 accentColor: Theme.Colors.accentYellow,
-                onTap: onEntryTap
+                onTap: onEntryTap,
+                onAction: onAction
             )
         case .todos(let entries):
             ExpandableStackCard(
@@ -100,7 +102,8 @@ struct HomeAIComposedView: View {
                 label: "Todo",
                 labelPlural: "Todos",
                 accentColor: Theme.Colors.accentPurple,
-                onTap: onEntryTap
+                onTap: onEntryTap,
+                onAction: onAction
             )
         case .habits(let entries):
             ExpandableStackCard(
@@ -109,7 +112,8 @@ struct HomeAIComposedView: View {
                 label: "Habit",
                 labelPlural: "Habits",
                 accentColor: Theme.Colors.accentGreen,
-                onTap: onEntryTap
+                onTap: onEntryTap,
+                onAction: onAction
             )
         case .ideas(let entries):
             IdeasCard(entries: entries, onTap: onEntryTap)
@@ -144,9 +148,11 @@ private struct ExpandableStackCard: View {
     let labelPlural: String
     let accentColor: Color
     let onTap: (Entry) -> Void
+    var onAction: ((Entry, EntryAction) -> Void)?
 
     @State private var isExpanded = false
     @State private var cardHeight: CGFloat = 86
+    @State private var activeSwipeEntryID: UUID?
 
     private let peekOffset: CGFloat = 20
     private let expandedSpacing: CGFloat = 12
@@ -198,6 +204,35 @@ private struct ExpandableStackCard: View {
         .animation(.spring(response: 0.5, dampingFraction: 0.72), value: isExpanded)
     }
 
+    private func buildSwipeActions(for entry: Entry, index: Int) -> [CardSwipeAction] {
+        guard index == 0 || isExpanded, let onAction else { return [] }
+        var actions: [CardSwipeAction] = []
+        switch entry.category {
+        case .reminder:
+            actions.append(CardSwipeAction(icon: "moon.zzz.fill", label: "Snooze",
+                color: Theme.Colors.accentYellow) { onAction(entry, .snooze(until: nil)) })
+            actions.append(CardSwipeAction(icon: "archivebox.fill", label: "Archive",
+                color: Theme.Colors.accentBlue) { onAction(entry, .archive) })
+            actions.append(CardSwipeAction(icon: "trash.fill", label: "Delete",
+                color: Theme.Colors.accentRed) { onAction(entry, .delete) })
+        case .todo:
+            actions.append(CardSwipeAction(icon: "moon.zzz.fill", label: "Snooze",
+                color: Theme.Colors.accentYellow) { onAction(entry, .snooze(until: nil)) })
+            actions.append(CardSwipeAction(icon: "checkmark.circle.fill", label: "Done",
+                color: Theme.Colors.accentGreen) { onAction(entry, .complete) })
+            actions.append(CardSwipeAction(icon: "archivebox.fill", label: "Archive",
+                color: Theme.Colors.accentBlue) { onAction(entry, .archive) })
+            actions.append(CardSwipeAction(icon: "trash.fill", label: "Delete",
+                color: Theme.Colors.accentRed) { onAction(entry, .delete) })
+        default:
+            actions.append(CardSwipeAction(icon: "archivebox.fill", label: "Archive",
+                color: Theme.Colors.accentBlue) { onAction(entry, .archive) })
+            actions.append(CardSwipeAction(icon: "trash.fill", label: "Delete",
+                color: Theme.Colors.accentRed) { onAction(entry, .delete) })
+        }
+        return actions
+    }
+
     @ViewBuilder
     private func card(entry: Entry, index: Int, total: Int) -> some View {
         let isFront = index == 0
@@ -205,15 +240,21 @@ private struct ExpandableStackCard: View {
         let expandAnim = Animation.spring(response: 0.5, dampingFraction: 0.72)
             .delay(isExpanded ? Double(index) * 0.05 : Double(total - 1 - index) * 0.04)
 
-        Button {
-            if isSingle || !isFront {
-                onTap(entry)
-            } else {
-                withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) {
-                    isExpanded.toggle()
+        SwipeableCard(
+            actions: buildSwipeActions(for: entry, index: index),
+            activeSwipeID: $activeSwipeEntryID,
+            entryID: entry.id,
+            onHeightChange: isFront ? { h in cardHeight = h } : nil,
+            onTap: {
+                if isSingle || !isFront {
+                    onTap(entry)
+                } else {
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) {
+                        isExpanded.toggle()
+                    }
                 }
             }
-        } label: {
+        ) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 6) {
                     Image(systemName: icon)
@@ -249,39 +290,27 @@ private struct ExpandableStackCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .cardStyle(accent: isFront ? groupUrgencyAccent : nil, intensity: isFront ? groupUrgencyIntensity : 1.0)
-        }
-        .buttonStyle(.plain)
-        // Navigate into the front entry while expanded without triggering collapse
-        .overlay(alignment: .bottomTrailing) {
-            if isFront && isExpanded {
-                Button { onTap(entry) } label: {
-                    HStack(spacing: 3) {
-                        Text("Open")
-                            .font(.caption.weight(.semibold))
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 10, weight: .semibold))
+            // Navigate into the front entry while expanded without triggering collapse
+            .overlay(alignment: .bottomTrailing) {
+                if isFront && isExpanded {
+                    Button { onTap(entry) } label: {
+                        HStack(spacing: 3) {
+                            Text("Open")
+                                .font(.caption.weight(.semibold))
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 10, weight: .semibold))
+                        }
+                        .foregroundStyle(accentColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(accentColor.opacity(0.12))
+                        .clipShape(Capsule())
+                        .padding(Theme.Spacing.cardPadding)
                     }
-                    .foregroundStyle(accentColor)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(accentColor.opacity(0.12))
-                    .clipShape(Capsule())
-                    .padding(Theme.Spacing.cardPadding)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        // Measure front card height for accurate expanded offsets
-        .background(
-            Group {
-                if isFront {
-                    GeometryReader { geo in
-                        Color.clear.onAppear { cardHeight = geo.size.height }
-                    }
+                    .buttonStyle(.plain)
                 }
             }
-            .allowsHitTesting(false)
-        )
+        }
         .shadow(
             color: .black.opacity(isFront ? 0.14 : 0.06),
             radius: isFront ? 10 : 3,
@@ -295,6 +324,129 @@ private struct ExpandableStackCard: View {
         .opacity(isExpanded ? 1.0 : 1.0 - Double(index) * 0.15)
         .zIndex(Double(total - index))
         .animation(expandAnim, value: isExpanded)
+    }
+}
+
+// MARK: - Card Swipe Actions
+
+struct CardSwipeAction: Identifiable {
+    let id = UUID()
+    let icon: String
+    let label: String
+    let color: Color
+    let handler: () -> Void
+}
+
+struct SwipeableCard<Content: View>: View {
+    let actions: [CardSwipeAction]
+    @Binding var activeSwipeID: UUID?
+    let entryID: UUID
+    var onHeightChange: ((CGFloat) -> Void)?
+    let onTap: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    @State private var dragOffset: CGFloat = 0
+    @State private var revealed = false
+    @State private var lastDragEndTime: Date = .distantPast
+    @State private var cardHeight: CGFloat = 0
+
+    private let actionWidth: CGFloat = 74
+    private let swipeVisibilityThreshold: CGFloat = -1
+    private var totalWidth: CGFloat { actionWidth * CGFloat(actions.count) }
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            // Action buttons revealed behind the card
+            HStack(spacing: 0) {
+                ForEach(actions) { action in
+                    Button {
+                        action.handler()
+                        snap(reveal: false)
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: action.icon)
+                                .font(.system(size: 16, weight: .semibold))
+                            Text(action.label)
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundStyle(.white)
+                        .frame(width: actionWidth)
+                        .frame(maxHeight: .infinity)
+                        .background(action.color)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .frame(height: cardHeight > 0 ? cardHeight : nil)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius))
+            // Hide when not swiping so colored buttons don't bleed through the card
+            // background when the card is at reduced opacity (e.g. in collapsed stack).
+            .opacity(revealed || dragOffset < swipeVisibilityThreshold ? 1 : 0)
+            // offset() moves the card visually but not its hit-test frame, so the card's
+            // invisible frame still overlaps the buttons. Raise zIndex when revealed so
+            // the buttons win the hit-test in their area.
+            .zIndex(revealed ? 1 : 0)
+
+            // Card content slides left to reveal actions
+            content()
+                .background(
+                    GeometryReader { geo in
+                        Color.clear
+                            .onAppear {
+                                cardHeight = geo.size.height
+                                onHeightChange?(geo.size.height)
+                            }
+                            .onChange(of: geo.size.height) { _, h in
+                                cardHeight = h
+                                onHeightChange?(h)
+                            }
+                    }
+                    .allowsHitTesting(false)
+                )
+                .offset(x: dragOffset)
+                .onTapGesture {
+                    // If a drag just ended, suppress the tap to prevent accidental navigation
+                    guard Date().timeIntervalSince(lastDragEndTime) > 0.15 else { return }
+                    if revealed {
+                        snap(reveal: false)
+                    } else {
+                        onTap()
+                    }
+                }
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 10, coordinateSpace: .local)
+                        .onChanged { value in
+                            guard !actions.isEmpty else { return }
+                            let dx = value.translation.width
+                            let dy = value.translation.height
+                            guard abs(dx) > abs(dy) * 0.6 else { return }
+                            if abs(dx) > 5 { activeSwipeID = entryID }
+                            let base: CGFloat = revealed ? -totalWidth : 0
+                            dragOffset = min(0, max(-totalWidth, base + dx))
+                        }
+                        .onEnded { value in
+                            guard !actions.isEmpty else { return }
+                            let dx = value.translation.width
+                            let dy = value.translation.height
+                            guard abs(dx) > abs(dy) * 0.6 else { return }
+                            snap(reveal: -dragOffset > totalWidth * 0.35)
+                            lastDragEndTime = Date()
+                        }
+                )
+        }
+        .onChange(of: activeSwipeID) { _, newID in
+            // Mutual exclusion: close this card if another card started swiping
+            if newID != entryID && revealed {
+                snap(reveal: false)
+            }
+        }
+    }
+
+    private func snap(reveal: Bool) {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            revealed = reveal
+            dragOffset = reveal ? -totalWidth : 0
+        }
     }
 }
 
@@ -403,7 +555,8 @@ private struct IdeasCard: View {
         onSubmit: { print("Submit:", inputText) },
         onEntryTap: { print("Entry tapped:", $0.summary) },
         onSettingsTap: { print("Settings tapped") },
-        onViewsTap: { print("Views tapped") }
+        onViewsTap: { print("Views tapped") },
+        onAction: { entry, action in print("Action:", action, entry.summary) }
     )
     .environment(appState)
     .background(Theme.Colors.bgDeep)
