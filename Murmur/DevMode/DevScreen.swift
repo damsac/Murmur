@@ -266,7 +266,6 @@ enum DevScreen: String, CaseIterable, Identifiable {
                         priority: 1
                     ),
                     onBack: {},
-                    onEdit: {},
                     onViewTranscript: {},
                     onArchive: {},
                     onSnooze: {},
@@ -282,7 +281,6 @@ enum DevScreen: String, CaseIterable, Identifiable {
                         summary: "Voice-controlled home garden watering system"
                     ),
                     onBack: {},
-                    onEdit: {},
                     onViewTranscript: {},
                     onArchive: {},
                     onSnooze: {},
