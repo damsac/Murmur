@@ -7,7 +7,6 @@ struct EntryDetailView: View {
     @Environment(NotificationPreferences.self) private var notifPrefs
     let entry: Entry
     let onBack: () -> Void
-    let onEdit: () -> Void
     let onViewTranscript: () -> Void
     let onArchive: () -> Void
     let onSnooze: () -> Void
@@ -20,6 +19,10 @@ struct EntryDetailView: View {
     @State private var showCustomSnoozeSheet = false
     @State private var showDueDateSheet = false
     @State private var draftDueDate: Date = Date()
+    @State private var showEditSheet = false
+    @State private var draftSummary: String = ""
+    @State private var draftCategory: EntryCategory = .note
+    @State private var draftPriority: Int?
 
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -42,7 +45,13 @@ struct EntryDetailView: View {
                     trailingButtons: [
                         NavHeader.NavButton(
                             icon: "square.and.pencil",
-                            action: onEdit
+                            isProminent: true,
+                            action: {
+                                draftSummary = entry.summary
+                                draftCategory = entry.category
+                                draftPriority = entry.priority
+                                showEditSheet = true
+                            }
                         )
                     ]
                 )
@@ -177,6 +186,27 @@ struct EntryDetailView: View {
                 )
             }
 
+        }
+        .sheet(isPresented: $showEditSheet) {
+            EntryEditSheet(
+                summary: $draftSummary,
+                category: $draftCategory,
+                priority: $draftPriority,
+                onSave: {
+                    let trimmed = draftSummary.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    entry.summary = trimmed
+                    entry.category = draftCategory
+                    entry.priority = draftPriority
+                    entry.updatedAt = Date()
+                    save()
+                    NotificationService.shared.sync(entry, preferences: notifPrefs)
+                    showEditSheet = false
+                },
+                onDismiss: { showEditSheet = false }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showNotesSheet) {
             NotesEditSheet(
@@ -621,7 +651,6 @@ private extension Date {
             summary: "An app that scans your grocery receipt and suggests meals based on what you actually bought."
         ),
         onBack: { print("Back") },
-        onEdit: { print("Edit") },
         onViewTranscript: { print("View transcript") },
         onArchive: { print("Archive") },
         onSnooze: { print("Snooze") },
@@ -645,7 +674,6 @@ private extension Date {
             priority: 1
         ),
         onBack: { print("Back") },
-        onEdit: { print("Edit") },
         onViewTranscript: { print("View transcript") },
         onArchive: { print("Archive") },
         onSnooze: { print("Snooze") },
@@ -668,7 +696,6 @@ private extension Date {
             summary: "The best interfaces are invisible - they get out of the way and let users focus on their task without distraction."
         ),
         onBack: { print("Back") },
-        onEdit: { print("Edit") },
         onViewTranscript: { print("View transcript") },
         onArchive: { print("Archive") },
         onSnooze: { print("Snooze") },

@@ -9,6 +9,7 @@ struct NavHeader: View {
     struct NavButton: Identifiable {
         let id = UUID()
         let icon: String
+        var isProminent: Bool = false
         let action: () -> Void
     }
 
@@ -54,8 +55,17 @@ struct NavHeader: View {
                 ForEach(trailingButtons) { button in
                     Button(action: button.action) {
                         Image(systemName: button.icon)
-                            .font(.headline.weight(.medium))
-                            .foregroundStyle(Theme.Colors.accentPurple)
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(button.isProminent
+                                ? .white
+                                : Theme.Colors.accentPurple)
+                            .frame(width: 32, height: 32)
+                            .background(
+                                Circle()
+                                    .fill(button.isProminent
+                                        ? Theme.Colors.accentPurple
+                                        : Color.clear)
+                            )
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }

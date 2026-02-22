@@ -40,8 +40,8 @@ generate: ## Generate Xcode project from project.yml
 		exit 1; \
 	fi
 	xcodegen generate
-	@if ! grep -q '$(APP_GROUP)' "$(ENTITLEMENTS)" 2>/dev/null; then \
-		echo "ERROR: $(ENTITLEMENTS) missing App Group '$(APP_GROUP)'" >&2; \
+	@if ! grep -q 'APP_GROUP_IDENTIFIER' "$(ENTITLEMENTS)" 2>/dev/null; then \
+		echo "ERROR: $(ENTITLEMENTS) missing APP_GROUP_IDENTIFIER build variable" >&2; \
 		exit 1; \
 	fi
 	@echo "Project generated — entitlements validated."
