@@ -13,9 +13,9 @@
         isDarwin = pkgs.stdenv.isDarwin;
 
         preCommitHook = pkgs.writeShellScript "pre-commit" ''
-          # Validate entitlements if project.yml is being committed
+          # Validate project.local.yml exists and has required settings
           if git diff --cached --name-only | grep -qE '(project\.yml|project\.local\.yml)'; then
-            echo "project.yml changed — validating entitlements..."
+            echo "project.yml changed — validating local config..."
             if [ ! -f project.local.yml ]; then
               echo "ERROR: project.local.yml not found" >&2
               echo "Copy project.local.yml.template to project.local.yml and configure your settings" >&2
@@ -24,16 +24,9 @@
             APP_GROUP=$(grep 'APP_GROUP_IDENTIFIER:' project.local.yml 2>/dev/null | awk '{print $2}')
             if [ -z "$APP_GROUP" ]; then
               echo "ERROR: APP_GROUP_IDENTIFIER not set in project.local.yml" >&2
-              echo "Set APP_GROUP_IDENTIFIER in project.local.yml" >&2
               exit 1
             fi
-            ${pkgs.xcodegen}/bin/xcodegen generate --quiet
-            if ! grep -q "$APP_GROUP" Murmur/Murmur.entitlements 2>/dev/null; then
-              echo "ERROR: Murmur/Murmur.entitlements missing App Group identifier '$APP_GROUP'" >&2
-              echo "Check project.yml entitlements.properties." >&2
-              exit 1
-            fi
-            echo "Entitlements validated."
+            echo "Local config validated."
           fi
 
           # Lint staged Swift files

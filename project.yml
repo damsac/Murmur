@@ -63,7 +63,7 @@ targets:
       path: Murmur/Murmur.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.damsac.murmur.shared
+          - $(APP_GROUP_IDENTIFIER)
     scheme:
       storeKitConfiguration: Murmur/Config/StoreKit/Murmur.storekit
       testTargets:
