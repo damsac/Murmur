@@ -19,7 +19,6 @@ struct EntryDetailView: View {
     @State private var showSnoozeDialog = false
     @State private var showCustomSnoozeSheet = false
     @State private var showDueDateSheet = false
-    @State private var draftHasDueDate: Bool = false
     @State private var draftDueDate: Date = Date()
 
     private static let dateFormatter: DateFormatter = {
@@ -101,7 +100,6 @@ struct EntryDetailView: View {
                         // Due date row (todos and reminders only)
                         if entry.category == .todo || entry.category == .reminder {
                             DueDateRow(entry: entry) {
-                                draftHasDueDate = entry.dueDate != nil
                                 draftDueDate = entry.dueDate ?? Date()
                                 showDueDateSheet = true
                             }
@@ -202,13 +200,20 @@ struct EntryDetailView: View {
         }
         .sheet(isPresented: $showDueDateSheet) {
             DueDateEditSheet(
-                isEnabled: $draftHasDueDate,
                 date: $draftDueDate,
+                isRemovable: entry.dueDate != nil,
                 onSave: {
-                    entry.dueDate = draftHasDueDate ? draftDueDate : nil
+                    entry.dueDate = draftDueDate
                     entry.updatedAt = Date()
                     save()
                     NotificationService.shared.sync(entry, preferences: notifPrefs)
+                    showDueDateSheet = false
+                },
+                onRemove: {
+                    entry.dueDate = nil
+                    entry.updatedAt = Date()
+                    save()
+                    NotificationService.shared.cancel(entry)
                     showDueDateSheet = false
                 },
                 onDismiss: { showDueDateSheet = false }
@@ -461,9 +466,10 @@ private struct ActionButton: View {
 // MARK: - Due Date Edit Sheet
 
 private struct DueDateEditSheet: View {
-    @Binding var isEnabled: Bool
     @Binding var date: Date
+    let isRemovable: Bool
     let onSave: () -> Void
+    let onRemove: () -> Void
     let onDismiss: () -> Void
 
     @State private var hasTime: Bool = false
@@ -471,34 +477,29 @@ private struct DueDateEditSheet: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 0) {
-                Toggle("Set due date", isOn: $isEnabled)
+                DatePicker(
+                    "",
+                    selection: $date,
+                    displayedComponents: [.date]
+                )
+                .datePickerStyle(.graphical)
+                .padding(.horizontal, Theme.Spacing.screenPadding)
+
+                Divider()
+                    .padding(.horizontal, Theme.Spacing.screenPadding)
+
+                Toggle("Add time", isOn: $hasTime)
                     .padding(Theme.Spacing.screenPadding)
 
-                if isEnabled {
+                if hasTime {
                     DatePicker(
                         "",
                         selection: $date,
-                        displayedComponents: [.date]
+                        displayedComponents: [.hourAndMinute]
                     )
-                    .datePickerStyle(.graphical)
+                    .datePickerStyle(.wheel)
+                    .labelsHidden()
                     .padding(.horizontal, Theme.Spacing.screenPadding)
-
-                    Divider()
-                        .padding(.horizontal, Theme.Spacing.screenPadding)
-
-                    Toggle("Add time", isOn: $hasTime)
-                        .padding(Theme.Spacing.screenPadding)
-
-                    if hasTime {
-                        DatePicker(
-                            "",
-                            selection: $date,
-                            displayedComponents: [.hourAndMinute]
-                        )
-                        .datePickerStyle(.wheel)
-                        .labelsHidden()
-                        .padding(.horizontal, Theme.Spacing.screenPadding)
-                    }
                 }
 
                 Spacer()
@@ -509,7 +510,7 @@ private struct DueDateEditSheet: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        if isEnabled && !hasTime {
+                        if !hasTime {
                             date = Calendar.current.startOfDay(for: date)
                         }
                         onSave()
@@ -519,11 +520,16 @@ private struct DueDateEditSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onDismiss)
                 }
+                if isRemovable {
+                    ToolbarItem(placement: .bottomBar) {
+                        Button("Remove Date", role: .destructive, action: onRemove)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
             }
         }
         .background(Theme.Colors.bgDeep)
         .onAppear {
-            guard isEnabled else { return }
             hasTime = date.hasTimeComponent
         }
     }
