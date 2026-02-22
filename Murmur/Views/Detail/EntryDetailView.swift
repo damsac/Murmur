@@ -45,6 +45,7 @@ struct EntryDetailView: View {
                     trailingButtons: [
                         NavHeader.NavButton(
                             icon: "square.and.pencil",
+                            isProminent: true,
                             action: {
                                 draftSummary = entry.summary
                                 draftCategory = entry.category
