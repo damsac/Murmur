@@ -13,7 +13,7 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
 
     private var _isRecording = false
     private var _isStarting = false
-    private var currentTranscript = ""
+    private var _currentTranscript = ""
 
     public override init() {
         // Use device locale or fallback to US English
@@ -22,6 +22,10 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
     }
 
     // MARK: - Transcriber Protocol
+
+    public var currentTranscript: String {
+        get async { _currentTranscript }
+    }
 
     public var isRecording: Bool {
         get async { _isRecording }
@@ -100,13 +104,13 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
         }
 
         // Start recognition
-        currentTranscript = ""
+        _currentTranscript = ""
         recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
             guard let self = self else { return }
 
             if let result = result {
                 Task { @MainActor in
-                    self.currentTranscript = result.bestTranscription.formattedString
+                    self._currentTranscript = result.bestTranscription.formattedString
                 }
             }
 
@@ -133,8 +137,15 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
         try await Task.sleep(for: .milliseconds(500))
 
         // Return transcript
-        let text = currentTranscript.isEmpty ? "" : currentTranscript
+        let text = _currentTranscript.isEmpty ? "" : _currentTranscript
         return Transcript(text: text)
+    }
+
+    public func cancelRecording() async {
+        guard _isRecording else { return }
+        cleanupRecordingState(endAudio: false)
+        _isRecording = false
+        _currentTranscript = ""
     }
 
     // MARK: - Permissions

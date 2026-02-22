@@ -356,12 +356,28 @@ struct RootView: View {
             showToast("Pipeline not configured — check API key", type: .error)
             return
         }
-
-        withAnimation {
-            appState.recordingState = .processing
-        }
+        guard appState.recordingState == .recording else { return }
 
         Task { @MainActor in
+            // Yield to let any pending recognition callbacks update currentTranscript
+            await Task.yield()
+
+            // Instant check: if nothing was said, bail immediately
+            let liveText = await pipeline.currentTranscript
+            if liveText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                await pipeline.cancelRecording()
+                withAnimation {
+                    appState.recordingState = .idle
+                }
+                transcript = ""
+                return
+            }
+
+            // Content detected — show processing and run full pipeline
+            withAnimation {
+                appState.recordingState = .processing
+            }
+
             do {
                 let result = try await pipeline.stopRecording()
                 transcript = result.transcript.text
@@ -378,7 +394,7 @@ struct RootView: View {
                 withAnimation {
                     appState.recordingState = .idle
                 }
-                // Empty transcript = user said nothing — just return to idle silently
+                // Safety net: empty transcript that slipped through live check
                 if case PipelineError.emptyTranscript = error {
                     transcript = ""
                     return

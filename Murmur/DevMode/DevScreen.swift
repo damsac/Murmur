@@ -237,8 +237,7 @@ enum DevScreen: String, CaseIterable, Identifiable {
                     VStack {
                         ToastView(
                             message: "Entry saved",
-                            type: .success,
-                            isShowing: .constant(true)
+                            type: .success
                         )
                         .padding(.top, 60)
                         Spacer()
