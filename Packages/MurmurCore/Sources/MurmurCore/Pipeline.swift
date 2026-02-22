@@ -135,6 +135,18 @@ public final class Pipeline {
         )
     }
 
+    /// The live partial transcript from the current recording session.
+    public var currentTranscript: String {
+        get async {
+            await transcriber.currentTranscript
+        }
+    }
+
+    /// Cancel recording immediately without finalization or extraction.
+    public func cancelRecording() async {
+        await transcriber.cancelRecording()
+    }
+
     /// Check if currently recording
     public var isRecording: Bool {
         get async {

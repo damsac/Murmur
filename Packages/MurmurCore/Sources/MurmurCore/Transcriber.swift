@@ -8,6 +8,12 @@ public protocol Transcriber: Sendable {
     /// Stop recording and return the transcript
     func stopRecording() async throws -> Transcript
 
+    /// Cancel recording immediately without waiting for finalization
+    func cancelRecording() async
+
+    /// The live partial transcript from the current recording session
+    var currentTranscript: String { get async }
+
     /// Whether recording is currently active
     var isRecording: Bool { get async }
 

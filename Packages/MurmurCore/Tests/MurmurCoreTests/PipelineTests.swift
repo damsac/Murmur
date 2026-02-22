@@ -182,6 +182,49 @@ struct PipelineTests {
         #expect(pipeline.currentConversation === conversation)
     }
 
+    // MARK: - Cancel & Live Transcript
+
+    @Test("cancelRecording stops transcriber without extraction")
+    func cancelRecordingNoExtraction() async throws {
+        try await pipeline.startRecording()
+        #expect(await pipeline.isRecording == true)
+
+        await pipeline.cancelRecording()
+
+        #expect(await pipeline.isRecording == false)
+        #expect(llm.lastReceivedTranscript == nil, "LLM should not be called on cancel")
+    }
+
+    @Test("currentTranscript returns live text from transcriber")
+    func currentTranscriptReadsFromTranscriber() async throws {
+        transcriber._currentTranscript = "Hello world"
+        let text = await pipeline.currentTranscript
+        #expect(text == "Hello world")
+    }
+
+    @Test("currentTranscript is empty when nothing spoken")
+    func currentTranscriptEmptyByDefault() async throws {
+        let text = await pipeline.currentTranscript
+        #expect(text == "")
+    }
+
+    @Test("cancelRecording clears currentTranscript")
+    func cancelClearsTranscript() async throws {
+        try await pipeline.startRecording()
+        transcriber._currentTranscript = "partial text"
+
+        await pipeline.cancelRecording()
+
+        #expect(await transcriber.currentTranscript == "")
+    }
+
+    @Test("cancelRecording is safe when not recording")
+    func cancelWhenNotRecording() async throws {
+        // Should not throw or crash
+        await pipeline.cancelRecording()
+        #expect(await pipeline.isRecording == false)
+    }
+
     @Test("Refine without active session throws error")
     func refineWithoutSession() async throws {
         await #expect(throws: PipelineError.self) {

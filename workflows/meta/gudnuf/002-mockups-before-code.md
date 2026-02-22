@@ -2,7 +2,7 @@
 id: "002"
 title: "Mockups Before Code: The UI-First Pivot"
 status: active
-author: gudnuf
+author: damsac
 project: Murmur
 tags: [ux, mockups, progressive-disclosure, tokens, design, pivot]
 previous: "001"

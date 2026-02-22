@@ -492,10 +492,10 @@ private struct ToastViewGallery: View {
     var body: some View {
         GallerySection(title: "All Types") {
             VStack(spacing: 12) {
-                ToastView(message: "Entry saved successfully", type: .success, isShowing: .constant(true))
-                ToastView(message: "Low token balance", type: .warning, isShowing: .constant(true))
-                ToastView(message: "Failed to process entry", type: .error, isShowing: .constant(true))
-                ToastView(message: "New feature available", type: .info, isShowing: .constant(true))
+                ToastView(message: "Entry saved successfully", type: .success)
+                ToastView(message: "Low token balance", type: .warning)
+                ToastView(message: "Failed to process entry", type: .error)
+                ToastView(message: "New feature available", type: .info)
             }
         }
     }

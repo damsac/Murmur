@@ -3,7 +3,6 @@ import SwiftUI
 struct ToastView: View {
     let message: String
     let type: ToastType
-    @Binding var isShowing: Bool
 
     enum ToastType {
         case success
@@ -94,14 +93,16 @@ struct ToastContainer: ViewModifier {
             if let config = toast {
                 ToastView(
                     message: config.message,
-                    type: config.type,
-                    isShowing: Binding(
-                        get: { toast != nil },
-                        set: { if !$0 { toast = nil } }
-                    )
+                    type: config.type
                 )
                 .padding(.top, 60)
                 .zIndex(999)
+                .onTapGesture {
+                    dismissTask?.cancel()
+                    withAnimation(Animations.toastSpring) {
+                        toast = nil
+                    }
+                }
                 .onAppear {
                     dismissTask?.cancel()
                     dismissTask = Task {
@@ -124,29 +125,10 @@ extension View {
 }
 
 #Preview {
-    @Previewable @State var showSuccess = true
-    @Previewable @State var showWarning = false
-    @Previewable @State var showError = false
-
     VStack(spacing: 20) {
-        ToastView(
-            message: "Entry saved successfully",
-            type: .success,
-            isShowing: $showSuccess
-        )
-
-        ToastView(
-            message: "Low token balance",
-            type: .warning,
-            isShowing: $showWarning
-        )
-
-        ToastView(
-            message: "Failed to save entry",
-            type: .error,
-            isShowing: $showError
-        )
-
+        ToastView(message: "Entry saved successfully", type: .success)
+        ToastView(message: "Low token balance", type: .warning)
+        ToastView(message: "Failed to save entry", type: .error)
         Spacer()
     }
     .padding(.top, 60)

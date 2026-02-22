@@ -42,7 +42,7 @@ struct MurmurApp: App {
             if newPhase == .background {
                 if appState.recordingState == .recording {
                     Task {
-                        try? await appState.pipeline?.stopRecording()
+                        await appState.pipeline?.cancelRecording()
                         appState.recordingState = .idle
                     }
                 }

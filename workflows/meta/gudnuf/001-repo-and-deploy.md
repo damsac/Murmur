@@ -2,7 +2,7 @@
 id: "001"
 title: "Repo Creation & Pages Deploy"
 status: completed
-author: gudnuf
+author: damsac
 project: Murmur
 tags: [infra, github, ci, deploy]
 previous: "000"

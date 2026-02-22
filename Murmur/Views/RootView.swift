@@ -14,8 +14,7 @@ struct RootView: View {
     @State private var selectedEntry: Entry?
     @State private var inputText = ""
     @State private var transcript = ""
-    @State private var showSuccessToast = false
-    @State private var toastMessage = ""
+    @State private var toastConfig: ToastContainer.ToastConfig?
     @State private var showDevMode = false
     @State private var showTextInput = false
     @State private var showTopUp = false
@@ -104,27 +103,8 @@ struct RootView: View {
                 .zIndex(50)
             }
 
-            // Success toast (tap to dismiss)
-            if showSuccessToast {
-                VStack {
-                    ToastView(
-                        message: toastMessage,
-                        type: .success,
-                        isShowing: $showSuccessToast
-                    )
-                    .padding(.top, 60)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .onTapGesture {
-                        withAnimation {
-                            showSuccessToast = false
-                        }
-                    }
-
-                    Spacer()
-                }
-                .zIndex(40)
-            }
         }
+        .toast($toastConfig)
         #if DEBUG
         .sheet(isPresented: $showDevMode) {
             DevModeView()
@@ -341,7 +321,7 @@ struct RootView: View {
 
     private func handleMicTap() {
         guard let pipeline = appState.pipeline else {
-            showToast("Pipeline not configured — check API key")
+            showToast("Pipeline not configured — check API key", type: .error)
             return
         }
 
@@ -351,11 +331,11 @@ struct RootView: View {
             if recordPermission == .undetermined {
                 let granted = await AVAudioApplication.requestRecordPermission()
                 if !granted {
-                    showToast("Microphone access is required for recording")
+                    showToast("Microphone access is required for recording", type: .error)
                     return
                 }
             } else if recordPermission == .denied {
-                showToast("Microphone access denied — enable in Settings")
+                showToast("Microphone access denied — enable in Settings", type: .error)
                 return
             }
 
@@ -366,35 +346,52 @@ struct RootView: View {
                 }
             } catch {
                 print("Failed to start recording: \(error.localizedDescription)")
-                showToast("Recording failed: \(error.localizedDescription)")
+                showToast("Recording failed: \(error.localizedDescription)", type: .error)
             }
         }
     }
 
     private func handleStopRecording() {
         guard let pipeline = appState.pipeline else {
-            showToast("Pipeline not configured — check API key")
+            showToast("Pipeline not configured — check API key", type: .error)
             return
         }
-
-        withAnimation {
-            appState.recordingState = .processing
-        }
+        guard appState.recordingState == .recording else { return }
 
         Task { @MainActor in
+            // Yield to let any pending recognition callbacks update currentTranscript
+            await Task.yield()
+
+            // Instant check: if nothing was said, bail immediately
+            let liveText = await pipeline.currentTranscript
+            if liveText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                await pipeline.cancelRecording()
+                withAnimation {
+                    appState.recordingState = .idle
+                }
+                transcript = ""
+                return
+            }
+
+            // Content detected — cancel recording instantly and extract from live text
+            await pipeline.cancelRecording()
+            withAnimation {
+                appState.recordingState = .processing
+            }
+
             do {
-                let result = try await pipeline.stopRecording()
-                transcript = result.transcript.text
+                let result = try await pipeline.extractFromText(liveText)
+                transcript = liveText
                 appState.processedEntries = result.entries
-                appState.processedTranscript = result.transcript.text
-                appState.processedAudioDuration = result.transcript.duration
+                appState.processedTranscript = liveText
+                appState.processedAudioDuration = nil
                 appState.processedSource = .voice
                 await appState.refreshCreditBalance()
                 withAnimation {
                     appState.recordingState = .confirming
                 }
             } catch {
-                print("Stop recording failed: \(error.localizedDescription)")
+                print("Processing failed: \(error.localizedDescription)")
                 withAnimation {
                     appState.recordingState = .idle
                 }
@@ -411,7 +408,7 @@ struct RootView: View {
         inputText = ""
 
         guard let pipeline = appState.pipeline else {
-            showToast("Pipeline not configured — check API key")
+            showToast("Pipeline not configured — check API key", type: .error)
             return
         }
 
@@ -449,7 +446,7 @@ struct RootView: View {
             do {
                 let credits = Int64(pack.credits)
                 guard let productID = topUpProductIDByCredits[credits] else {
-                    showToast("Top-up product unavailable in StoreKit. Check IAP IDs/config.")
+                    showToast("Top-up product unavailable in StoreKit. Check IAP IDs/config.", type: .error)
                     return
                 }
 
@@ -462,12 +459,12 @@ struct RootView: View {
                 case .userCancelled:
                     break
                 case .pending:
-                    showToast("Purchase pending approval.")
+                    showToast("Purchase pending approval.", type: .warning)
                 default:
-                    showToast("Top-up failed: \(error.localizedDescription)")
+                    showToast("Top-up failed: \(error.localizedDescription)", type: .error)
                 }
             } catch {
-                showToast("Top-up failed: \(error.localizedDescription)")
+                showToast("Top-up failed: \(error.localizedDescription)", type: .error)
             }
         }
     }
@@ -476,10 +473,10 @@ struct RootView: View {
         if case PipelineError.insufficientCredits = error {
             openTopUp()
             showTopUp = true
-            showToast("Out of credits. Top up to continue.")
+            showToast("Out of credits. Top up to continue.", type: .warning)
             return
         }
-        showToast("\(fallbackPrefix): \(error.localizedDescription)")
+        showToast("\(fallbackPrefix): \(error.localizedDescription)", type: .error)
     }
 
     private func handleAccept() {
@@ -500,7 +497,7 @@ struct RootView: View {
             try modelContext.save()
         } catch {
             print("Failed to save entries: \(error.localizedDescription)")
-            showToast("Save failed: \(error.localizedDescription)")
+            showToast("Save failed: \(error.localizedDescription)", type: .error)
             return
         }
 
@@ -518,11 +515,8 @@ struct RootView: View {
         }
     }
 
-    private func showToast(_ message: String) {
-        toastMessage = message
-        withAnimation {
-            showSuccessToast = true
-        }
+    private func showToast(_ message: String, type: ToastView.ToastType = .success) {
+        toastConfig = ToastContainer.ToastConfig(message: message, type: type)
     }
 
 }
@@ -594,7 +588,7 @@ private extension RootView {
         } catch {
             topUpPacks = []
             topUpProductIDByCredits = [:]
-            showToast("Failed to load purchases: \(error.localizedDescription)")
+            showToast("Failed to load purchases: \(error.localizedDescription)", type: .error)
         }
     }
 

@@ -6,8 +6,13 @@ import Foundation
 final class MockTranscriber: Transcriber, @unchecked Sendable {
     var _isRecording = false
     var _isAvailable = true
+    var _currentTranscript = ""
     var transcriptToReturn = "Buy milk and finish the report"
     var errorToThrow: Error?
+
+    var currentTranscript: String {
+        get async { _currentTranscript }
+    }
 
     var isRecording: Bool {
         get async { _isRecording }
@@ -30,6 +35,11 @@ final class MockTranscriber: Transcriber, @unchecked Sendable {
         }
         _isRecording = false
         return Transcript(text: transcriptToReturn)
+    }
+
+    func cancelRecording() async {
+        _isRecording = false
+        _currentTranscript = ""
     }
 }
 
