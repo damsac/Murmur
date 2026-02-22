@@ -66,6 +66,7 @@
             xcbeautify
             gnumake
             nodejs
+            gh
           ]);
           shellHook = pkgs.lib.optionalString isDarwin ''
             # Strip Nix SDK variables that conflict with Xcode.
