@@ -4,6 +4,7 @@ struct SettingsFullView: View {
     @Environment(AppState.self) private var appState
     @Environment(NotificationPreferences.self) private var notifPrefs
     let onBack: () -> Void
+    let onTopUp: () -> Void
     let onManageViews: () -> Void
     let onExportData: () -> Void
     let onClearData: () -> Void
@@ -31,6 +32,28 @@ struct SettingsFullView: View {
                         SectionHeader(title: "NOTIFICATIONS")
 
                         notificationsSection
+
+                        // Credits section
+                        SectionHeader(title: "CREDITS")
+                            .padding(.top, 32)
+
+                        SettingsRow(
+                            icon: "bolt.fill",
+                            iconColor: Theme.Colors.accentPurple,
+                            label: "Balance",
+                            value: "\(appState.creditBalance.formatted()) credits",
+                            showChevron: false,
+                            action: {}
+                        )
+
+                        SettingsRow(
+                            icon: "arrow.up.circle.fill",
+                            iconColor: Theme.Colors.accentPurple,
+                            label: "Top Up",
+                            value: nil,
+                            showChevron: true,
+                            action: onTopUp
+                        )
 
                         // AI Backend section
                         SectionHeader(title: "AI BACKEND")
@@ -187,6 +210,7 @@ private struct SectionHeader: View {
 
     SettingsFullView(
         onBack: { print("Back") },
+        onTopUp: { print("Top up") },
         onManageViews: { print("Manage views") },
         onExportData: { print("Export data") },
         onClearData: { print("Clear data") },

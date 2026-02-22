@@ -1,47 +1,40 @@
 import SwiftUI
 import MurmurCore
 
-// swiftlint:disable:next type_body_length
 enum DevScreen: String, CaseIterable, Identifiable {
-    // Onboarding (Pre-L0)
+    // Onboarding
     case onboardingTranscript = "Onboarding: Transcript"
     case onboardingProcessing = "Onboarding: Processing"
     case onboardingConfirm = "Onboarding: Confirm"
     case onboardingFlow = "Onboarding: Flow"
 
-    // Level 0: The Void
-    case void = "L0: Void"
-    case voidRecording = "L0: Recording"
-    case voidProcessing = "L0: Processing"
-    case voidConfirm = "L0: Confirm"
-    case voidTextProcessing = "L0: Text Processing"
-    case voidTextConfirm = "L0: Text Confirm"
-    case settingsMinimal = "L0: Settings (Minimal)"
+    // Home
+    case void = "Home: Empty"
+    case voidRecording = "Recording"
+    case voidProcessing = "Processing"
+    case voidConfirm = "Confirm"
+    case voidTextProcessing = "Text Processing"
+    case voidTextConfirm = "Text Confirm"
+    case focusTodo = "Focus Card (Todo)"
+    case focusInsight = "Focus Card (Insight)"
+    case focusDismissed = "Focus Card (Dismissed)"
+    case successToast = "Success Toast"
+    case homeAI = "Home (AI Composed)"
+    case entryDetail = "Entry Detail"
+    case entryDetailVariants = "Entry Detail (Variants)"
+    case swipeActions = "Swipe Actions"
+    case keyboardOpen = "Keyboard Input"
 
-    // Level 1: First Light
-    case homeSparse = "L1: Home (Sparse)"
-    case focusTodo = "L1: Focus Card (Todo)"
-    case focusInsight = "L1: Focus Card (Insight)"
-    case focusDismissed = "L1: Focus Card (Dismissed)"
-    case successToast = "L1: Success Toast"
+    // Views & Settings
+    case viewsGrid = "Views Grid"
+    case todoView = "Todo View"
+    case ideasView = "Ideas View"
+    case remindersView = "Reminders View"
+    case settingsFull = "Settings (Full)"
 
-    // Level 2: Grid Awakens
-    case homeAI = "L2: Home (AI Composed)"
-    case entryDetail = "L2: Entry Detail"
-    case entryDetailVariants = "L2: Entry Detail (Variants)"
-    case swipeActions = "L2: Swipe Actions"
-    case keyboardOpen = "L2: Keyboard Input"
-
-    // Level 3: Views Emerge
-    case viewsGrid = "L3: Views Grid"
-    case todoView = "L3: Todo View"
-    case ideasView = "L3: Ideas View"
-    case remindersView = "L3: Reminders View"
-    case settingsFull = "L3: Settings (Full)"
-
-    // Level 4: Full Power
-    case topUp = "L4: Top-Up"
-    case recordingLive = "L4: Recording (Live Feed)"
+    // Top-Up & Recording
+    case topUp = "Top-Up"
+    case recordingLive = "Recording (Live Feed)"
 
     // Edge Cases & Errors
     case outOfCredits = "Error: Out of Credits"
@@ -62,31 +55,6 @@ enum DevScreen: String, CaseIterable, Identifiable {
     case voiceCorrection = "Confirm: Voice Correction"
 
     var id: String { rawValue }
-
-    var level: DisclosureLevel {
-        switch self {
-        case .onboardingTranscript, .onboardingProcessing, .onboardingConfirm, .onboardingFlow:
-            return .void
-
-        case .void, .voidRecording, .voidProcessing, .voidConfirm, .voidTextProcessing, .voidTextConfirm, .settingsMinimal:
-            return .void
-
-        case .homeSparse, .focusTodo, .focusInsight, .focusDismissed, .successToast:
-            return .firstLight
-
-        case .homeAI, .entryDetail, .entryDetailVariants, .swipeActions, .keyboardOpen:
-            return .gridAwakens
-
-        case .viewsGrid, .todoView, .ideasView, .remindersView, .settingsFull:
-            return .viewsEmerge
-
-        case .topUp, .recordingLive:
-            return .fullPower
-
-        case .outOfCredits, .micDenied, .apiError, .lowTokens, .deleteConfirm, .emptyTodo, .emptyIdeas, .emptyReminders, .emptyHome, .confirmCards, .confirmSingle, .voiceCorrection:
-            return .void
-        }
-    }
 
     @ViewBuilder
     var view: some View {
@@ -131,13 +99,16 @@ enum DevScreen: String, CaseIterable, Identifiable {
             case .onboardingFlow:
                 OnboardingFlowView(onComplete: {})
 
-            // Level 0
+            // Home (Empty)
             case .void:
-                VoidView(
+                HomeView(
                     inputText: .constant(""),
+                    entries: [],
                     onMicTap: {},
                     onSubmit: {},
-                    onSettingsTap: {}
+                    onEntryTap: { _ in },
+                    onSettingsTap: {},
+                    onAction: { _, _ in }
                 )
             case .voidRecording:
                 RecordingView(
@@ -175,21 +146,6 @@ enum DevScreen: String, CaseIterable, Identifiable {
                     onAccept: {},
                     onVoiceCorrect: { _ in },
                     onDiscard: { _ in }
-                )
-            case .settingsMinimal:
-                SettingsMinimalView(
-                    onBack: {},
-                    onTopUp: {}
-                )
-
-            // Level 1
-            case .homeSparse:
-                HomeSparseView(
-                    inputText: .constant(""),
-                    entries: MockDataService.entriesForLevel1(),
-                    onMicTap: {},
-                    onSubmit: {},
-                    onEntryTap: { _ in }
                 )
             case .focusTodo:
                 FocusCardView(
@@ -244,16 +200,16 @@ enum DevScreen: String, CaseIterable, Identifiable {
                     }
                 }
 
-            // Level 2
+            // Home (with entries)
             case .homeAI:
-                HomeAIComposedView(
+                HomeView(
                     inputText: .constant(""),
                     entries: MockDataService.entriesForLevel2(),
                     onMicTap: {},
                     onSubmit: {},
                     onEntryTap: { _ in },
                     onSettingsTap: {},
-                    onViewsTap: {}
+                    onAction: { _, _ in }
                 )
             case .entryDetail:
                 EntryDetailView(
@@ -287,19 +243,19 @@ enum DevScreen: String, CaseIterable, Identifiable {
                     onDelete: {}
                 )
             case .swipeActions:
-                HomeAIComposedView(
+                HomeView(
                     inputText: .constant(""),
                     entries: MockDataService.entriesForLevel2(),
                     onMicTap: {},
                     onSubmit: {},
                     onEntryTap: { _ in },
                     onSettingsTap: {},
-                    onViewsTap: {}
+                    onAction: { _, _ in }
                 )
             case .keyboardOpen:
                 MainTabView()
 
-            // Level 3
+            // Views & Settings
             case .viewsGrid:
                 ViewsGridView(
                     onViewSelected: { _ in },
@@ -342,13 +298,14 @@ enum DevScreen: String, CaseIterable, Identifiable {
             case .settingsFull:
                 SettingsFullView(
                     onBack: {},
+                    onTopUp: {},
                     onManageViews: {},
                     onExportData: {},
                     onClearData: {},
                     onOpenSourceLicenses: {}
                 )
 
-            // Level 4
+            // Top-Up & Recording
             case .topUp:
                 TopUpView(
                     onBack: {},

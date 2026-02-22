@@ -14,47 +14,6 @@ struct DevModeView: View {
 
                 ScrollView {
                     VStack(spacing: 24) {
-                        // Level Picker
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Progressive Disclosure Level")
-                                .font(.body.weight(.semibold))
-                                .foregroundStyle(Theme.Colors.textPrimary)
-
-                            HStack(spacing: 10) {
-                                ForEach([DisclosureLevel.void, .firstLight, .gridAwakens, .viewsEmerge, .fullPower], id: \.self) { level in
-                                    LevelButton(
-                                        level: level,
-                                        isSelected: appState.devOverrideLevel == level,
-                                        naturalLevel: appState.disclosureLevel
-                                    ) {
-                                        withAnimation {
-                                            if appState.devOverrideLevel == level {
-                                                appState.devOverrideLevel = nil
-                                            } else {
-                                                appState.devOverrideLevel = level
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if appState.devOverrideLevel != nil {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "info.circle.fill")
-                                        .font(.caption2)
-                                    Text("Overriding natural level (\(appState.disclosureLevel.displayName))")
-                                        .font(.caption2)
-                                }
-                                .foregroundStyle(Theme.Colors.accentYellow)
-                                .padding(.top, 4)
-                            }
-                        }
-                        .padding(.horizontal, Theme.Spacing.screenPadding)
-                        .padding(.top, 8)
-
-                        Divider()
-                            .background(Theme.Colors.borderSubtle)
-
                         // State Toggles
                         VStack(alignment: .leading, spacing: 12) {
                             Text("State Toggles")
@@ -252,69 +211,9 @@ struct DevModeView: View {
 
     private func resetAllState() {
         withAnimation {
-            appState.devOverrideLevel = nil
             appState.recordingState = .idle
             appState.showOnboarding = false
             appState.showFocusCard = false
-        }
-    }
-}
-
-// MARK: - Level Button
-
-private struct LevelButton: View {
-    let level: DisclosureLevel
-    let isSelected: Bool
-    let naturalLevel: DisclosureLevel
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Text(levelShortName)
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(
-                        isSelected
-                            ? Theme.Colors.textPrimary
-                            : (level == naturalLevel ? Theme.Colors.accentGreen : Theme.Colors.textTertiary)
-                    )
-
-                if level == naturalLevel && !isSelected {
-                    Circle()
-                        .fill(Theme.Colors.accentGreen)
-                        .frame(width: 4, height: 4)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(
-                        isSelected
-                            ? Theme.Colors.accentPurple
-                            : Theme.Colors.bgCard
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(
-                                isSelected
-                                    ? Theme.Colors.accentPurple
-                                    : (level == naturalLevel ? Theme.Colors.accentGreen.opacity(0.3) : Theme.Colors.borderSubtle),
-                                lineWidth: isSelected ? 2 : 1
-                            )
-                    )
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var levelShortName: String {
-        switch level {
-        case .void: return "L0"
-        case .firstLight: return "L1"
-        case .gridAwakens: return "L2"
-        case .viewsEmerge: return "L3"
-        case .fullPower: return "L4"
         }
     }
 }
@@ -339,24 +238,9 @@ private struct StateToggleRow: View {
     }
 }
 
-// MARK: - Extension for DisclosureLevel
-
-extension DisclosureLevel {
-    var displayName: String {
-        switch self {
-        case .void: return "Void"
-        case .firstLight: return "First Light"
-        case .gridAwakens: return "Grid Awakens"
-        case .viewsEmerge: return "Views Emerge"
-        case .fullPower: return "Full Power"
-        }
-    }
-}
-
 #Preview {
     @Previewable @State var appState = AppState()
 
-    appState.disclosureLevel = .gridAwakens
     appState.isDevMode = true
 
     return DevModeView()
