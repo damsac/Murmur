@@ -26,7 +26,7 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            // Main content based on selected tab + disclosure level
+            // Main content based on selected tab
             mainContent
                 .preferredColorScheme(.dark)
 
@@ -78,7 +78,7 @@ struct RootView: View {
                 recordingOverlays
             }
 
-            // Focus card overlay (L1) — show highest priority active entry
+            // Focus card overlay — show highest priority active entry
             if appState.showFocusCard && !appState.showOnboarding,
                let focusEntry = topPriorityEntry {
                 FocusCardView(
@@ -142,7 +142,6 @@ struct RootView: View {
         }
         .onAppear {
             wakeUpSnoozedEntries()
-            updateDisclosureLevel()
             if !appState.hasCompletedOnboarding {
                 appState.showOnboarding = true
             }
@@ -153,7 +152,6 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { wakeUpSnoozedEntries() }
         }
-        .onChange(of: entries.count) { _, _ in updateDisclosureLevel() }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
             wakeUpSnoozedEntries()
         }
@@ -203,72 +201,34 @@ struct RootView: View {
 
     @ViewBuilder
     private var homeContent: some View {
-        switch appState.effectiveLevel {
-        case .void:
-            VoidView(onMicTap: handleMicTap)
-
-        case .firstLight:
-            HomeSparseView(
-                inputText: $inputText,
-                entries: activeEntries,
-                onMicTap: handleMicTap,
-                onSubmit: handleTextSubmit,
-                onEntryTap: { entry in selectedEntry = entry },
-                onAction: { entry, action in
-                    entry.perform(action, in: modelContext, preferences: notifPrefs)
-                }
-            )
-
-        case .gridAwakens, .viewsEmerge, .fullPower:
-            HomeAIComposedView(
-                inputText: $inputText,
-                entries: activeEntries,
-                onMicTap: handleMicTap,
-                onSubmit: handleTextSubmit,
-                onEntryTap: { entry in
-                    selectedEntry = entry
-                },
-                onSettingsTap: {
-                    selectedTab = .settings
-                },
-                onViewsTap: {
-                    // Views tab removed — no-op
-                },
-                onAction: { entry, action in
-                    entry.perform(action, in: modelContext, preferences: notifPrefs)
-                }
-            )
-        }
+        HomeView(
+            inputText: $inputText,
+            entries: activeEntries,
+            onMicTap: handleMicTap,
+            onSubmit: handleTextSubmit,
+            onEntryTap: { entry in selectedEntry = entry },
+            onSettingsTap: { selectedTab = .settings },
+            onAction: { entry, action in
+                entry.perform(action, in: modelContext, preferences: notifPrefs)
+            }
+        )
     }
 
     // MARK: - Settings Content
 
     @ViewBuilder
     private var settingsContent: some View {
-        switch appState.effectiveLevel {
-        case .void, .firstLight, .gridAwakens:
-            SettingsMinimalView(
-                creditBalance: appState.creditBalance,
-                onBack: {
-                    selectedTab = .home
-                },
-                onTopUp: {
-                    openTopUp()
-                    showTopUp = true
-                }
-            )
-
-        case .viewsEmerge, .fullPower:
-            SettingsFullView(
-                onBack: {
-                    selectedTab = .home
-                },
-                onManageViews: {},
-                onExportData: {},
-                onClearData: {},
-                onOpenSourceLicenses: {}
-            )
-        }
+        SettingsFullView(
+            onBack: { selectedTab = .home },
+            onTopUp: {
+                openTopUp()
+                showTopUp = true
+            },
+            onManageViews: {},
+            onExportData: {},
+            onClearData: {},
+            onOpenSourceLicenses: {}
+        )
     }
 
     // MARK: - Recording Overlays
@@ -597,56 +557,10 @@ private extension RootView {
         }
     }
 
-    func updateDisclosureLevel() {
-        let level = DisclosureLevel.from(entryCount: activeEntries.count)
-        if level > appState.disclosureLevel {
-            withAnimation {
-                appState.disclosureLevel = level
-            }
-        }
-    }
 }
 
-#Preview("L0 - Void") {
+#Preview("Empty") {
     @Previewable @State var appState = AppState()
-
-    appState.disclosureLevel = .void
-
-    return RootView()
-        .environment(appState)
-}
-
-#Preview("L1 - First Light") {
-    @Previewable @State var appState = AppState()
-
-    appState.disclosureLevel = .firstLight
-
-    return RootView()
-        .environment(appState)
-}
-
-#Preview("L2 - Grid Awakens") {
-    @Previewable @State var appState = AppState()
-
-    appState.disclosureLevel = .gridAwakens
-
-    return RootView()
-        .environment(appState)
-}
-
-#Preview("L3 - Views Emerge") {
-    @Previewable @State var appState = AppState()
-
-    appState.disclosureLevel = .viewsEmerge
-
-    return RootView()
-        .environment(appState)
-}
-
-#Preview("L4 - Full Power") {
-    @Previewable @State var appState = AppState()
-
-    appState.disclosureLevel = .fullPower
 
     return RootView()
         .environment(appState)
@@ -664,7 +578,6 @@ private extension RootView {
 #Preview("With Focus Card") {
     @Previewable @State var appState = AppState()
 
-    appState.disclosureLevel = .firstLight
     appState.showFocusCard = true
 
     return RootView()
@@ -674,7 +587,6 @@ private extension RootView {
 #Preview("Recording State") {
     @Previewable @State var appState = AppState()
 
-    appState.disclosureLevel = .gridAwakens
     appState.recordingState = .recording
 
     return RootView()

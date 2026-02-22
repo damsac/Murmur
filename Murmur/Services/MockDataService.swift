@@ -369,19 +369,4 @@ enum MockDataService {
         return entries
     }
 
-    // MARK: - Get Entries for Level
-    static func entries(for level: DisclosureLevel) -> [Entry] {
-        switch level {
-        case .void:
-            return entriesForLevel0()
-        case .firstLight:
-            return entriesForLevel1()
-        case .gridAwakens:
-            return entriesForLevel2()
-        case .viewsEmerge:
-            return entriesForLevel3()
-        case .fullPower:
-            return entriesForLevel4()
-        }
-    }
 }
