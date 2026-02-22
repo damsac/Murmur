@@ -94,7 +94,11 @@ struct OnboardingFlowView: View {
             audioDuration: nil
         )
         modelContext.insert(saved)
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            print("Failed to save onboarding entry: \(error.localizedDescription)")
+        }
 
         // Mark onboarding complete
         appState.hasCompletedOnboarding = true

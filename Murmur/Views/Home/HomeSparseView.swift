@@ -36,10 +36,7 @@ struct HomeSparseView: View {
             ScrollView {
                 VStack(spacing: Theme.Spacing.cardGap) {
                     ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                        EntryCard(entry: entry)
-                            .onTapGesture {
-                                onEntryTap(entry)
-                            }
+                        EntryCard(entry: entry, onTap: { onEntryTap(entry) })
                             .opacity(appeared ? 1 : 0)
                             .offset(y: appeared ? 0 : 20)
                             .animation(
@@ -59,19 +56,7 @@ struct HomeSparseView: View {
         }
     }
 
-    private var greeting: String {
-        let hour = Calendar.current.component(.hour, from: Date())
-        switch hour {
-        case 0..<12:
-            return "Good morning"
-        case 12..<17:
-            return "Good afternoon"
-        case 17..<22:
-            return "Good evening"
-        default:
-            return "Good night"
-        }
-    }
+    private var greeting: String { Greeting.current }
 }
 
 #Preview("Home Sparse - Few Entries") {

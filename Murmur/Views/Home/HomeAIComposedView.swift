@@ -43,20 +43,16 @@ struct HomeAIComposedView: View {
         }
     }
 
-    private var greeting: String {
-        let hour = Calendar.current.component(.hour, from: Date())
-        switch hour {
-        case 0..<12: return "Good morning"
-        case 12..<17: return "Good afternoon"
-        case 17..<22: return "Good evening"
-        default: return "Good night"
-        }
-    }
+    private var greeting: String { Greeting.current }
 
-    private var formattedDate: String {
+    private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEEE, MMMM d"
-        return formatter.string(from: Date())
+        return formatter
+    }()
+
+    private var formattedDate: String {
+        Self.dateFormatter.string(from: Date())
     }
 
     private var composedCards: [HomeCard] {

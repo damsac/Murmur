@@ -22,6 +22,12 @@ struct EntryDetailView: View {
     @State private var draftHasDueDate: Bool = false
     @State private var draftDueDate: Date = Date()
 
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter
+    }()
+
     var body: some View {
         ZStack(alignment: .top) {
             // Background
@@ -94,87 +100,20 @@ struct EntryDetailView: View {
 
                         // Due date row (todos and reminders only)
                         if entry.category == .todo || entry.category == .reminder {
-                            Button {
+                            DueDateRow(entry: entry) {
                                 draftHasDueDate = entry.dueDate != nil
                                 draftDueDate = entry.dueDate ?? Date()
                                 showDueDateSheet = true
-                            } label: {
-                                HStack {
-                                    Image(systemName: "calendar")
-                                        .font(.system(size: 14))
-                                        .foregroundStyle(entry.dueDate != nil
-                                            ? Theme.Colors.accentYellow
-                                            : Theme.Colors.textSecondary)
-                                    if let dueDate = entry.dueDate {
-                                        Text(dueDate, style: .date)
-                                            .font(Theme.Typography.body)
-                                            .foregroundStyle(Theme.Colors.accentYellow)
-                                        let hour = Calendar.current.component(.hour, from: dueDate)
-                                        let minute = Calendar.current.component(.minute, from: dueDate)
-                                        if hour != 0 || minute != 0 {
-                                            Text(dueDate, style: .time)
-                                                .font(Theme.Typography.body)
-                                                .foregroundStyle(Theme.Colors.accentYellow)
-                                        }
-                                    } else {
-                                        Text("Add due date")
-                                            .font(Theme.Typography.body)
-                                            .foregroundStyle(Theme.Colors.textSecondary)
-                                    }
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption2)
-                                        .foregroundStyle(Theme.Colors.textTertiary)
-                                }
-                                .padding(.bottom, 24)
                             }
-                            .buttonStyle(.plain)
                         }
 
                         // Cadence pill row (habits only)
                         if entry.category == .habit {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Cadence")
-                                    .font(Theme.Typography.label)
-                                    .foregroundStyle(Theme.Colors.textSecondary)
-
-                                HStack(spacing: 8) {
-                                    ForEach(HabitCadence.allCases, id: \.self) { cadence in
-                                        Button {
-                                            entry.cadence = entry.cadence == cadence ? nil : cadence
-                                            entry.updatedAt = Date()
-                                            try? modelContext.save()
-                                        } label: {
-                                            Text(cadence.displayName)
-                                                .font(Theme.Typography.label)
-                                                .fontWeight(.medium)
-                                                .padding(.horizontal, 12)
-                                                .padding(.vertical, 6)
-                                                .background(
-                                                    entry.cadence == cadence
-                                                        ? Theme.Colors.accentGreen.opacity(0.15)
-                                                        : Theme.Colors.bgCard
-                                                )
-                                                .foregroundStyle(
-                                                    entry.cadence == cadence
-                                                        ? Theme.Colors.accentGreen
-                                                        : Theme.Colors.textSecondary
-                                                )
-                                                .clipShape(Capsule())
-                                                .overlay(
-                                                    Capsule().stroke(
-                                                        entry.cadence == cadence
-                                                            ? Theme.Colors.accentGreen.opacity(0.4)
-                                                            : Theme.Colors.borderFaint,
-                                                        lineWidth: 1
-                                                    )
-                                                )
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
+                            CadencePicker(entry: entry) { cadence in
+                                entry.cadence = entry.cadence == cadence ? nil : cadence
+                                entry.updatedAt = Date()
+                                save()
                             }
-                            .padding(.bottom, 24)
                         }
 
                         // Divider
@@ -230,14 +169,14 @@ struct EntryDetailView: View {
                     onArchive: {
                         entry.status = .archived
                         entry.updatedAt = Date()
-                        try? modelContext.save()
+                        save()
                         NotificationService.shared.cancel(entry)
                         onArchive()
                     },
                     onUnarchive: {
                         entry.status = .active
                         entry.updatedAt = Date()
-                        try? modelContext.save()
+                        save()
                         NotificationService.shared.sync(entry, preferences: notifPrefs)
                         onBack()
                     },
@@ -253,7 +192,7 @@ struct EntryDetailView: View {
                 onSave: {
                     entry.notes = draftNotes
                     entry.updatedAt = Date()
-                    try? modelContext.save()
+                    save()
                     showNotesSheet = false
                 },
                 onDismiss: { showNotesSheet = false }
@@ -268,7 +207,7 @@ struct EntryDetailView: View {
                 onSave: {
                     entry.dueDate = draftHasDueDate ? draftDueDate : nil
                     entry.updatedAt = Date()
-                    try? modelContext.save()
+                    save()
                     NotificationService.shared.sync(entry, preferences: notifPrefs)
                     showDueDateSheet = false
                 },
@@ -288,29 +227,14 @@ struct EntryDetailView: View {
         }
         .confirmationDialog("Snooze until...", isPresented: $showSnoozeDialog) {
             Button("In 1 hour") {
-                entry.snoozeUntil = Calendar.current.date(byAdding: .hour, value: 1, to: Date())
-                entry.status = .snoozed
-                entry.updatedAt = Date()
-                try? modelContext.save()
-                NotificationService.shared.sync(entry, preferences: notifPrefs)
-                onSnooze()
+                snooze(until: Calendar.current.date(byAdding: .hour, value: 1, to: Date()))
             }
             Button("Tomorrow morning") {
                 let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
-                entry.snoozeUntil = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow)
-                entry.status = .snoozed
-                entry.updatedAt = Date()
-                try? modelContext.save()
-                NotificationService.shared.sync(entry, preferences: notifPrefs)
-                onSnooze()
+                snooze(until: Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow))
             }
             Button("Next week") {
-                entry.snoozeUntil = Calendar.current.date(byAdding: .weekOfYear, value: 1, to: Date())
-                entry.status = .snoozed
-                entry.updatedAt = Date()
-                try? modelContext.save()
-                NotificationService.shared.sync(entry, preferences: notifPrefs)
-                onSnooze()
+                snooze(until: Calendar.current.date(byAdding: .weekOfYear, value: 1, to: Date()))
             }
             Button("Custom time...") {
                 showCustomSnoozeSheet = true
@@ -320,13 +244,8 @@ struct EntryDetailView: View {
         .sheet(isPresented: $showCustomSnoozeSheet) {
             CustomSnoozeSheet(
                 onSave: { date in
-                    entry.snoozeUntil = date
-                    entry.status = .snoozed
-                    entry.updatedAt = Date()
-                    try? modelContext.save()
-                    NotificationService.shared.sync(entry, preferences: notifPrefs)
+                    snooze(until: date)
                     showCustomSnoozeSheet = false
-                    onSnooze()
                 },
                 onDismiss: { showCustomSnoozeSheet = false }
             )
@@ -335,10 +254,27 @@ struct EntryDetailView: View {
         }
     }
 
+    // MARK: - Helpers
+
+    private func save() {
+        do {
+            try modelContext.save()
+        } catch {
+            print("Failed to save entry: \(error.localizedDescription)")
+        }
+    }
+
+    private func snooze(until date: Date?) {
+        entry.snoozeUntil = date
+        entry.status = .snoozed
+        entry.updatedAt = Date()
+        save()
+        NotificationService.shared.sync(entry, preferences: notifPrefs)
+        onSnooze()
+    }
+
     private var formattedDate: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        return formatter.string(from: entry.createdAt)
+        Self.dateFormatter.string(from: entry.createdAt)
     }
 
     private var formattedDuration: String {
@@ -346,6 +282,93 @@ struct EntryDetailView: View {
         let minutes = Int(duration) / 60
         let seconds = Int(duration) % 60
         return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
+// MARK: - Due Date Row
+
+private struct DueDateRow: View {
+    let entry: Entry
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack {
+                Image(systemName: "calendar")
+                    .font(.system(size: 14))
+                    .foregroundStyle(entry.dueDate != nil
+                        ? Theme.Colors.accentYellow
+                        : Theme.Colors.textSecondary)
+                if let dueDate = entry.dueDate {
+                    Text(dueDate, style: .date)
+                        .font(Theme.Typography.body)
+                        .foregroundStyle(Theme.Colors.accentYellow)
+                    if dueDate.hasTimeComponent {
+                        Text(dueDate, style: .time)
+                            .font(Theme.Typography.body)
+                            .foregroundStyle(Theme.Colors.accentYellow)
+                    }
+                } else {
+                    Text("Add due date")
+                        .font(Theme.Typography.body)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+            }
+            .padding(.bottom, 24)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Cadence Picker
+
+private struct CadencePicker: View {
+    let entry: Entry
+    let onSelect: (HabitCadence) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Cadence")
+                .font(Theme.Typography.label)
+                .foregroundStyle(Theme.Colors.textSecondary)
+
+            HStack(spacing: 8) {
+                ForEach(HabitCadence.allCases, id: \.self) { cadence in
+                    Button { onSelect(cadence) } label: {
+                        Text(cadence.displayName)
+                            .font(Theme.Typography.label)
+                            .fontWeight(.medium)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(
+                                entry.cadence == cadence
+                                    ? Theme.Colors.accentGreen.opacity(0.15)
+                                    : Theme.Colors.bgCard
+                            )
+                            .foregroundStyle(
+                                entry.cadence == cadence
+                                    ? Theme.Colors.accentGreen
+                                    : Theme.Colors.textSecondary
+                            )
+                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule().stroke(
+                                    entry.cadence == cadence
+                                        ? Theme.Colors.accentGreen.opacity(0.4)
+                                        : Theme.Colors.borderFaint,
+                                    lineWidth: 1
+                                )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.bottom, 24)
     }
 }
 
@@ -501,9 +524,7 @@ private struct DueDateEditSheet: View {
         .background(Theme.Colors.bgDeep)
         .onAppear {
             guard isEnabled else { return }
-            let hour = Calendar.current.component(.hour, from: date)
-            let minute = Calendar.current.component(.minute, from: date)
-            hasTime = hour != 0 || minute != 0
+            hasTime = date.hasTimeComponent
         }
     }
 }
@@ -577,6 +598,17 @@ private struct NotesEditSheet: View {
         }
         .background(Theme.Colors.bgDeep)
         .onAppear { focused = true }
+    }
+}
+
+// MARK: - Date Extension
+
+private extension Date {
+    var hasTimeComponent: Bool {
+        let calendar = Calendar.current
+        let hour = calendar.component(.hour, from: self)
+        let minute = calendar.component(.minute, from: self)
+        return hour != 0 || minute != 0
     }
 }
 

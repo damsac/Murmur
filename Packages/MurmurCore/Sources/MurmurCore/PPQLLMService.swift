@@ -16,14 +16,18 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         self.session = session
     }
 
+    private static let dateTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMMM d, yyyy 'at' h:mm a zzz"
+        formatter.timeZone = .current
+        return formatter
+    }()
+
     public func extractEntries(from transcript: String, conversation: LLMConversation) async throws -> [ExtractedEntry] {
         // Build messages: fresh (empty conversation) or multi-turn (append to history)
         let requestMessages: [[String: Any]]
         if conversation.messages.isEmpty {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "EEEE, MMMM d, yyyy 'at' h:mm a zzz"
-            formatter.timeZone = .current
-            let currentDateTime = formatter.string(from: Date())
+            let currentDateTime = Self.dateTimeFormatter.string(from: Date())
             let systemContent = "Current date and time: \(currentDateTime)\n\n" + prompt.systemPrompt
             requestMessages = [
                 ["role": "system", "content": systemContent],
@@ -36,7 +40,10 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         }
 
         let request = try buildRequest(messages: requestMessages)
-        let (data, http) = try await performWithRetry(request)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw PPQError.invalidResponse
+        }
 
         guard http.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? "<no body>"
@@ -49,40 +56,6 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         updateConversation(conversation, requestMessages: requestMessages, responseData: data)
 
         return entries
-    }
-
-    // MARK: - Retry
-
-    /// Executes a URLRequest, retrying up to `maxAttempts` times on transient errors (404, 5xx).
-    private func performWithRetry(
-        _ request: URLRequest,
-        maxAttempts: Int = 3
-    ) async throws -> (Data, HTTPURLResponse) {
-        var lastError: Error?
-        for attempt in 1...maxAttempts {
-            do {
-                let (data, response) = try await session.data(for: request)
-                guard let http = response as? HTTPURLResponse else {
-                    throw PPQError.invalidResponse
-                }
-                // Success or non-retryable client error — return immediately
-                guard http.statusCode == 404 || http.statusCode >= 500 else {
-                    return (data, http)
-                }
-                // Retryable: record error and wait before next attempt
-                let body = String(data: data, encoding: .utf8) ?? "<no body>"
-                lastError = PPQError.httpError(statusCode: http.statusCode, body: body)
-                if attempt < maxAttempts {
-                    try await Task.sleep(for: .seconds(Double(attempt)))
-                }
-            } catch {
-                lastError = error
-                if attempt < maxAttempts {
-                    try await Task.sleep(for: .seconds(Double(attempt)))
-                }
-            }
-        }
-        throw lastError ?? PPQError.invalidResponse
     }
 
     // MARK: - Request Building
