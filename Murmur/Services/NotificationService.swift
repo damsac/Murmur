@@ -7,6 +7,7 @@ final class NotificationService: NSObject {
     static let shared = NotificationService()
 
     private let center = UNUserNotificationCenter.current()
+    private var hasRequestedPermission = false
 
     private override init() {
         super.init()
@@ -24,8 +25,10 @@ final class NotificationService: NSObject {
     }
 
     /// Request permission only if the user hasn't been asked yet.
-    /// Safe to call repeatedly — no-ops once the user has responded.
+    /// Safe to call repeatedly — the flag prevents duplicate prompts from rapid syncs.
     func requestPermissionIfNeeded() {
+        guard !hasRequestedPermission else { return }
+        hasRequestedPermission = true
         Task {
             let settings = await center.notificationSettings()
             guard settings.authorizationStatus == .notDetermined else { return }
@@ -38,6 +41,7 @@ final class NotificationService: NSObject {
     /// Evaluate an entry's state and atomically cancel/reschedule both notification slots.
     /// Safe to call on every save — idempotent.
     /// Lazily requests notification permission the first time a reminder is synced.
+    /// Note: notifications are scheduled immediately — iOS queues them and delivers once authorized.
     func sync(_ entry: Entry, preferences: NotificationPreferences) {
         let isNotificationEligible =
             entry.category == .reminder ||
