@@ -8,10 +8,12 @@ struct PipelineTests {
     var transcriber: MockTranscriber!
     var llm: MockLLMService!
     var pipeline: Pipeline!
+    var creditGate: MockCreditGate!
 
     init() async throws {
         transcriber = MockTranscriber()
         llm = MockLLMService()
+        creditGate = MockCreditGate()
         pipeline = Pipeline(transcriber: transcriber, llm: llm)
     }
 
@@ -234,6 +236,43 @@ struct PipelineTests {
         // Try to refine via recording without starting one
         await #expect(throws: PipelineError.self) {
             try await pipeline.refineFromRecording()
+        }
+    }
+
+    @Test("Credit authorize and charge run for text extraction")
+    func creditAuthorizeAndCharge() async throws {
+        let pricing = ServicePricing(
+            inputUSDPer1MMicros: 1_000_000,
+            outputUSDPer1MMicros: 5_000_000,
+            minimumChargeCredits: 1
+        )
+        let pricedPipeline = Pipeline(
+            transcriber: transcriber,
+            llm: llm,
+            creditGate: creditGate,
+            llmPricing: pricing
+        )
+
+        let result = try await pricedPipeline.extractFromText("Buy milk")
+
+        #expect(creditGate.authorizeCalled == true)
+        #expect(creditGate.chargeCalled == true)
+        #expect(result.receipt != nil)
+        #expect(result.receipt?.creditsCharged == pricing.credits(for: llm.usageToReturn))
+    }
+
+    @Test("Insufficient credits maps to PipelineError")
+    func insufficientCredits() async throws {
+        creditGate.authorizeError = CreditError.insufficientBalance(current: 0)
+        let pricedPipeline = Pipeline(
+            transcriber: transcriber,
+            llm: llm,
+            creditGate: creditGate,
+            llmPricing: .zero
+        )
+
+        await #expect(throws: PipelineError.self) {
+            try await pricedPipeline.extractFromText("Buy milk")
         }
     }
 }

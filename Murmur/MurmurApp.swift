@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import StoreKit
 import MurmurCore
 
 @main
@@ -32,6 +33,9 @@ struct MurmurApp: App {
                     appState.configurePipeline()
                     await NotificationService.shared.requestPermission()
                 }
+                .task {
+                    await listenForTransactionUpdates()
+                }
         }
         .modelContainer(modelContainer)
         .onChange(of: scenePhase) { _, newPhase in
@@ -43,6 +47,16 @@ struct MurmurApp: App {
                     }
                 }
             }
+        }
+    }
+
+    private func listenForTransactionUpdates() async {
+        for await result in Transaction.updates {
+            guard case .verified(let transaction) = result else { continue }
+            if let credits = TopUpCatalog.creditsByProductID[transaction.productID] {
+                try? await appState.applyTopUp(credits: credits)
+            }
+            await transaction.finish()
         }
     }
 }

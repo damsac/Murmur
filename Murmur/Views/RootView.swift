@@ -1,8 +1,9 @@
 import SwiftUI
 import SwiftData
-import AVFoundation
+import AVFAudio
 import MurmurCore
 
+// swiftlint:disable:next type_body_length
 struct RootView: View {
     @Environment(AppState.self) private var appState
     @Environment(NotificationPreferences.self) private var notifPrefs
@@ -17,6 +18,12 @@ struct RootView: View {
     @State private var toastMessage = ""
     @State private var showDevMode = false
     @State private var showTextInput = false
+    @State private var showTopUp = false
+    @State private var isPurchasingTopUp = false
+    @State private var isLoadingTopUpProducts = false
+    @State private var topUpPacks: [CreditPack] = []
+    @State private var topUpProductIDByCredits: [Int64: String] = [:]
+    private let topUpService = StoreKitTopUpService()
 
     var body: some View {
         ZStack {
@@ -144,11 +151,24 @@ struct RootView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showTopUp) {
+            TopUpView(
+                packs: topUpPacks,
+                isLoading: isLoadingTopUpProducts,
+                onBack: { showTopUp = false },
+                onPurchase: { pack in
+                    handleTopUpPurchase(pack)
+                }
+            )
+        }
         .onAppear {
             wakeUpSnoozedEntries()
             updateDisclosureLevel()
             if !appState.hasCompletedOnboarding {
                 appState.showOnboarding = true
+            }
+            Task { @MainActor in
+                await appState.refreshCreditBalance()
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -243,10 +263,14 @@ struct RootView: View {
         switch appState.effectiveLevel {
         case .void, .firstLight, .gridAwakens:
             SettingsMinimalView(
+                creditBalance: appState.creditBalance,
                 onBack: {
                     selectedTab = .home
                 },
-                onTopUp: {}
+                onTopUp: {
+                    openTopUp()
+                    showTopUp = true
+                }
             )
 
         case .viewsEmerge, .fullPower:
@@ -322,6 +346,19 @@ struct RootView: View {
         }
 
         Task { @MainActor in
+            // Request mic permission if not yet determined
+            let recordPermission = AVAudioApplication.shared.recordPermission
+            if recordPermission == .undetermined {
+                let granted = await AVAudioApplication.requestRecordPermission()
+                if !granted {
+                    showToast("Microphone access is required for recording")
+                    return
+                }
+            } else if recordPermission == .denied {
+                showToast("Microphone access denied — enable in Settings")
+                return
+            }
+
             do {
                 try await pipeline.startRecording()
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
@@ -352,6 +389,7 @@ struct RootView: View {
                 appState.processedTranscript = result.transcript.text
                 appState.processedAudioDuration = result.transcript.duration
                 appState.processedSource = .voice
+                await appState.refreshCreditBalance()
                 withAnimation {
                     appState.recordingState = .confirming
                 }
@@ -360,7 +398,7 @@ struct RootView: View {
                 withAnimation {
                     appState.recordingState = .idle
                 }
-                showToast("Processing failed: \(error.localizedDescription)")
+                handlePipelineError(error, fallbackPrefix: "Processing failed")
             }
         }
     }
@@ -388,6 +426,7 @@ struct RootView: View {
                 appState.processedTranscript = text
                 appState.processedAudioDuration = nil
                 appState.processedSource = .text
+                await appState.refreshCreditBalance()
                 withAnimation {
                     appState.recordingState = .confirming
                 }
@@ -396,9 +435,51 @@ struct RootView: View {
                 withAnimation {
                     appState.recordingState = .idle
                 }
-                showToast("Extraction failed: \(error.localizedDescription)")
+                handlePipelineError(error, fallbackPrefix: "Extraction failed")
             }
         }
+    }
+
+    private func handleTopUpPurchase(_ pack: CreditPack) {
+        guard !isPurchasingTopUp else { return }
+
+        isPurchasingTopUp = true
+        Task { @MainActor in
+            defer { isPurchasingTopUp = false }
+            do {
+                let credits = Int64(pack.credits)
+                guard let productID = topUpProductIDByCredits[credits] else {
+                    showToast("Top-up product unavailable in StoreKit. Check IAP IDs/config.")
+                    return
+                }
+
+                let receipt = try await topUpService.purchase(productID: productID)
+                try await appState.applyTopUp(credits: receipt.creditsGranted)
+                showTopUp = false
+                showToast("Top-up successful: +\(receipt.creditsGranted.formatted()) credits")
+            } catch let error as StoreKitTopUpError {
+                switch error {
+                case .userCancelled:
+                    break
+                case .pending:
+                    showToast("Purchase pending approval.")
+                default:
+                    showToast("Top-up failed: \(error.localizedDescription)")
+                }
+            } catch {
+                showToast("Top-up failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func handlePipelineError(_ error: Error, fallbackPrefix: String) {
+        if case PipelineError.insufficientCredits = error {
+            openTopUp()
+            showTopUp = true
+            showToast("Out of credits. Top up to continue.")
+            return
+        }
+        showToast("\(fallbackPrefix): \(error.localizedDescription)")
     }
 
     private func handleAccept() {
@@ -483,6 +564,37 @@ private extension RootView {
             for entry in woken {
                 NotificationService.shared.sync(entry, preferences: notifPrefs)
             }
+        }
+    }
+
+    private func openTopUp() {
+        Task { @MainActor in
+            await loadTopUpProducts()
+        }
+    }
+
+    private func loadTopUpProducts() async {
+        if isLoadingTopUpProducts { return }
+        isLoadingTopUpProducts = true
+        defer { isLoadingTopUpProducts = false }
+
+        do {
+            let products = try await topUpService.loadProducts()
+            topUpPacks = products.enumerated().map { index, product in
+                CreditPack(
+                    credits: Int(product.credits),
+                    price: product.priceText,
+                    isPopular: index == 1,
+                    isBestValue: index == (products.count - 1)
+                )
+            }
+            topUpProductIDByCredits = Dictionary(
+                uniqueKeysWithValues: products.map { ($0.credits, $0.id) }
+            )
+        } catch {
+            topUpPacks = []
+            topUpProductIDByCredits = [:]
+            showToast("Failed to load purchases: \(error.localizedDescription)")
         }
     }
 

@@ -45,6 +45,8 @@ final class AppState {
     // Pipeline
     var pipeline: Pipeline?
     var pipelineError: String?
+    var creditGate: LocalCreditGate?
+    var creditBalance: Int64 = 0
 
     // Shared recording state — extracted entries (not yet persisted)
     var processedEntries: [ExtractedEntry] = []
@@ -73,6 +75,37 @@ final class AppState {
 
         let transcriber = AppleSpeechTranscriber()
         let llm = PPQLLMService(apiKey: apiKey)
-        pipeline = Pipeline(transcriber: transcriber, llm: llm)
+        let gate = LocalCreditGate(starterCredits: 1_000)
+        let pricing = ServicePricing(
+            // Claude Haiku style baseline pricing; replaced with model catalog later.
+            inputUSDPer1MMicros: 1_000_000,
+            outputUSDPer1MMicros: 5_000_000,
+            minimumChargeCredits: 1
+        )
+        pipeline = Pipeline(
+            transcriber: transcriber,
+            llm: llm,
+            creditGate: gate,
+            llmPricing: pricing
+        )
+        creditGate = gate
+
+        Task { @MainActor in
+            await refreshCreditBalance()
+        }
+    }
+
+    func refreshCreditBalance() async {
+        guard let creditGate else {
+            creditBalance = 0
+            return
+        }
+        creditBalance = await creditGate.balance
+    }
+
+    func applyTopUp(credits: Int64) async throws {
+        guard let creditGate else { return }
+        try await creditGate.topUp(credits: credits)
+        await refreshCreditBalance()
     }
 }

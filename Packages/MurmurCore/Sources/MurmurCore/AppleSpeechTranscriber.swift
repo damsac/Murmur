@@ -6,11 +6,13 @@ import AVFoundation
 @MainActor
 public final class AppleSpeechTranscriber: NSObject, Transcriber {
     private let speechRecognizer: SFSpeechRecognizer
-    private let audioEngine = AVAudioEngine()
+    private var audioEngine: AVAudioEngine?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
+    private var tapInstalled = false
 
     private var _isRecording = false
+    private var _isStarting = false
     private var currentTranscript = ""
 
     public override init() {
@@ -36,6 +38,19 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
     }
 
     public func startRecording() async throws {
+        guard !_isRecording && !_isStarting else {
+            throw TranscriberError.alreadyRecording
+        }
+        _isStarting = true
+        _isRecording = true
+        var didStartEngine = false
+        defer {
+            _isStarting = false
+            if !didStartEngine {
+                _isRecording = false
+            }
+        }
+
         // Request permissions if needed
         try await requestPermissions()
 
@@ -43,9 +58,12 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
             throw TranscriberError.speechRecognitionUnavailable
         }
 
-        // Cancel any ongoing recognition
-        recognitionTask?.cancel()
-        recognitionTask = nil
+        // Ensure no stale state is left behind before starting a new session.
+        cleanupRecordingState(endAudio: false)
+
+        // Build a fresh engine each session to avoid stale tap state on reused input nodes.
+        let audioEngine = AVAudioEngine()
+        self.audioEngine = audioEngine
 
         // Create recognition request
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
@@ -69,10 +87,17 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
             self?.recognitionRequest?.append(buffer)
         }
+        tapInstalled = true
 
-        // Start audio engine
-        audioEngine.prepare()
-        try audioEngine.start()
+        do {
+            // Start audio engine
+            audioEngine.prepare()
+            try audioEngine.start()
+            didStartEngine = true
+        } catch {
+            cleanupRecordingState(endAudio: false)
+            throw error
+        }
 
         // Start recognition
         currentTranscript = ""
@@ -87,8 +112,7 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
 
             if error != nil || result?.isFinal == true {
                 Task { @MainActor in
-                    self.audioEngine.stop()
-                    self.audioEngine.inputNode.removeTap(onBus: 0)
+                    self.cleanupRecordingState(endAudio: false)
                 }
             }
         }
@@ -101,10 +125,7 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
             throw TranscriberError.notRecording
         }
 
-        // Stop audio engine
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
-        recognitionRequest?.endAudio()
+        cleanupRecordingState(endAudio: true)
 
         _isRecording = false
 
@@ -152,6 +173,26 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
         return await AVAudioApplication.requestRecordPermission()
         #endif
     }
+
+    private func cleanupRecordingState(endAudio: Bool) {
+        if let audioEngine {
+            audioEngine.stop()
+            if tapInstalled {
+                audioEngine.inputNode.removeTap(onBus: 0)
+                tapInstalled = false
+            }
+            audioEngine.reset()
+        }
+
+        if endAudio {
+            recognitionRequest?.endAudio()
+        }
+
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest = nil
+        audioEngine = nil
+    }
 }
 
 // MARK: - Errors
@@ -162,6 +203,7 @@ public enum TranscriberError: LocalizedError {
     case microphoneNotAuthorized
     case unableToCreateRequest
     case notRecording
+    case alreadyRecording
 
     public var errorDescription: String? {
         switch self {
@@ -175,6 +217,8 @@ public enum TranscriberError: LocalizedError {
             return "Unable to create speech recognition request"
         case .notRecording:
             return "Not currently recording"
+        case .alreadyRecording:
+            return "Recording is already in progress"
         }
     }
 }

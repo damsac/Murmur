@@ -42,7 +42,11 @@ struct PPQLLMServiceTests {
             """
 
         let (service, _) = makeService(responseBody: responseJSON, statusCode: 200)
-        let entries = try await service.extractEntries(from: "I need to buy groceries and my meeting got moved to Thursday", conversation: LLMConversation())
+        let result = try await service.extractEntries(
+            from: "I need to buy groceries and my meeting got moved to Thursday",
+            conversation: LLMConversation()
+        )
+        let entries = result.entries
 
         #expect(entries.count == 2)
 
@@ -59,6 +63,7 @@ struct PPQLLMServiceTests {
         #expect(entries[1].summary == "Meeting rescheduled")
         #expect(entries[1].priority == nil)
         #expect(entries[1].dueDateDescription == "Thursday")
+        #expect(result.usage == .zero)
     }
 
     @Test("Handles all entry categories")
@@ -91,7 +96,8 @@ struct PPQLLMServiceTests {
             """
 
         let (service, _) = makeService(responseBody: responseJSON, statusCode: 200)
-        let entries = try await service.extractEntries(from: "test", conversation: LLMConversation())
+        let result = try await service.extractEntries(from: "test", conversation: LLMConversation())
+        let entries = result.entries
 
         #expect(entries.count == 8)
         #expect(entries[0].category == .todo)
@@ -122,7 +128,8 @@ struct PPQLLMServiceTests {
             """
 
         let (service, _) = makeService(responseBody: responseJSON, statusCode: 200)
-        let entries = try await service.extractEntries(from: "buy milk", conversation: LLMConversation())
+        let result = try await service.extractEntries(from: "buy milk", conversation: LLMConversation())
+        let entries = result.entries
 
         #expect(entries.count == 1)
         #expect(entries[0].content == "Buy milk")
