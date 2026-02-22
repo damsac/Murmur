@@ -373,31 +373,27 @@ struct RootView: View {
                 return
             }
 
-            // Content detected — show processing and run full pipeline
+            // Content detected — cancel recording instantly and extract from live text
+            await pipeline.cancelRecording()
             withAnimation {
                 appState.recordingState = .processing
             }
 
             do {
-                let result = try await pipeline.stopRecording()
-                transcript = result.transcript.text
+                let result = try await pipeline.extractFromText(liveText)
+                transcript = liveText
                 appState.processedEntries = result.entries
-                appState.processedTranscript = result.transcript.text
-                appState.processedAudioDuration = result.transcript.duration
+                appState.processedTranscript = liveText
+                appState.processedAudioDuration = nil
                 appState.processedSource = .voice
                 await appState.refreshCreditBalance()
                 withAnimation {
                     appState.recordingState = .confirming
                 }
             } catch {
-                print("Stop recording failed: \(error.localizedDescription)")
+                print("Processing failed: \(error.localizedDescription)")
                 withAnimation {
                     appState.recordingState = .idle
-                }
-                // Safety net: empty transcript that slipped through live check
-                if case PipelineError.emptyTranscript = error {
-                    transcript = ""
-                    return
                 }
                 handlePipelineError(error, fallbackPrefix: "Processing failed")
             }
