@@ -53,12 +53,19 @@ gh api user --jq .login
 
 ## Step 3 — Show available work
 
-Display items where **all** of these are true:
+First, list items assigned to the current user (any status, OPEN state) under **"Your assignments"**:
+```
+Your assignments:
+  - #49 — Edit view shows entry types that don't exist (e.g. 'list') [Todo]
+  - #33 — App icon and launch screen [Todo]
+```
+
+Then, display unassigned items where **all** of these are true:
 - Status is **Backlog** or **Todo**
 - Issue state is **OPEN**
-- Assignees are **empty** OR include the current user's login
+- Assignees are **empty**
 
-Format as a numbered list, e.g.:
+Format as a numbered list under **"Available work"**, e.g.:
 ```
 Available work:
   1. #16 — Polish onboarding flow
