@@ -154,6 +154,9 @@ struct RootView: View {
             if phase == .active { wakeUpSnoozedEntries() }
         }
         .onChange(of: entries.count) { _, _ in updateDisclosureLevel() }
+        .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
+            wakeUpSnoozedEntries()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .murmurOpenEntry)) { notification in
             guard let uuid = notification.userInfo?["entryID"] as? UUID else { return }
             selectedEntry = entries.first { $0.id == uuid }
