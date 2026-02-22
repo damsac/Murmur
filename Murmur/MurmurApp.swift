@@ -31,7 +31,6 @@ struct MurmurApp: App {
                 .preferredColorScheme(.dark)
                 .task {
                     appState.configurePipeline()
-                    await NotificationService.shared.requestPermission()
                 }
                 .task {
                     await listenForTransactionUpdates()
