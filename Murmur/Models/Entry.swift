@@ -36,6 +36,9 @@ public final class Entry {
     /// One-liner summary for cards/lists
     public var summary: String
 
+    /// User-added supplementary notes
+    public var notes: String = ""
+
     /// Priority 1-5 scale (1 = highest)
     public var priority: Int?
 
@@ -44,6 +47,15 @@ public final class Entry {
 
     /// Resolved date from dueDateDescription (resolved on-device)
     public var dueDate: Date?
+
+    /// Raw storage for HabitCadence (SwiftData column — lightweight migration)
+    public var cadenceRawValue: String?
+
+    /// How often this habit repeats
+    public var cadence: HabitCadence? {
+        get { cadenceRawValue.flatMap { HabitCadence(rawValue: $0) } }
+        set { cadenceRawValue = newValue?.rawValue }
+    }
 
     // MARK: - Status (app-managed, not LLM)
 
@@ -102,6 +114,7 @@ public final class Entry {
             priority: extracted.priority,
             dueDateDescription: extracted.dueDateDescription,
             dueDate: Entry.resolveDate(from: extracted.dueDateDescription),
+            cadenceRawValue: extracted.cadence?.rawValue,
             audioDuration: audioDuration,
             source: source
         )
@@ -119,6 +132,7 @@ public final class Entry {
         priority: Int? = nil,
         dueDateDescription: String? = nil,
         dueDate: Date? = nil,
+        cadenceRawValue: String? = nil,
         status: EntryStatus = .active,
         completedAt: Date? = nil,
         snoozeUntil: Date? = nil,
@@ -136,6 +150,7 @@ public final class Entry {
         self.priority = priority
         self.dueDateDescription = dueDateDescription
         self.dueDate = dueDate
+        self.cadenceRawValue = cadenceRawValue
         self.statusRawValue = status.rawValue
         self.completedAt = completedAt
         self.snoozeUntil = snoozeUntil

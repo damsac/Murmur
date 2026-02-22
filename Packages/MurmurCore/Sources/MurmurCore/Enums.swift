@@ -47,3 +47,20 @@ public enum EntrySource: String, Codable, Sendable, CaseIterable {
         self = EntrySource(rawValue: rawValue) ?? .voice
     }
 }
+
+/// How often a habit repeats
+public enum HabitCadence: String, CaseIterable, Codable, Sendable {
+    case daily
+    case weekdays
+    case weekly
+    case monthly
+
+    public var displayName: String {
+        switch self {
+        case .daily: return "Daily"
+        case .weekdays: return "Weekdays"
+        case .weekly: return "Weekly"
+        case .monthly: return "Monthly"
+        }
+    }
+}

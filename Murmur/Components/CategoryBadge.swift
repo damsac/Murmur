@@ -4,6 +4,7 @@ import MurmurCore
 struct CategoryBadge: View {
     let category: EntryCategory
     let size: BadgeSize
+    var showDotGlow: Bool = true
 
     enum BadgeSize {
         case small
@@ -49,7 +50,7 @@ struct CategoryBadge: View {
             Circle()
                 .fill(categoryColor)
                 .frame(width: size.dotSize, height: size.dotSize)
-                .shadow(color: categoryColor.opacity(0.5), radius: 3, x: 0, y: 0)
+                .shadow(color: showDotGlow ? categoryColor.opacity(0.5) : .clear, radius: 3, x: 0, y: 0)
 
             // Category label
             Text(categoryLabel)

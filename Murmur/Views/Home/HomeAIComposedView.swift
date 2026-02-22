@@ -7,76 +7,75 @@ struct HomeAIComposedView: View {
     let entries: [Entry]
     let onMicTap: () -> Void
     let onSubmit: () -> Void
-    let onCardTap: (HomeCard) -> Void
+    let onEntryTap: (Entry) -> Void
     let onSettingsTap: () -> Void
     let onViewsTap: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             // Header
-            VStack(spacing: 2) {
-                Text("Murmur")
-                    .font(.largeTitle.weight(.bold))
-                    .tracking(-0.5)
-                    .foregroundStyle(Theme.Colors.textPrimary)
-
-                Text(greeting)
-                    .font(Theme.Typography.body)
-                    .foregroundStyle(Theme.Colors.textSecondary)
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(greeting)
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(Theme.Colors.textPrimary)
+                    Text(formattedDate)
+                        .font(Theme.Typography.body)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
+                Spacer()
             }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 16)
-            .padding(.bottom, 4)
+            .padding(.horizontal, Theme.Spacing.screenPadding)
+            .padding(.top, 20)
+            .padding(.bottom, 16)
 
             // Scrollable cards
             ScrollView {
-                VStack(spacing: 14) {
+                VStack(spacing: 16) {
                     ForEach(composedCards, id: \.id) { card in
                         cardView(for: card)
-                            .onTapGesture {
-                                onCardTap(card)
-                            }
                     }
                 }
                 .padding(.horizontal, Theme.Spacing.screenPadding)
+                .padding(.top, 10)
                 .padding(.bottom, 16)
             }
         }
     }
 
-    private var greeting: String {
-        let hour = Calendar.current.component(.hour, from: Date())
-        switch hour {
-        case 0..<12: return "Good morning"
-        case 12..<17: return "Good afternoon"
-        case 17..<22: return "Good evening"
-        default: return "Good night"
-        }
+    private var greeting: String { Greeting.current }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMMM d"
+        return formatter
+    }()
+
+    private var formattedDate: String {
+        Self.dateFormatter.string(from: Date())
     }
 
     private var composedCards: [HomeCard] {
         var cards: [HomeCard] = []
 
-        // Don't Forget card (next urgent reminder)
-        if let reminder = entries.filter({ $0.category == .reminder }).first {
-            cards.append(.reminder(reminder))
+        let reminders = entries.filter { $0.category == .reminder }
+        if !reminders.isEmpty {
+            cards.append(.reminders(reminders))
         }
 
-        // Todos count card
-        let todoCount = entries.filter { $0.category == .todo && $0.status != .completed }.count
-        if todoCount > 0 {
-            cards.append(.todoCount(todoCount))
+        let todos = entries.filter { $0.category == .todo && $0.status != .completed }
+        if !todos.isEmpty {
+            cards.append(.todos(todos))
         }
 
-        // Daily habit card
-        if let habit = entries.filter({ $0.category == .habit }).first {
-            cards.append(.habit(habit))
+        let habits = entries.filter { $0.category == .habit }
+        if !habits.isEmpty {
+            cards.append(.habits(habits))
         }
 
-        // Ideas card (recent ideas)
-        let ideas = entries.filter { $0.category == .idea }.prefix(2)
+        let ideas = entries.filter { $0.category == .idea }
         if !ideas.isEmpty {
-            cards.append(.ideas(Array(ideas)))
+            cards.append(.ideas(Array(ideas.prefix(3))))
         }
 
         return cards
@@ -85,14 +84,35 @@ struct HomeAIComposedView: View {
     @ViewBuilder
     private func cardView(for card: HomeCard) -> some View {
         switch card {
-        case .reminder(let entry):
-            ReminderCard(entry: entry)
-        case .todoCount(let count):
-            TodoCountCard(count: count)
-        case .habit(let entry):
-            HabitCard(entry: entry)
+        case .reminders(let entries):
+            ExpandableStackCard(
+                entries: entries,
+                icon: "bell.fill",
+                label: "Reminder",
+                labelPlural: "Reminders",
+                accentColor: Theme.Colors.accentYellow,
+                onTap: onEntryTap
+            )
+        case .todos(let entries):
+            ExpandableStackCard(
+                entries: entries,
+                icon: "checklist",
+                label: "Todo",
+                labelPlural: "Todos",
+                accentColor: Theme.Colors.accentPurple,
+                onTap: onEntryTap
+            )
+        case .habits(let entries):
+            ExpandableStackCard(
+                entries: entries,
+                icon: "flame.fill",
+                label: "Habit",
+                labelPlural: "Habits",
+                accentColor: Theme.Colors.accentGreen,
+                onTap: onEntryTap
+            )
         case .ideas(let entries):
-            IdeasCard(entries: entries)
+            IdeasCard(entries: entries, onTap: onEntryTap)
         }
     }
 }
@@ -100,153 +120,181 @@ struct HomeAIComposedView: View {
 // MARK: - Home Card Types
 
 enum HomeCard: Identifiable {
-    case reminder(Entry)
-    case todoCount(Int)
-    case habit(Entry)
+    case reminders([Entry])
+    case todos([Entry])
+    case habits([Entry])
     case ideas([Entry])
 
     var id: String {
         switch self {
-        case .reminder(let entry): return "reminder-\(entry.id)"
-        case .todoCount: return "todo-count"
-        case .habit(let entry): return "habit-\(entry.id)"
+        case .reminders: return "reminders"
+        case .todos: return "todos"
+        case .habits: return "habits"
         case .ideas: return "ideas"
         }
     }
 }
 
-// MARK: - Reminder Card
+// MARK: - Expandable Stack Card
 
-private struct ReminderCard: View {
-    let entry: Entry
+private struct ExpandableStackCard: View {
+    let entries: [Entry]
+    let icon: String
+    let label: String
+    let labelPlural: String
+    let accentColor: Color
+    let onTap: (Entry) -> Void
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack {
-                Text("DON'T FORGET")
-                    .font(.caption.weight(.semibold))
-                    .tracking(0.8)
-                    .foregroundStyle(Theme.Colors.textSecondary)
+    @State private var isExpanded = false
+    @State private var cardHeight: CGFloat = 86
 
-                Spacer()
+    private let peekOffset: CGFloat = 20
+    private let expandedSpacing: CGFloat = 12
+    private let maxVisible = 3
 
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Theme.Colors.accentYellow.opacity(0.15))
-                        .frame(width: 32, height: 32)
+    // MARK: - Urgency
 
-                    Image(systemName: "clock.fill")
-                        .font(Theme.Typography.bodyMedium)
-                        .foregroundStyle(Theme.Colors.accentYellow)
-                }
-            }
-            .padding(.bottom, 12)
-
-            // Title
-            Text(entry.summary)
-                .font(.headline)
-                .foregroundStyle(Theme.Colors.textPrimary)
-                .lineLimit(2)
-
-            // Due date
-            if let dueDate = entry.dueDate {
-                Text(dueText(for: dueDate))
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(Theme.Colors.accentYellow)
-                    .padding(.top, 6)
-            }
-        }
-        .reminderCardStyle()
-    }
-
-    private func dueText(for date: Date) -> String {
-        let calendar = Calendar.current
+    private var isAnyOverdue: Bool {
         let now = Date()
-
-        if calendar.isDateInToday(date) {
-            return "Today"
-        } else if calendar.isDateInTomorrow(date) {
-            return "Tomorrow"
-        } else {
-            let days = calendar.dateComponents([.day], from: now, to: date).day ?? 0
-            return "In \(days) days"
-        }
+        return entries.contains { $0.dueDate.map { $0 < now } ?? false }
     }
-}
 
-// MARK: - Todo Count Card
+    private var groupUrgencyAccent: Color? {
+        guard entries.contains(where: { $0.dueDate != nil }) else { return nil }
+        return isAnyOverdue ? Theme.Colors.accentRed : Theme.Colors.accentYellow
+    }
 
-private struct TodoCountCard: View {
-    let count: Int
+    private var groupUrgencyIntensity: Double {
+        isAnyOverdue ? 1.2 : 1.0
+    }
+
+    private var frontDueText: String? {
+        let now = Date()
+        let calendar = Calendar.current
+        if isAnyOverdue {
+            let count = entries.filter { $0.dueDate.map { $0 < now } ?? false }.count
+            return count == 1 ? "Overdue" : "\(count) overdue"
+        }
+        guard let soonest = entries.compactMap({ $0.dueDate }).filter({ $0 >= now }).min() else { return nil }
+        if calendar.isDateInToday(soonest) { return "Due today" }
+        if calendar.isDateInTomorrow(soonest) { return "Due tomorrow" }
+        let days = calendar.dateComponents([.day], from: now, to: soonest).day ?? 0
+        return "Due in \(days)d"
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Theme.Colors.accentPurple.opacity(0.15))
-                    .frame(width: 32, height: 32)
+        let visible = Array(entries.prefix(maxVisible))
 
-                Image(systemName: "checkmark")
-                    .font(.body.weight(.bold))
-                    .foregroundStyle(Theme.Colors.accentPurple)
+        ZStack(alignment: .top) {
+            ForEach(Array(visible.enumerated().reversed()), id: \.element.id) { idx, entry in
+                card(entry: entry, index: idx, total: visible.count)
             }
-
-            Text("\(count)")
-                .font(Theme.Typography.title)
-                .foregroundStyle(Theme.Colors.textPrimary)
-
-            Text("todos remaining")
-                .font(.subheadline)
-                .foregroundStyle(Theme.Colors.textSecondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .cardStyle()
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, isExpanded
+            ? CGFloat(visible.count - 1) * (cardHeight + expandedSpacing)
+            : CGFloat(visible.count - 1) * peekOffset
+        )
+        .animation(.spring(response: 0.5, dampingFraction: 0.72), value: isExpanded)
     }
-}
 
-// MARK: - Habit Card
+    @ViewBuilder
+    private func card(entry: Entry, index: Int, total: Int) -> some View {
+        let isFront = index == 0
+        let isSingle = entries.count == 1
+        let expandAnim = Animation.spring(response: 0.5, dampingFraction: 0.72)
+            .delay(isExpanded ? Double(index) * 0.05 : Double(total - 1 - index) * 0.04)
 
-private struct HabitCard: View {
-    let entry: Entry
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack {
-                Text("DAILY HABIT")
-                    .font(.caption.weight(.semibold))
-                    .tracking(0.8)
-                    .foregroundStyle(Theme.Colors.textSecondary)
-
-                Spacer()
-
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Theme.Colors.accentGreen.opacity(0.15))
-                        .frame(width: 32, height: 32)
-
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(Theme.Typography.bodyMedium)
-                        .foregroundStyle(Theme.Colors.accentGreen)
+        Button {
+            if isSingle || !isFront {
+                onTap(entry)
+            } else {
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) {
+                    isExpanded.toggle()
                 }
             }
-            .padding(.bottom, 12)
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 6) {
+                    Image(systemName: icon)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(accentColor)
+                    Text(isSingle ? label : labelPlural)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                    Spacer()
+                    if isFront && !isSingle {
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Theme.Colors.textTertiary)
+                    }
+                }
+                Text(entry.summary)
+                    .font(.headline)
+                    .foregroundStyle(Theme.Colors.textPrimary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Title
-            Text(entry.summary)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(Theme.Colors.textPrimary)
-                .lineLimit(2)
-                .padding(.bottom, 4)
-
-            // Streak
-            Text("7 day streak")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(Theme.Colors.accentGreen)
+                // Due date urgency row (front card only)
+                if isFront, let dueText = frontDueText {
+                    HStack(spacing: 4) {
+                        Image(systemName: isAnyOverdue ? "exclamationmark.circle.fill" : "calendar")
+                            .font(.caption2)
+                        Text(dueText)
+                            .font(Theme.Typography.label)
+                            .fontWeight(.medium)
+                    }
+                    .foregroundStyle(isAnyOverdue ? Theme.Colors.accentRed : Theme.Colors.accentYellow)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cardStyle(accent: isFront ? groupUrgencyAccent : nil, intensity: isFront ? groupUrgencyIntensity : 1.0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .cardStyle()
+        .buttonStyle(.plain)
+        // Navigate into the front entry while expanded without triggering collapse
+        .overlay(alignment: .bottomTrailing) {
+            if isFront && isExpanded {
+                Button { onTap(entry) } label: {
+                    HStack(spacing: 3) {
+                        Text("Open")
+                            .font(.caption.weight(.semibold))
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundStyle(accentColor)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(accentColor.opacity(0.12))
+                    .clipShape(Capsule())
+                    .padding(Theme.Spacing.cardPadding)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        // Measure front card height for accurate expanded offsets
+        .background(
+            Group {
+                if isFront {
+                    GeometryReader { geo in
+                        Color.clear.onAppear { cardHeight = geo.size.height }
+                    }
+                }
+            }
+            .allowsHitTesting(false)
+        )
+        .shadow(
+            color: .black.opacity(isFront ? 0.14 : 0.06),
+            radius: isFront ? 10 : 3,
+            y: isFront ? 5 : 2
+        )
+        .offset(y: isExpanded
+            ? CGFloat(index) * (cardHeight + expandedSpacing)
+            : CGFloat(index) * peekOffset
+        )
+        .scaleEffect(isExpanded ? 1.0 : 1.0 - CGFloat(index) * 0.03, anchor: .top)
+        .opacity(isExpanded ? 1.0 : 1.0 - Double(index) * 0.15)
+        .zIndex(Double(total - index))
+        .animation(expandAnim, value: isExpanded)
     }
 }
 
@@ -254,49 +302,42 @@ private struct HabitCard: View {
 
 private struct IdeasCard: View {
     let entries: [Entry]
+    let onTap: (Entry) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack {
-                Text("IDEAS")
+            // Label row
+            HStack(spacing: 6) {
+                Image(systemName: "lightbulb.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.Colors.accentYellow)
+                Text("Ideas")
                     .font(.caption.weight(.semibold))
-                    .tracking(0.8)
                     .foregroundStyle(Theme.Colors.textSecondary)
-
                 Spacer()
-
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Theme.Colors.accentYellow.opacity(0.15))
-                        .frame(width: 32, height: 32)
-
-                    Image(systemName: "lightbulb.fill")
-                        .font(Theme.Typography.bodyMedium)
-                        .foregroundStyle(Theme.Colors.accentYellow)
-                }
+                Text("\(entries.count)")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Theme.Colors.textTertiary)
             }
             .padding(.bottom, 12)
 
-            // Ideas list
+            // Ideas list — each row tappable
             VStack(spacing: 0) {
                 ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                    HStack(alignment: .top, spacing: 10) {
-                        Circle()
-                            .fill(Theme.Colors.accentYellow)
-                            .frame(width: 6, height: 6)
-                            .padding(.top, 7)
-
+                    Button { onTap(entry) } label: {
                         Text(entry.summary)
                             .font(.subheadline)
                             .foregroundStyle(Theme.Colors.textPrimary)
                             .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 10)
                     }
-                    .padding(.vertical, 10)
+                    .buttonStyle(.plain)
 
                     if index < entries.count - 1 {
-                        Divider()
-                            .background(Theme.Colors.textPrimary.opacity(0.04))
+                        Rectangle()
+                            .fill(Theme.Colors.borderFaint)
+                            .frame(height: 1)
                     }
                 }
             }
@@ -360,9 +401,10 @@ private struct IdeasCard: View {
         ],
         onMicTap: { print("Mic tapped") },
         onSubmit: { print("Submit:", inputText) },
-        onCardTap: { print("Card tapped:", $0.id) },
+        onEntryTap: { print("Entry tapped:", $0.summary) },
         onSettingsTap: { print("Settings tapped") },
         onViewsTap: { print("Views tapped") }
     )
     .environment(appState)
+    .background(Theme.Colors.bgDeep)
 }

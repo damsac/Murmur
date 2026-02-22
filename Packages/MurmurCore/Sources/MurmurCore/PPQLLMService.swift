@@ -9,19 +9,28 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
 
     private static let endpoint = URL(string: "https://api.ppq.ai/chat/completions")!
 
-    public init(apiKey: String, model: String = "claude-sonnet-4.5", prompt: LLMPrompt = .entryExtraction, session: URLSession = .shared) {
+    public init(apiKey: String, model: String = "anthropic/claude-sonnet-4.6", prompt: LLMPrompt = .entryExtraction, session: URLSession = .shared) {
         self.apiKey = apiKey
         self.model = model
         self.prompt = prompt
         self.session = session
     }
 
+    private static let dateTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMMM d, yyyy 'at' h:mm a zzz"
+        formatter.timeZone = .current
+        return formatter
+    }()
+
     public func extractEntries(from transcript: String, conversation: LLMConversation) async throws -> [ExtractedEntry] {
         // Build messages: fresh (empty conversation) or multi-turn (append to history)
         let requestMessages: [[String: Any]]
         if conversation.messages.isEmpty {
+            let currentDateTime = Self.dateTimeFormatter.string(from: Date())
+            let systemContent = "Current date and time: \(currentDateTime)\n\n" + prompt.systemPrompt
             requestMessages = [
-                ["role": "system", "content": prompt.systemPrompt],
+                ["role": "system", "content": systemContent],
                 ["role": "user", "content": transcript],
             ]
         } else {
@@ -32,7 +41,6 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
 
         let request = try buildRequest(messages: requestMessages)
         let (data, response) = try await session.data(for: request)
-
         guard let http = response as? HTTPURLResponse else {
             throw PPQError.invalidResponse
         }
@@ -133,7 +141,8 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
                     sourceText: raw.sourceText,
                     summary: raw.summary ?? "",
                     priority: raw.priority,
-                    dueDateDescription: raw.dueDate
+                    dueDateDescription: raw.dueDate,
+                    cadence: raw.cadence
                 )
             })
         }
@@ -155,6 +164,7 @@ private struct RawEntry: Decodable {
     let summary: String?
     let priority: Int?
     let dueDate: String?
+    let cadence: HabitCadence?
 
     enum CodingKeys: String, CodingKey {
         case content
@@ -163,6 +173,7 @@ private struct RawEntry: Decodable {
         case summary
         case priority
         case dueDate = "due_date"
+        case cadence
     }
 }
 

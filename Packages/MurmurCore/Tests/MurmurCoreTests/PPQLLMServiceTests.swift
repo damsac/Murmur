@@ -250,7 +250,7 @@ struct PPQLLMServiceTests {
         // Verify request body contains expected fields
         let body = try #require(delegate.lastRequestBody)
         let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
-        #expect(json["model"] as? String == "claude-sonnet-4.5")
+        #expect(json["model"] as? String == "anthropic/claude-sonnet-4.6")
 
         let messages = try #require(json["messages"] as? [[String: Any]])
         #expect(messages.count == 2)

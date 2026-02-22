@@ -252,7 +252,7 @@ enum DevScreen: String, CaseIterable, Identifiable {
                     entries: MockDataService.entriesForLevel2(),
                     onMicTap: {},
                     onSubmit: {},
-                    onCardTap: { _ in },
+                    onEntryTap: { _ in },
                     onSettingsTap: {},
                     onViewsTap: {}
                 )
@@ -268,7 +268,6 @@ enum DevScreen: String, CaseIterable, Identifiable {
                     ),
                     onBack: {},
                     onEdit: {},
-                    onTellMeMore: {},
                     onViewTranscript: {},
                     onArchive: {},
                     onSnooze: {},
@@ -285,7 +284,6 @@ enum DevScreen: String, CaseIterable, Identifiable {
                     ),
                     onBack: {},
                     onEdit: {},
-                    onTellMeMore: {},
                     onViewTranscript: {},
                     onArchive: {},
                     onSnooze: {},
@@ -297,7 +295,7 @@ enum DevScreen: String, CaseIterable, Identifiable {
                     entries: MockDataService.entriesForLevel2(),
                     onMicTap: {},
                     onSubmit: {},
-                    onCardTap: { _ in },
+                    onEntryTap: { _ in },
                     onSettingsTap: {},
                     onViewsTap: {}
                 )

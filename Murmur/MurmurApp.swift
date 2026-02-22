@@ -6,6 +6,7 @@ import MurmurCore
 struct MurmurApp: App {
     let modelContainer = PersistenceConfig.modelContainer
     @State private var appState = AppState()
+    @State private var notificationPreferences = NotificationPreferences()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -25,9 +26,11 @@ struct MurmurApp: App {
         WindowGroup {
             RootView()
                 .environment(appState)
+                .environment(notificationPreferences)
                 .preferredColorScheme(.dark)
                 .task {
                     appState.configurePipeline()
+                    await NotificationService.shared.requestPermission()
                 }
         }
         .modelContainer(modelContainer)

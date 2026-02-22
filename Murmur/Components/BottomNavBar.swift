@@ -8,11 +8,13 @@ struct BottomNavBar: View {
 
     enum Tab: String, CaseIterable {
         case home = "Home"
+        case archive = "Archive"
         case settings = "Settings"
 
         var icon: String {
             switch self {
             case .home: return "house.fill"
+            case .archive: return "archivebox.fill"
             case .settings: return "gearshape.fill"
             }
         }
@@ -36,10 +38,14 @@ struct BottomNavBar: View {
             .fill(Theme.Colors.bgBody.opacity(0.95))
             .frame(height: totalHeight)
 
-            // Tab items: Home (left) and Settings (right)
+            // Tab items: Home + Archive (left), Settings (right)
             HStack(spacing: 0) {
                 NavBarItem(tab: .home, isSelected: selectedTab == .home) {
                     withAnimation(.easeInOut(duration: 0.2)) { selectedTab = .home }
+                }
+
+                NavBarItem(tab: .archive, isSelected: selectedTab == .archive) {
+                    withAnimation(.easeInOut(duration: 0.2)) { selectedTab = .archive }
                 }
 
                 // Center space for mic + keyboard

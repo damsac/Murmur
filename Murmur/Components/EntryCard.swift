@@ -16,132 +16,124 @@ struct EntryCard: View {
         self.onTap = onTap
     }
 
+    // MARK: - Attention State
+
+    private var isIdea: Bool {
+        entry.category == .idea || entry.category == .thought
+    }
+
+    private var isCompleted: Bool {
+        entry.status == .completed
+    }
+
+    private var isOverdue: Bool {
+        guard let dueDate = entry.dueDate else { return false }
+        return dueDate < Date() && !isCompleted
+    }
+
+    private var hasActiveDue: Bool {
+        guard let dueDate = entry.dueDate else { return false }
+        return dueDate >= Date() && !isCompleted
+    }
+
+    private var cardAccent: Color? {
+        if isCompleted || isIdea { return nil }
+        if isOverdue { return Theme.Colors.accentRed }
+        if hasActiveDue { return Theme.Colors.accentYellow }
+        return nil
+    }
+
+    private var cardIntensity: Double {
+        isOverdue ? 1.2 : 1.0
+    }
+
+    private var cardOpacity: Double {
+        if isCompleted { return 0.55 }
+        if isIdea { return 0.88 }
+        return 1.0
+    }
+
+    // MARK: - Formatted strings
+
     private var timeAgo: String {
         let interval = Date().timeIntervalSince(entry.createdAt)
-
-        if interval < 60 {
-            return "Just now"
-        } else if interval < 3600 {
-            let minutes = Int(interval / 60)
-            return "\(minutes)m ago"
-        } else if interval < 86400 {
-            let hours = Int(interval / 3600)
-            return "\(hours)h ago"
-        } else {
-            let days = Int(interval / 86400)
-            return "\(days)d ago"
+        switch interval {
+        case ..<60: return "Just now"
+        case ..<3600: return "\(Int(interval / 60))m ago"
+        case ..<86400: return "\(Int(interval / 3600))h ago"
+        default: return "\(Int(interval / 86400))d ago"
         }
     }
+
+    private var dueText: String? {
+        guard let dueDate = entry.dueDate else { return nil }
+        let calendar = Calendar.current
+        if isOverdue { return "Overdue" }
+        if calendar.isDateInToday(dueDate) { return "Due today" }
+        if calendar.isDateInTomorrow(dueDate) { return "Due tomorrow" }
+        let days = calendar.dateComponents([.day], from: Date(), to: dueDate).day ?? 0
+        return "Due in \(days)d"
+    }
+
+    // MARK: - Body
 
     var body: some View {
         Button(action: { onTap?() }) {
             VStack(alignment: .leading, spacing: 12) {
-                // Category badge
+                // Category badge (suppress dot glow for timeless entries)
                 if showCategory {
-                    CategoryBadge(category: entry.category, size: .small)
+                    CategoryBadge(category: entry.category, size: .small, showDotGlow: !isIdea)
                 }
 
                 // Summary text
                 Text(entry.summary)
                     .font(Theme.Typography.body)
-                    .foregroundStyle(Theme.Colors.textPrimary)
+                    .foregroundStyle(isCompleted ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
+                    .strikethrough(isCompleted, color: Theme.Colors.textTertiary)
                     .lineLimit(3)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                // Metadata row
-                HStack(spacing: 12) {
-                    // Time ago
-                    HStack(spacing: 4) {
-                        Image(systemName: "clock")
-                            .font(.caption2)
-                        Text(timeAgo)
-                            .font(Theme.Typography.label)
-                    }
-                    .foregroundStyle(Theme.Colors.textTertiary)
-
-                    // Priority indicator (if high)
-                    if entry.priority.map({ $0 <= 2 }) ?? false {
+                // Metadata row — suppressed for timeless entries (ideas, thoughts)
+                if !isIdea && !isCompleted {
+                    HStack(spacing: 12) {
                         HStack(spacing: 4) {
-                            Image(systemName: "exclamationmark.circle.fill")
+                            Image(systemName: "clock")
                                 .font(.caption2)
-                            Text("High")
+                            Text(timeAgo)
                                 .font(Theme.Typography.label)
                         }
-                        .foregroundStyle(Theme.Colors.accentRed)
-                    }
+                        .foregroundStyle(Theme.Colors.textTertiary)
 
-                    Spacer()
+                        if let dueText {
+                            HStack(spacing: 4) {
+                                Image(systemName: isOverdue ? "exclamationmark.circle.fill" : "calendar")
+                                    .font(.caption2)
+                                Text(dueText)
+                                    .font(Theme.Typography.label)
+                                    .fontWeight(.medium)
+                            }
+                            .foregroundStyle(isOverdue ? Theme.Colors.accentRed : Theme.Colors.accentYellow)
+                        } else if entry.priority.map({ $0 <= 2 }) ?? false {
+                            HStack(spacing: 4) {
+                                Image(systemName: "exclamationmark.circle.fill")
+                                    .font(.caption2)
+                                Text("High")
+                                    .font(Theme.Typography.label)
+                            }
+                            .foregroundStyle(Theme.Colors.accentRed)
+                        }
+
+                        Spacer()
+                    }
                 }
             }
-            .cardStyle()
+            .cardStyle(accent: cardAccent, intensity: cardIntensity)
+            .opacity(cardOpacity)
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Entry: \(entry.summary)")
-    }
-}
-
-// Variant for reminders with yellow accent
-struct ReminderEntryCard: View {
-    let entry: Entry
-    let onTap: (() -> Void)?
-
-    private var dueText: String? {
-        guard let dueDate = entry.dueDate else { return nil }
-
-        let calendar = Calendar.current
-        let now = Date()
-
-        if calendar.isDateInToday(dueDate) {
-            return "Due today"
-        } else if calendar.isDateInTomorrow(dueDate) {
-            return "Due tomorrow"
-        } else {
-            let components = calendar.dateComponents([.day], from: now, to: dueDate)
-            if let days = components.day {
-                if days < 0 {
-                    return "Overdue"
-                } else {
-                    return "Due in \(days)d"
-                }
-            }
-        }
-
-        return nil
-    }
-
-    var body: some View {
-        Button(action: { onTap?() }) {
-            VStack(alignment: .leading, spacing: 12) {
-                // Category badge
-                CategoryBadge(category: entry.category, size: .small)
-
-                // Summary text
-                Text(entry.summary)
-                    .font(Theme.Typography.body)
-                    .foregroundStyle(Theme.Colors.textPrimary)
-                    .lineLimit(3)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                // Due date
-                if let dueText {
-                    HStack(spacing: 6) {
-                        Image(systemName: "calendar")
-                            .font(.caption2)
-                        Text(dueText)
-                            .font(Theme.Typography.label)
-                            .fontWeight(.medium)
-                    }
-                    .foregroundStyle(Theme.Colors.accentYellow)
-                }
-            }
-            .reminderCardStyle()
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Reminder: \(entry.summary)")
     }
 }
 
@@ -184,7 +176,7 @@ struct ReminderEntryCard: View {
                 onTap: { print("Tapped") }
             )
 
-            ReminderEntryCard(
+            EntryCard(
                 entry: Entry(
                     transcript: "",
                     content: "Submit quarterly report to management",
@@ -194,6 +186,31 @@ struct ReminderEntryCard: View {
                     summary: "Submit quarterly report to management",
                     priority: 1,
                     dueDate: Date().addingTimeInterval(86400)
+                ),
+                onTap: { print("Tapped") }
+            )
+
+            EntryCard(
+                entry: Entry(
+                    transcript: "",
+                    content: "Call dentist about appointment",
+                    category: .reminder,
+                    sourceText: "",
+                    summary: "Call dentist about appointment",
+                    dueDate: Date().addingTimeInterval(-3600),
+                    status: .active
+                ),
+                onTap: { print("Tapped") }
+            )
+
+            EntryCard(
+                entry: Entry(
+                    transcript: "",
+                    content: "Pick up dry cleaning",
+                    category: .todo,
+                    sourceText: "",
+                    summary: "Pick up dry cleaning",
+                    status: .completed
                 ),
                 onTap: { print("Tapped") }
             )

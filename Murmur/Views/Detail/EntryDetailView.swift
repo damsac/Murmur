@@ -3,14 +3,30 @@ import MurmurCore
 
 struct EntryDetailView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.modelContext) private var modelContext
+    @Environment(NotificationPreferences.self) private var notifPrefs
     let entry: Entry
     let onBack: () -> Void
     let onEdit: () -> Void
-    let onTellMeMore: () -> Void
     let onViewTranscript: () -> Void
     let onArchive: () -> Void
     let onSnooze: () -> Void
     let onDelete: () -> Void
+
+    @State private var showNotesSheet = false
+    @State private var draftNotes: String = ""
+    @State private var showDeleteConfirm = false
+    @State private var showSnoozeDialog = false
+    @State private var showCustomSnoozeSheet = false
+    @State private var showDueDateSheet = false
+    @State private var draftHasDueDate: Bool = false
+    @State private var draftDueDate: Date = Date()
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter
+    }()
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -47,12 +63,24 @@ struct EntryDetailView: View {
                             .foregroundStyle(Theme.Colors.textPrimary)
                             .padding(.bottom, 32)
 
-                        // Tell me more button
-                        Button(action: onTellMeMore) {
+                        // Existing notes (shown when non-empty)
+                        if !entry.notes.isEmpty {
+                            Text(entry.notes)
+                                .font(Theme.Typography.body)
+                                .foregroundStyle(Theme.Colors.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.bottom, 24)
+                        }
+
+                        // Tell me more / Edit notes button
+                        Button {
+                            draftNotes = entry.notes
+                            showNotesSheet = true
+                        } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: "plus.circle")
                                     .font(Theme.Typography.bodyMedium)
-                                Text("Tell me more")
+                                Text(entry.notes.isEmpty ? "Tell me more" : "Edit notes")
                                     .font(.subheadline.weight(.medium))
                             }
                             .foregroundStyle(Theme.Colors.accentPurpleLight)
@@ -69,6 +97,24 @@ struct EntryDetailView: View {
                         }
                         .buttonStyle(.plain)
                         .padding(.bottom, 28)
+
+                        // Due date row (todos and reminders only)
+                        if entry.category == .todo || entry.category == .reminder {
+                            DueDateRow(entry: entry) {
+                                draftHasDueDate = entry.dueDate != nil
+                                draftDueDate = entry.dueDate ?? Date()
+                                showDueDateSheet = true
+                            }
+                        }
+
+                        // Cadence pill row (habits only)
+                        if entry.category == .habit {
+                            CadencePicker(entry: entry) { cadence in
+                                entry.cadence = entry.cadence == cadence ? nil : cadence
+                                entry.updatedAt = Date()
+                                save()
+                            }
+                        }
 
                         // Divider
                         Rectangle()
@@ -119,18 +165,116 @@ struct EntryDetailView: View {
             VStack {
                 Spacer()
                 EntryActionBar(
-                    onArchive: onArchive,
-                    onSnooze: onSnooze,
-                    onDelete: onDelete
+                    isArchived: entry.status == .archived,
+                    onArchive: {
+                        entry.status = .archived
+                        entry.updatedAt = Date()
+                        save()
+                        NotificationService.shared.cancel(entry)
+                        onArchive()
+                    },
+                    onUnarchive: {
+                        entry.status = .active
+                        entry.updatedAt = Date()
+                        save()
+                        NotificationService.shared.sync(entry, preferences: notifPrefs)
+                        onBack()
+                    },
+                    onSnooze: { showSnoozeDialog = true },
+                    onDelete: { showDeleteConfirm = true }
                 )
             }
+
+        }
+        .sheet(isPresented: $showNotesSheet) {
+            NotesEditSheet(
+                notes: $draftNotes,
+                onSave: {
+                    entry.notes = draftNotes
+                    entry.updatedAt = Date()
+                    save()
+                    showNotesSheet = false
+                },
+                onDismiss: { showNotesSheet = false }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showDueDateSheet) {
+            DueDateEditSheet(
+                isEnabled: $draftHasDueDate,
+                date: $draftDueDate,
+                onSave: {
+                    entry.dueDate = draftHasDueDate ? draftDueDate : nil
+                    entry.updatedAt = Date()
+                    save()
+                    NotificationService.shared.sync(entry, preferences: notifPrefs)
+                    showDueDateSheet = false
+                },
+                onDismiss: { showDueDateSheet = false }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .alert("Delete entry?", isPresented: $showDeleteConfirm) {
+            Button("Delete", role: .destructive) {
+                NotificationService.shared.cancel(entry)
+                onDelete()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This can't be undone.")
+        }
+        .confirmationDialog("Snooze until...", isPresented: $showSnoozeDialog) {
+            Button("In 1 hour") {
+                snooze(until: Calendar.current.date(byAdding: .hour, value: 1, to: Date()))
+            }
+            Button("Tomorrow morning") {
+                let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+                snooze(until: Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow))
+            }
+            Button("Next week") {
+                snooze(until: Calendar.current.date(byAdding: .weekOfYear, value: 1, to: Date()))
+            }
+            Button("Custom time...") {
+                showCustomSnoozeSheet = true
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .sheet(isPresented: $showCustomSnoozeSheet) {
+            CustomSnoozeSheet(
+                onSave: { date in
+                    snooze(until: date)
+                    showCustomSnoozeSheet = false
+                },
+                onDismiss: { showCustomSnoozeSheet = false }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
     }
 
+    // MARK: - Helpers
+
+    private func save() {
+        do {
+            try modelContext.save()
+        } catch {
+            print("Failed to save entry: \(error.localizedDescription)")
+        }
+    }
+
+    private func snooze(until date: Date?) {
+        entry.snoozeUntil = date
+        entry.status = .snoozed
+        entry.updatedAt = Date()
+        save()
+        NotificationService.shared.sync(entry, preferences: notifPrefs)
+        onSnooze()
+    }
+
     private var formattedDate: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        return formatter.string(from: entry.createdAt)
+        Self.dateFormatter.string(from: entry.createdAt)
     }
 
     private var formattedDuration: String {
@@ -141,21 +285,119 @@ struct EntryDetailView: View {
     }
 }
 
+// MARK: - Due Date Row
+
+private struct DueDateRow: View {
+    let entry: Entry
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack {
+                Image(systemName: "calendar")
+                    .font(.system(size: 14))
+                    .foregroundStyle(entry.dueDate != nil
+                        ? Theme.Colors.accentYellow
+                        : Theme.Colors.textSecondary)
+                if let dueDate = entry.dueDate {
+                    Text(dueDate, style: .date)
+                        .font(Theme.Typography.body)
+                        .foregroundStyle(Theme.Colors.accentYellow)
+                    if dueDate.hasTimeComponent {
+                        Text(dueDate, style: .time)
+                            .font(Theme.Typography.body)
+                            .foregroundStyle(Theme.Colors.accentYellow)
+                    }
+                } else {
+                    Text("Add due date")
+                        .font(Theme.Typography.body)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+            }
+            .padding(.bottom, 24)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Cadence Picker
+
+private struct CadencePicker: View {
+    let entry: Entry
+    let onSelect: (HabitCadence) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Cadence")
+                .font(Theme.Typography.label)
+                .foregroundStyle(Theme.Colors.textSecondary)
+
+            HStack(spacing: 8) {
+                ForEach(HabitCadence.allCases, id: \.self) { cadence in
+                    Button { onSelect(cadence) } label: {
+                        Text(cadence.displayName)
+                            .font(Theme.Typography.label)
+                            .fontWeight(.medium)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(
+                                entry.cadence == cadence
+                                    ? Theme.Colors.accentGreen.opacity(0.15)
+                                    : Theme.Colors.bgCard
+                            )
+                            .foregroundStyle(
+                                entry.cadence == cadence
+                                    ? Theme.Colors.accentGreen
+                                    : Theme.Colors.textSecondary
+                            )
+                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule().stroke(
+                                    entry.cadence == cadence
+                                        ? Theme.Colors.accentGreen.opacity(0.4)
+                                        : Theme.Colors.borderFaint,
+                                    lineWidth: 1
+                                )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.bottom, 24)
+    }
+}
+
 // MARK: - Entry Action Bar
 
 private struct EntryActionBar: View {
+    let isArchived: Bool
     let onArchive: () -> Void
+    let onUnarchive: () -> Void
     let onSnooze: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            ActionButton(
-                icon: "archivebox",
-                label: "Archive",
-                color: Theme.Colors.textSecondary,
-                action: onArchive
-            )
+            if isArchived {
+                ActionButton(
+                    icon: "arrow.uturn.left",
+                    label: "Unarchive",
+                    color: Theme.Colors.accentGreen,
+                    action: onUnarchive
+                )
+            } else {
+                ActionButton(
+                    icon: "archivebox",
+                    label: "Archive",
+                    color: Theme.Colors.textSecondary,
+                    action: onArchive
+                )
+            }
 
             ActionButton(
                 icon: "clock",
@@ -216,8 +458,163 @@ private struct ActionButton: View {
     }
 }
 
+// MARK: - Due Date Edit Sheet
+
+private struct DueDateEditSheet: View {
+    @Binding var isEnabled: Bool
+    @Binding var date: Date
+    let onSave: () -> Void
+    let onDismiss: () -> Void
+
+    @State private var hasTime: Bool = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 0) {
+                Toggle("Set due date", isOn: $isEnabled)
+                    .padding(Theme.Spacing.screenPadding)
+
+                if isEnabled {
+                    DatePicker(
+                        "",
+                        selection: $date,
+                        displayedComponents: [.date]
+                    )
+                    .datePickerStyle(.graphical)
+                    .padding(.horizontal, Theme.Spacing.screenPadding)
+
+                    Divider()
+                        .padding(.horizontal, Theme.Spacing.screenPadding)
+
+                    Toggle("Add time", isOn: $hasTime)
+                        .padding(Theme.Spacing.screenPadding)
+
+                    if hasTime {
+                        DatePicker(
+                            "",
+                            selection: $date,
+                            displayedComponents: [.hourAndMinute]
+                        )
+                        .datePickerStyle(.wheel)
+                        .labelsHidden()
+                        .padding(.horizontal, Theme.Spacing.screenPadding)
+                    }
+                }
+
+                Spacer()
+            }
+            .background(Theme.Colors.bgDeep)
+            .navigationTitle("Due date")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        if isEnabled && !hasTime {
+                            date = Calendar.current.startOfDay(for: date)
+                        }
+                        onSave()
+                    }
+                    .fontWeight(.semibold)
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onDismiss)
+                }
+            }
+        }
+        .background(Theme.Colors.bgDeep)
+        .onAppear {
+            guard isEnabled else { return }
+            hasTime = date.hasTimeComponent
+        }
+    }
+}
+
+// MARK: - Custom Snooze Sheet
+
+private struct CustomSnoozeSheet: View {
+    @State private var date: Date = Date().addingTimeInterval(3600)
+    let onSave: (Date) -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 0) {
+                DatePicker(
+                    "",
+                    selection: $date,
+                    in: Date()...,
+                    displayedComponents: [.date, .hourAndMinute]
+                )
+                .datePickerStyle(.graphical)
+                .padding(.horizontal, Theme.Spacing.screenPadding)
+
+                Spacer()
+            }
+            .background(Theme.Colors.bgDeep)
+            .navigationTitle("Snooze until")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Snooze") { onSave(date) }
+                        .fontWeight(.semibold)
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onDismiss)
+                }
+            }
+        }
+        .background(Theme.Colors.bgDeep)
+    }
+}
+
+// MARK: - Notes Edit Sheet
+
+private struct NotesEditSheet: View {
+    @Binding var notes: String
+    let onSave: () -> Void
+    let onDismiss: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        NavigationStack {
+            TextEditor(text: $notes)
+                .font(Theme.Typography.body)
+                .foregroundStyle(Theme.Colors.textPrimary)
+                .scrollContentBackground(.hidden)
+                .background(Theme.Colors.bgDeep)
+                .padding(.horizontal, Theme.Spacing.screenPadding)
+                .focused($focused)
+                .navigationTitle("Notes")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save", action: onSave)
+                            .fontWeight(.semibold)
+                    }
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel", action: onDismiss)
+                    }
+                }
+        }
+        .background(Theme.Colors.bgDeep)
+        .onAppear { focused = true }
+    }
+}
+
+// MARK: - Date Extension
+
+private extension Date {
+    var hasTimeComponent: Bool {
+        let calendar = Calendar.current
+        let hour = calendar.component(.hour, from: self)
+        let minute = calendar.component(.minute, from: self)
+        return hour != 0 || minute != 0
+    }
+}
+
 #Preview("Entry Detail - Idea") {
     @Previewable @State var appState = AppState()
+    @Previewable @State var notifPrefs = NotificationPreferences()
 
     EntryDetailView(
         entry: Entry(
@@ -229,17 +626,18 @@ private struct ActionButton: View {
         ),
         onBack: { print("Back") },
         onEdit: { print("Edit") },
-        onTellMeMore: { print("Tell me more") },
         onViewTranscript: { print("View transcript") },
         onArchive: { print("Archive") },
         onSnooze: { print("Snooze") },
         onDelete: { print("Delete") }
     )
     .environment(appState)
+    .environment(notifPrefs)
 }
 
 #Preview("Entry Detail - Todo") {
     @Previewable @State var appState = AppState()
+    @Previewable @State var notifPrefs = NotificationPreferences()
 
     EntryDetailView(
         entry: Entry(
@@ -252,17 +650,18 @@ private struct ActionButton: View {
         ),
         onBack: { print("Back") },
         onEdit: { print("Edit") },
-        onTellMeMore: { print("Tell me more") },
         onViewTranscript: { print("View transcript") },
         onArchive: { print("Archive") },
         onSnooze: { print("Snooze") },
         onDelete: { print("Delete") }
     )
     .environment(appState)
+    .environment(notifPrefs)
 }
 
 #Preview("Entry Detail - Insight") {
     @Previewable @State var appState = AppState()
+    @Previewable @State var notifPrefs = NotificationPreferences()
 
     EntryDetailView(
         entry: Entry(
@@ -274,11 +673,11 @@ private struct ActionButton: View {
         ),
         onBack: { print("Back") },
         onEdit: { print("Edit") },
-        onTellMeMore: { print("Tell me more") },
         onViewTranscript: { print("View transcript") },
         onArchive: { print("Archive") },
         onSnooze: { print("Snooze") },
         onDelete: { print("Delete") }
     )
     .environment(appState)
+    .environment(notifPrefs)
 }

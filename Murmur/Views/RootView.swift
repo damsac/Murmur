@@ -5,9 +5,12 @@ import MurmurCore
 
 struct RootView: View {
     @Environment(AppState.self) private var appState
+    @Environment(NotificationPreferences.self) private var notifPrefs
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \Entry.createdAt, order: .reverse) private var entries: [Entry]
     @State private var selectedTab: BottomNavBar.Tab = .home
+    @State private var selectedEntry: Entry?
     @State private var inputText = ""
     @State private var transcript = ""
     @State private var showSuccessToast = false
@@ -94,7 +97,7 @@ struct RootView: View {
                 .zIndex(50)
             }
 
-            // Success toast
+            // Success toast (tap to dismiss)
             if showSuccessToast {
                 VStack {
                     ToastView(
@@ -104,6 +107,11 @@ struct RootView: View {
                     )
                     .padding(.top, 60)
                     .transition(.move(edge: .top).combined(with: .opacity))
+                    .onTapGesture {
+                        withAnimation {
+                            showSuccessToast = false
+                        }
+                    }
 
                     Spacer()
                 }
@@ -115,18 +123,45 @@ struct RootView: View {
             DevModeView()
         }
         #endif
+        .sheet(item: $selectedEntry) { entry in
+            EntryDetailView(
+                entry: entry,
+                onBack: { selectedEntry = nil },
+                onEdit: {},
+                onViewTranscript: {},
+                onArchive: { selectedEntry = nil },
+                onSnooze: { selectedEntry = nil },
+                onDelete: {
+                    modelContext.delete(entry)
+                    selectedEntry = nil
+                }
+            )
+            .environment(appState)
+            .environment(notifPrefs)
+        }
         .sheet(isPresented: $showTextInput) {
             TextInputView(text: $inputText, onSubmit: handleTextSubmit)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
         .onAppear {
+            wakeUpSnoozedEntries()
             updateDisclosureLevel()
             if !appState.hasCompletedOnboarding {
                 appState.showOnboarding = true
             }
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { wakeUpSnoozedEntries() }
+        }
         .onChange(of: entries.count) { _, _ in updateDisclosureLevel() }
+        .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
+            wakeUpSnoozedEntries()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .murmurOpenEntry)) { notification in
+            guard let uuid = notification.userInfo?["entryID"] as? UUID else { return }
+            selectedEntry = entries.first { $0.id == uuid }
+        }
     }
 
     // MARK: - Main Content
@@ -137,6 +172,12 @@ struct RootView: View {
             switch selectedTab {
             case .home:
                 homeContent
+
+            case .archive:
+                ArchiveView(
+                    entries: archivedEntries,
+                    onEntryTap: { entry in selectedEntry = entry }
+                )
 
             case .settings:
                 settingsContent
@@ -170,22 +211,20 @@ struct RootView: View {
         case .firstLight:
             HomeSparseView(
                 inputText: $inputText,
-                entries: entries,
+                entries: activeEntries,
                 onMicTap: handleMicTap,
                 onSubmit: handleTextSubmit,
-                onEntryTap: { entry in
-                    print("Entry tapped: \(entry.summary)")
-                }
+                onEntryTap: { entry in selectedEntry = entry }
             )
 
         case .gridAwakens, .viewsEmerge, .fullPower:
             HomeAIComposedView(
                 inputText: $inputText,
-                entries: entries,
+                entries: activeEntries,
                 onMicTap: handleMicTap,
                 onSubmit: handleTextSubmit,
-                onCardTap: { card in
-                    print("Card tapped: \(card.id)")
+                onEntryTap: { entry in
+                    selectedEntry = entry
                 },
                 onSettingsTap: {
                     selectedTab = .settings
@@ -207,9 +246,7 @@ struct RootView: View {
                 onBack: {
                     selectedTab = .home
                 },
-                onTopUp: {
-                    print("Top up tapped")
-                }
+                onTopUp: {}
             )
 
         case .viewsEmerge, .fullPower:
@@ -217,18 +254,10 @@ struct RootView: View {
                 onBack: {
                     selectedTab = .home
                 },
-                onManageViews: {
-                    print("Manage views tapped")
-                },
-                onExportData: {
-                    print("Export data tapped")
-                },
-                onClearData: {
-                    print("Clear data tapped")
-                },
-                onOpenSourceLicenses: {
-                    print("Open source licenses tapped")
-                }
+                onManageViews: {},
+                onExportData: {},
+                onClearData: {},
+                onOpenSourceLicenses: {}
             )
         }
     }
@@ -293,19 +322,6 @@ struct RootView: View {
         }
 
         Task { @MainActor in
-            // Request mic permission if not yet determined
-            let authStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-            if authStatus == .notDetermined {
-                let granted = await AVCaptureDevice.requestAccess(for: .audio)
-                if !granted {
-                    showToast("Microphone access is required for recording")
-                    return
-                }
-            } else if authStatus == .denied || authStatus == .restricted {
-                showToast("Microphone access denied — enable in Settings")
-                return
-            }
-
             do {
                 try await pipeline.startRecording()
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
@@ -388,6 +404,7 @@ struct RootView: View {
     private func handleAccept() {
         guard !appState.processedEntries.isEmpty else { return }
 
+        var savedEntries: [Entry] = []
         do {
             for extracted in appState.processedEntries {
                 let entry = Entry(
@@ -397,12 +414,17 @@ struct RootView: View {
                     audioDuration: appState.processedAudioDuration
                 )
                 modelContext.insert(entry)
+                savedEntries.append(entry)
             }
             try modelContext.save()
         } catch {
             print("Failed to save entries: \(error.localizedDescription)")
             showToast("Save failed: \(error.localizedDescription)")
             return
+        }
+
+        for entry in savedEntries {
+            NotificationService.shared.sync(entry, preferences: notifPrefs)
         }
 
         withAnimation {
@@ -420,25 +442,52 @@ struct RootView: View {
         withAnimation {
             showSuccessToast = true
         }
+    }
 
-        Task {
-            try? await Task.sleep(for: .seconds(2.5))
-            withAnimation {
-                showSuccessToast = false
+}
+
+// MARK: - Helpers
+
+private extension RootView {
+    var activeEntries: [Entry] {
+        entries.filter { $0.status == .active }
+    }
+
+    var archivedEntries: [Entry] {
+        entries.filter { $0.status == .archived }
+    }
+
+    var topPriorityEntry: Entry? {
+        activeEntries
+            .filter { $0.priority != nil }
+            .min { ($0.priority ?? 5) < ($1.priority ?? 5) }
+    }
+
+    func wakeUpSnoozedEntries() {
+        let now = Date()
+        var woken: [Entry] = []
+        for entry in entries where entry.status == .snoozed {
+            if let snoozeUntil = entry.snoozeUntil, snoozeUntil <= now {
+                entry.status = .active
+                entry.snoozeUntil = nil
+                entry.updatedAt = now
+                woken.append(entry)
+            }
+        }
+        if !woken.isEmpty {
+            do {
+                try modelContext.save()
+            } catch {
+                print("Failed to save woken entries: \(error.localizedDescription)")
+            }
+            for entry in woken {
+                NotificationService.shared.sync(entry, preferences: notifPrefs)
             }
         }
     }
 
-    /// Highest-priority active entry for the focus card.
-    private var topPriorityEntry: Entry? {
-        entries
-            .filter { $0.status == .active && $0.priority != nil }
-            .min { ($0.priority ?? 5) < ($1.priority ?? 5) }
-    }
-
-    /// Update disclosure level based on real entry count — only advances, never regresses.
-    private func updateDisclosureLevel() {
-        let level = DisclosureLevel.from(entryCount: entries.count)
+    func updateDisclosureLevel() {
+        let level = DisclosureLevel.from(entryCount: activeEntries.count)
         if level > appState.disclosureLevel {
             withAnimation {
                 appState.disclosureLevel = level
