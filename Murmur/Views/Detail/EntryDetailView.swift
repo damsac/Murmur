@@ -7,7 +7,6 @@ struct EntryDetailView: View {
     @Environment(NotificationPreferences.self) private var notifPrefs
     let entry: Entry
     let onBack: () -> Void
-    let onEdit: () -> Void
     let onViewTranscript: () -> Void
     let onArchive: () -> Void
     let onSnooze: () -> Void
@@ -20,6 +19,10 @@ struct EntryDetailView: View {
     @State private var showCustomSnoozeSheet = false
     @State private var showDueDateSheet = false
     @State private var draftDueDate: Date = Date()
+    @State private var showEditSheet = false
+    @State private var draftSummary: String = ""
+    @State private var draftCategory: EntryCategory = .note
+    @State private var draftPriority: Int?
 
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -42,7 +45,12 @@ struct EntryDetailView: View {
                     trailingButtons: [
                         NavHeader.NavButton(
                             icon: "square.and.pencil",
-                            action: onEdit
+                            action: {
+                                draftSummary = entry.summary
+                                draftCategory = entry.category
+                                draftPriority = entry.priority
+                                showEditSheet = true
+                            }
                         )
                     ]
                 )
@@ -177,6 +185,27 @@ struct EntryDetailView: View {
                 )
             }
 
+        }
+        .sheet(isPresented: $showEditSheet) {
+            EntryEditSheet(
+                summary: $draftSummary,
+                category: $draftCategory,
+                priority: $draftPriority,
+                onSave: {
+                    let trimmed = draftSummary.trimmingCharacters(in: .whitespacesAndNewlines)
+                    entry.summary = trimmed
+                    entry.content = trimmed
+                    entry.category = draftCategory
+                    entry.priority = draftPriority
+                    entry.updatedAt = Date()
+                    save()
+                    NotificationService.shared.sync(entry, preferences: notifPrefs)
+                    showEditSheet = false
+                },
+                onDismiss: { showEditSheet = false }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showNotesSheet) {
             NotesEditSheet(
@@ -453,6 +482,141 @@ private struct ActionButton: View {
     }
 }
 
+// MARK: - Entry Edit Sheet
+
+private struct EntryEditSheet: View {
+    @Binding var summary: String
+    @Binding var category: EntryCategory
+    @Binding var priority: Int?
+    let onSave: () -> Void
+    let onDismiss: () -> Void
+
+    @FocusState private var summaryFocused: Bool
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    // Summary
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Summary")
+                            .font(Theme.Typography.label)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+
+                        TextEditor(text: $summary)
+                            .font(Theme.Typography.body)
+                            .foregroundStyle(Theme.Colors.textPrimary)
+                            .scrollContentBackground(.hidden)
+                            .frame(minHeight: 80)
+                            .focused($summaryFocused)
+                            .padding(12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Theme.Colors.bgCard)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .stroke(Theme.Colors.borderSubtle, lineWidth: 1)
+                                    )
+                            )
+                    }
+
+                    // Category
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Category")
+                            .font(Theme.Typography.label)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(EntryCategory.allCases, id: \.self) { cat in
+                                    let color = Theme.categoryColor(cat)
+                                    let isSelected = category == cat
+                                    Button { category = cat } label: {
+                                        HStack(spacing: 6) {
+                                            Circle()
+                                                .fill(color)
+                                                .frame(width: 7, height: 7)
+                                            Text(cat.rawValue)
+                                                .font(Theme.Typography.label)
+                                                .fontWeight(.medium)
+                                        }
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 7)
+                                        .background(isSelected ? color.opacity(0.15) : Theme.Colors.bgCard)
+                                        .foregroundStyle(isSelected ? color : Theme.Colors.textSecondary)
+                                        .clipShape(Capsule())
+                                        .overlay(
+                                            Capsule().stroke(
+                                                isSelected ? color.opacity(0.4) : Theme.Colors.borderFaint,
+                                                lineWidth: 1
+                                            )
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+
+                    // Priority
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Priority")
+                            .font(Theme.Typography.label)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+
+                        HStack(spacing: 8) {
+                            priorityPill(label: "None", value: nil)
+                            ForEach(1...5, id: \.self) { p in
+                                priorityPill(label: "\(p)", value: p)
+                            }
+                        }
+                    }
+                }
+                .padding(Theme.Spacing.screenPadding)
+            }
+            .background(Theme.Colors.bgDeep)
+            .navigationTitle("Edit entry")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", action: onSave)
+                        .fontWeight(.semibold)
+                        .disabled(summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onDismiss)
+                }
+            }
+        }
+        .background(Theme.Colors.bgDeep)
+        .onAppear { summaryFocused = true }
+    }
+
+    @ViewBuilder
+    private func priorityPill(label: String, value: Int?) -> some View {
+        let isSelected = priority == value
+        Button {
+            priority = value
+        } label: {
+            Text(label)
+                .font(Theme.Typography.label)
+                .fontWeight(.medium)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(isSelected ? Theme.Colors.accentPurple.opacity(0.15) : Theme.Colors.bgCard)
+                .foregroundStyle(isSelected ? Theme.Colors.accentPurple : Theme.Colors.textSecondary)
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule().stroke(
+                        isSelected ? Theme.Colors.accentPurple.opacity(0.4) : Theme.Colors.borderFaint,
+                        lineWidth: 1
+                    )
+                )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 // MARK: - Due Date Edit Sheet
 
 private struct DueDateEditSheet: View {
@@ -621,7 +785,6 @@ private extension Date {
             summary: "An app that scans your grocery receipt and suggests meals based on what you actually bought."
         ),
         onBack: { print("Back") },
-        onEdit: { print("Edit") },
         onViewTranscript: { print("View transcript") },
         onArchive: { print("Archive") },
         onSnooze: { print("Snooze") },
@@ -645,7 +808,6 @@ private extension Date {
             priority: 1
         ),
         onBack: { print("Back") },
-        onEdit: { print("Edit") },
         onViewTranscript: { print("View transcript") },
         onArchive: { print("Archive") },
         onSnooze: { print("Snooze") },
@@ -668,7 +830,6 @@ private extension Date {
             summary: "The best interfaces are invisible - they get out of the way and let users focus on their task without distraction."
         ),
         onBack: { print("Back") },
-        onEdit: { print("Edit") },
         onViewTranscript: { print("View transcript") },
         onArchive: { print("Archive") },
         onSnooze: { print("Snooze") },

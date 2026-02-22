@@ -114,7 +114,6 @@ struct RootView: View {
             EntryDetailView(
                 entry: entry,
                 onBack: { selectedEntry = nil },
-                onEdit: {},
                 onViewTranscript: {},
                 onArchive: { selectedEntry = nil },
                 onSnooze: { selectedEntry = nil },
