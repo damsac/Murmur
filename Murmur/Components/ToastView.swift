@@ -102,6 +102,12 @@ struct ToastContainer: ViewModifier {
                 )
                 .padding(.top, 60)
                 .zIndex(999)
+                .onTapGesture {
+                    dismissTask?.cancel()
+                    withAnimation(Animations.toastSpring) {
+                        toast = nil
+                    }
+                }
                 .onAppear {
                     dismissTask?.cancel()
                     dismissTask = Task {
