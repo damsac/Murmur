@@ -49,9 +49,6 @@ struct DevModeView: View {
                                         Button("Processing") {
                                             appState.recordingState = .processing
                                         }
-                                        Button("Confirming") {
-                                            appState.recordingState = .confirming
-                                        }
                                     } label: {
                                         HStack(spacing: 4) {
                                             Text(recordingStateLabel)
@@ -102,28 +99,6 @@ struct DevModeView: View {
                                     }
                                 }
 
-                                HStack {
-                                    Text("Processed Entries")
-                                        .font(.subheadline)
-                                        .foregroundStyle(Theme.Colors.textSecondary)
-                                    Spacer()
-                                    Text("\(appState.processedEntries.count)")
-                                        .font(.subheadline.weight(.medium))
-                                        .foregroundStyle(Theme.Colors.textPrimary)
-                                        .monospacedDigit()
-                                }
-
-                                if !appState.processedTranscript.isEmpty {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("Last Transcript")
-                                            .font(.subheadline)
-                                            .foregroundStyle(Theme.Colors.textSecondary)
-                                        Text(appState.processedTranscript)
-                                            .font(Theme.Typography.caption)
-                                            .foregroundStyle(Theme.Colors.textTertiary)
-                                            .lineLimit(3)
-                                    }
-                                }
                             }
                         }
                         .padding(.horizontal, Theme.Spacing.screenPadding)
@@ -205,7 +180,6 @@ struct DevModeView: View {
         case .idle: return "Idle"
         case .recording: return "Recording"
         case .processing: return "Processing"
-        case .confirming: return "Confirming"
         }
     }
 
