@@ -52,7 +52,8 @@ targets:
     info:
       path: Murmur/Info.plist
       properties:
-        UILaunchScreen: {}
+        UILaunchScreen:
+          UIColorName: LaunchBackground
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         AppGroupIdentifier: "$(APP_GROUP_IDENTIFIER)"
