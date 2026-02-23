@@ -151,6 +151,7 @@ struct SettingsFullView: View {
                             showChevron: true,
                             action: onOpenSourceLicenses
                         )
+
                     }
                     .padding(.top, 20)
                     .padding(.bottom, 40)
