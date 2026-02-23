@@ -32,7 +32,6 @@ struct OnboardingFlowView: View {
     enum OnboardingStep {
         case transcript
         case processing
-        case confirm
     }
 
     var body: some View {
@@ -53,40 +52,20 @@ struct OnboardingFlowView: View {
                 ))
 
             case .processing:
-                ProcessingView(
-                    entries: [entry],
-                    transcript: OnboardingContent.transcript
-                )
-                .transition(.asymmetric(
-                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                    removal: .move(edge: .leading).combined(with: .opacity)
-                ))
-                .task {
-                    try? await Task.sleep(for: .seconds(2))
-                    withAnimation(.spring(response: 0.5, dampingFraction: 0.75)) {
-                        currentStep = .confirm
+                ProcessingView(transcript: OnboardingContent.transcript)
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                        removal: .opacity
+                    ))
+                    .task {
+                        try? await Task.sleep(for: .seconds(2))
+                        saveAndComplete()
                     }
-                }
-
-            case .confirm:
-                ConfirmView(
-                    entries: [entry],
-                    onAccept: {
-                        handleAccept()
-                    },
-                    onVoiceCorrect: { _ in },
-                    onDiscard: { _ in }
-                )
-                .transition(.asymmetric(
-                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                    removal: .opacity
-                ))
             }
         }
     }
 
-    private func handleAccept() {
-        // Bridge ExtractedEntry → Entry and save to SwiftData
+    private func saveAndComplete() {
         let saved = Entry(
             from: entry,
             transcript: OnboardingContent.transcript,
@@ -100,10 +79,7 @@ struct OnboardingFlowView: View {
             print("Failed to save onboarding entry: \(error.localizedDescription)")
         }
 
-        // Mark onboarding complete
         appState.hasCompletedOnboarding = true
-
-        // Dismiss
         onComplete()
     }
 }

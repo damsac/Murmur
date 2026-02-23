@@ -3,7 +3,6 @@ import SwiftData
 import AVFAudio
 import MurmurCore
 
-// swiftlint:disable:next type_body_length
 struct RootView: View {
     @Environment(AppState.self) private var appState
     @Environment(NotificationPreferences.self) private var notifPrefs
@@ -78,31 +77,6 @@ struct RootView: View {
                 recordingOverlays
             }
 
-            // Focus card overlay — show highest priority active entry
-            if appState.showFocusCard && !appState.showOnboarding,
-               let focusEntry = topPriorityEntry {
-                FocusCardView(
-                    entry: focusEntry,
-                    onMarkDone: {
-                        withAnimation {
-                            appState.showFocusCard = false
-                        }
-                    },
-                    onSnooze: {
-                        withAnimation {
-                            appState.showFocusCard = false
-                        }
-                    },
-                    onDismiss: {
-                        withAnimation {
-                            appState.showFocusCard = false
-                        }
-                    }
-                )
-                .transition(.opacity)
-                .zIndex(50)
-            }
-
         }
         .toast($toastConfig, onUndo: handleUndo)
         #if DEBUG
@@ -169,12 +143,6 @@ struct RootView: View {
             switch selectedTab {
             case .home:
                 homeContent
-
-            case .archive:
-                ArchiveView(
-                    entries: archivedEntries,
-                    onEntryTap: { entry in selectedEntry = entry }
-                )
 
             case .settings:
                 settingsContent
@@ -248,7 +216,6 @@ struct RootView: View {
 
         case .processing:
             ProcessingView(
-                entries: [],
                 transcript: transcript.isEmpty ? nil : transcript
             )
             .transition(.opacity)
@@ -494,16 +461,6 @@ private extension RootView {
         entries.filter { $0.status == .active || $0.status == .snoozed }
     }
 
-    var archivedEntries: [Entry] {
-        entries.filter { $0.status == .archived }
-    }
-
-    var topPriorityEntry: Entry? {
-        activeEntries
-            .filter { $0.priority != nil }
-            .min { ($0.priority ?? 5) < ($1.priority ?? 5) }
-    }
-
     func wakeUpSnoozedEntries() {
         let now = Date()
         var woken: [Entry] = []
@@ -571,15 +528,6 @@ private extension RootView {
     @Previewable @State var appState = AppState()
 
     appState.showOnboarding = true
-
-    return RootView()
-        .environment(appState)
-}
-
-#Preview("With Focus Card") {
-    @Previewable @State var appState = AppState()
-
-    appState.showFocusCard = true
 
     return RootView()
         .environment(appState)

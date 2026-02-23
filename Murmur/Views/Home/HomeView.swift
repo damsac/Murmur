@@ -135,6 +135,16 @@ struct HomeView: View {
             .padding(.top, 20)
             .padding(.bottom, 16)
 
+            // Daily brief
+            if !dailyBrief.isEmpty {
+                Text(dailyBrief)
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Theme.Spacing.screenPadding)
+                    .padding(.bottom, 4)
+            }
+
             // Flat smart list
             ScrollView {
                 LazyVStack(spacing: 12) {
@@ -166,6 +176,27 @@ struct HomeView: View {
 
     private var formattedDate: String {
         Self.dateFormatter.string(from: Date())
+    }
+
+    private var dailyBrief: String {
+        let now = Date()
+        let calendar = Calendar.current
+
+        let overdue = entries.filter { ($0.dueDate ?? .distantFuture) < now }.count
+        let dueToday = entries.filter { guard let d = $0.dueDate else { return false }; return d >= now && calendar.isDateInToday(d) }.count
+        let endOfWeek = calendar.date(byAdding: .day, value: 7, to: calendar.startOfDay(for: now)) ?? now
+        let dueThisWeek = entries.filter { guard let d = $0.dueDate else { return false }; return d > now && !calendar.isDateInToday(d) && d <= endOfWeek }.count
+
+        var parts: [String] = []
+        if overdue > 0 { parts.append("\(overdue) overdue") }
+        if dueToday > 0 { parts.append("\(dueToday) due today") }
+        if dueThisWeek > 0 { parts.append("\(dueThisWeek) due this week") }
+
+        let total = entries.count
+        if parts.isEmpty {
+            return total == 1 ? "1 entry" : "\(total) entries"
+        }
+        return parts.joined(separator: ", ")
     }
 
     /// Sort entries by relevance: priority (urgent first), due date (soonest first), then recency.
