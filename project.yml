@@ -30,7 +30,6 @@ targets:
           - "**/.DS_Store"
           # Orphaned views — UI shells not wired to real functionality
           - "Views/Errors/**"
-          - "Views/Dialogs/**"
           # Orphaned DevMode — complex simulation not needed
           - "DevMode/DevScreen.swift"
           - "DevMode/DevComponentGallery.swift"

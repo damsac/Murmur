@@ -24,6 +24,9 @@ struct RootView: View {
     @State private var topUpProductIDByCredits: [Int64: String] = [:]
     @State private var pendingDeleteEntry: Entry?
     @State private var pendingDeleteTask: Task<Void, Never>?
+    @State private var snoozeEntry: Entry?
+    @State private var showSnoozeDialog = false
+    @State private var showCustomSnoozeSheet = false
     private let topUpService = StoreKitTopUpService()
 
     var body: some View {
@@ -113,6 +116,34 @@ struct RootView: View {
                 onPurchase: { pack in
                     handleTopUpPurchase(pack)
                 }
+            )
+        }
+        .confirmationDialog("Snooze until...", isPresented: $showSnoozeDialog) {
+            Button("In 1 hour") {
+                performSnooze(.hour, value: 1)
+            }
+            Button("Tomorrow morning") {
+                let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+                let date = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow)
+                commitSnooze(until: date)
+            }
+            Button("Next week") {
+                performSnooze(.weekOfYear, value: 1)
+            }
+            Button("Custom time...") {
+                showCustomSnoozeSheet = true
+            }
+            Button("Cancel", role: .cancel) {
+                snoozeEntry = nil
+            }
+        }
+        .sheet(isPresented: $showCustomSnoozeSheet, onDismiss: { snoozeEntry = nil }) {
+            SnoozePickerSheet(
+                onSave: { date in
+                    commitSnooze(until: date)
+                    showCustomSnoozeSheet = false
+                },
+                onDismiss: { showCustomSnoozeSheet = false }
             )
         }
         .onAppear {
@@ -477,6 +508,10 @@ struct RootView: View {
                 pendingDeleteEntry = nil
             }
 
+        case .snooze(nil):
+            snoozeEntry = entry
+            showSnoozeDialog = true
+
         case .snooze(let until):
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             entry.perform(.snooze(until: until), in: modelContext, preferences: notifPrefs)
@@ -512,6 +547,19 @@ private extension RootView {
 
     var activeAndSnoozedEntries: [Entry] {
         entries.filter { $0.status == .active || $0.status == .snoozed }
+    }
+
+    func performSnooze(_ component: Calendar.Component, value: Int) {
+        let date = Calendar.current.date(byAdding: component, value: value, to: Date())
+        commitSnooze(until: date)
+    }
+
+    func commitSnooze(until date: Date?) {
+        guard let entry = snoozeEntry else { return }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        entry.perform(.snooze(until: date), in: modelContext, preferences: notifPrefs)
+        showToast("Snoozed", type: .info)
+        snoozeEntry = nil
     }
 
     func wakeUpSnoozedEntries() {
