@@ -8,13 +8,10 @@ struct EntryDetailView: View {
     let entry: Entry
     let onBack: () -> Void
     let onViewTranscript: () -> Void
-    let onArchive: () -> Void
-    let onSnooze: () -> Void
-    let onDelete: () -> Void
+    let onAction: (EntryAction) -> Void
 
     @State private var showNotesSheet = false
     @State private var draftNotes: String = ""
-    @State private var showDeleteConfirm = false
     @State private var showSnoozeDialog = false
     @State private var showCustomSnoozeSheet = false
     @State private var showDueDateSheet = false
@@ -173,16 +170,10 @@ struct EntryDetailView: View {
                 Spacer()
                 EntryActionBar(
                     isArchived: entry.status == .archived,
-                    onArchive: {
-                        entry.perform(.archive, in: modelContext, preferences: notifPrefs)
-                        onArchive()
-                    },
-                    onUnarchive: {
-                        entry.perform(.unarchive, in: modelContext, preferences: notifPrefs)
-                        onBack()
-                    },
+                    onArchive: { onAction(.archive) },
+                    onUnarchive: { onAction(.unarchive) },
                     onSnooze: { showSnoozeDialog = true },
-                    onDelete: { showDeleteConfirm = true }
+                    onDelete: { onAction(.delete) }
                 )
             }
 
@@ -245,15 +236,6 @@ struct EntryDetailView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
-        .alert("Delete entry?", isPresented: $showDeleteConfirm) {
-            Button("Delete", role: .destructive) {
-                entry.perform(.delete, in: modelContext, preferences: notifPrefs)
-                onDelete()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This can't be undone.")
-        }
         .confirmationDialog("Snooze until...", isPresented: $showSnoozeDialog) {
             Button("In 1 hour") {
                 snooze(until: Calendar.current.date(byAdding: .hour, value: 1, to: Date()))
@@ -294,8 +276,7 @@ struct EntryDetailView: View {
     }
 
     private func snooze(until date: Date?) {
-        entry.perform(.snooze(until: date), in: modelContext, preferences: notifPrefs)
-        onSnooze()
+        onAction(.snooze(until: date))
     }
 
     private var formattedDate: String {
@@ -652,9 +633,7 @@ private extension Date {
         ),
         onBack: { print("Back") },
         onViewTranscript: { print("View transcript") },
-        onArchive: { print("Archive") },
-        onSnooze: { print("Snooze") },
-        onDelete: { print("Delete") }
+        onAction: { action in print("Action: \(action)") }
     )
     .environment(appState)
     .environment(notifPrefs)
@@ -675,9 +654,7 @@ private extension Date {
         ),
         onBack: { print("Back") },
         onViewTranscript: { print("View transcript") },
-        onArchive: { print("Archive") },
-        onSnooze: { print("Snooze") },
-        onDelete: { print("Delete") }
+        onAction: { action in print("Action: \(action)") }
     )
     .environment(appState)
     .environment(notifPrefs)
@@ -697,9 +674,7 @@ private extension Date {
         ),
         onBack: { print("Back") },
         onViewTranscript: { print("View transcript") },
-        onArchive: { print("Archive") },
-        onSnooze: { print("Snooze") },
-        onDelete: { print("Delete") }
+        onAction: { action in print("Action: \(action)") }
     )
     .environment(appState)
     .environment(notifPrefs)

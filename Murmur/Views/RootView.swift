@@ -92,11 +92,9 @@ struct RootView: View {
                 entry: entry,
                 onBack: { selectedEntry = nil },
                 onViewTranscript: {},
-                onArchive: { selectedEntry = nil },
-                onSnooze: { selectedEntry = nil },
-                onDelete: {
+                onAction: { action in
                     selectedEntry = nil
-                    handleEntryAction(entry, .delete)
+                    handleEntryAction(entry, action)
                 }
             )
             .environment(appState)
