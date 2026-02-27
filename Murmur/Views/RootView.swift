@@ -23,6 +23,9 @@ struct RootView: View {
     @State private var topUpPacks: [CreditPack] = []
     @State private var topUpProductIDByCredits: [Int64: String] = [:]
     private let topUpService = StoreKitTopUpService()
+    @State private var snoozeEntry: Entry?
+    @State private var showSnoozeDialog = false
+    @State private var showCustomSnoozeSheet = false
 
     var body: some View {
         ZStack {
@@ -140,6 +143,48 @@ struct RootView: View {
                 }
             )
         }
+        .confirmationDialog("Snooze until...", isPresented: $showSnoozeDialog) {
+            Button("In 1 hour") {
+                snoozeEntry?.perform(
+                    .snooze(until: Calendar.current.date(byAdding: .hour, value: 1, to: Date())),
+                    in: modelContext,
+                    preferences: notifPrefs
+                )
+                snoozeEntry = nil
+            }
+            Button("Tomorrow morning") {
+                let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+                snoozeEntry?.perform(
+                    .snooze(until: Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow)),
+                    in: modelContext,
+                    preferences: notifPrefs
+                )
+                snoozeEntry = nil
+            }
+            Button("Next week") {
+                snoozeEntry?.perform(
+                    .snooze(until: Calendar.current.date(byAdding: .weekOfYear, value: 1, to: Date())),
+                    in: modelContext,
+                    preferences: notifPrefs
+                )
+                snoozeEntry = nil
+            }
+            Button("Custom time...") {
+                showCustomSnoozeSheet = true
+            }
+            Button("Cancel", role: .cancel) {
+                snoozeEntry = nil
+            }
+        }
+        .sheet(isPresented: $showCustomSnoozeSheet, onDismiss: { snoozeEntry = nil }) {
+            SnoozePickerSheet(
+                onSave: { date in
+                    snoozeEntry?.perform(.snooze(until: date), in: modelContext, preferences: notifPrefs)
+                    showCustomSnoozeSheet = false
+                },
+                onDismiss: { showCustomSnoozeSheet = false }
+            )
+        }
         .onAppear {
             wakeUpSnoozedEntries()
             if !appState.hasCompletedOnboarding {
@@ -209,7 +254,12 @@ struct RootView: View {
             onEntryTap: { entry in selectedEntry = entry },
             onSettingsTap: { selectedTab = .settings },
             onAction: { entry, action in
-                entry.perform(action, in: modelContext, preferences: notifPrefs)
+                if case .snooze(nil) = action {
+                    snoozeEntry = entry
+                    showSnoozeDialog = true
+                } else {
+                    entry.perform(action, in: modelContext, preferences: notifPrefs)
+                }
             }
         )
     }
