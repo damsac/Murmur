@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import AVFAudio
+import UIKit
 import MurmurCore
 
 struct RootView: View {
@@ -21,6 +22,8 @@ struct RootView: View {
     @State private var isLoadingTopUpProducts = false
     @State private var topUpPacks: [CreditPack] = []
     @State private var topUpProductIDByCredits: [Int64: String] = [:]
+    @State private var pendingDeleteEntry: Entry?
+    @State private var pendingDeleteTask: Task<Void, Never>?
     private let topUpService = StoreKitTopUpService()
 
     var body: some View {
@@ -92,8 +95,8 @@ struct RootView: View {
                 onArchive: { selectedEntry = nil },
                 onSnooze: { selectedEntry = nil },
                 onDelete: {
-                    entry.perform(.delete, in: modelContext, preferences: notifPrefs)
                     selectedEntry = nil
+                    handleEntryAction(entry, .delete)
                 }
             )
             .environment(appState)
@@ -177,7 +180,7 @@ struct RootView: View {
             onEntryTap: { entry in selectedEntry = entry },
             onSettingsTap: { selectedTab = .settings },
             onAction: { entry, action in
-                entry.perform(action, in: modelContext, preferences: notifPrefs)
+                handleEntryAction(entry, action)
             }
         )
     }
@@ -444,8 +447,58 @@ struct RootView: View {
         showToast("Undone", type: .info)
     }
 
-    private func showToast(_ message: String, type: ToastView.ToastType = .success) {
-        toastConfig = ToastContainer.ToastConfig(message: message, type: type)
+    private func handleEntryAction(_ entry: Entry, _ action: EntryAction) {
+        switch action {
+        case .complete:
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            entry.perform(.complete, in: modelContext, preferences: notifPrefs)
+            showToast("Completed")
+
+        case .archive:
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            entry.perform(.archive, in: modelContext, preferences: notifPrefs)
+            showToast("Archived", type: .info)
+
+        case .unarchive:
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            entry.perform(.unarchive, in: modelContext, preferences: notifPrefs)
+            showToast("Restored")
+
+        case .delete:
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            pendingDeleteTask?.cancel()
+            pendingDeleteEntry = entry
+            showToast("Deleted", type: .warning, actionLabel: "Undo") {
+                pendingDeleteTask?.cancel()
+                pendingDeleteEntry = nil
+            }
+            pendingDeleteTask = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(4))
+                guard let pending = pendingDeleteEntry else { return }
+                pending.perform(.delete, in: modelContext, preferences: notifPrefs)
+                pendingDeleteEntry = nil
+            }
+
+        case .snooze(let until):
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            entry.perform(.snooze(until: until), in: modelContext, preferences: notifPrefs)
+            showToast("Snoozed", type: .info)
+        }
+    }
+
+    private func showToast(
+        _ message: String,
+        type: ToastView.ToastType = .success,
+        actionLabel: String? = nil,
+        action: (() -> Void)? = nil
+    ) {
+        toastConfig = ToastContainer.ToastConfig(
+            message: message,
+            type: type,
+            duration: action != nil ? 4.0 : 3.0,
+            actionLabel: actionLabel,
+            action: action
+        )
     }
 
 }
@@ -454,7 +507,9 @@ struct RootView: View {
 
 private extension RootView {
     var activeEntries: [Entry] {
-        entries.filter { $0.status == .active }
+        entries.filter {
+            $0.status == .active && $0.persistentModelID != pendingDeleteEntry?.persistentModelID
+        }
     }
 
     var activeAndSnoozedEntries: [Entry] {

@@ -6,6 +6,8 @@ import MurmurCore
 struct ToastView: View {
     let message: String
     let type: ToastType
+    var actionLabel: String?
+    var action: (() -> Void)?
 
     enum ToastType {
         case success
@@ -42,6 +44,14 @@ struct ToastView: View {
                 .font(Theme.Typography.bodyMedium)
                 .foregroundStyle(Theme.Colors.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Action button (e.g. Undo)
+            if let label = actionLabel, let action {
+                Button(label, action: action)
+                    .font(Theme.Typography.bodyMedium.weight(.semibold))
+                    .foregroundStyle(type.color)
+                    .buttonStyle(.plain)
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -186,16 +196,16 @@ struct ToastContainer: ViewModifier {
     @Binding var toast: ToastConfig?
 
     enum ToastConfig {
-        case simple(message: String, type: ToastView.ToastType, duration: TimeInterval)
+        case simple(message: String, type: ToastView.ToastType, duration: TimeInterval, actionLabel: String? = nil, action: (() -> Void)? = nil)
         case agent(summary: String, actions: [AgentAction], undo: UndoTransaction, duration: TimeInterval)
 
-        init(message: String, type: ToastView.ToastType, duration: TimeInterval = 3.0) {
-            self = .simple(message: message, type: type, duration: duration)
+        init(message: String, type: ToastView.ToastType, duration: TimeInterval = 3.0, actionLabel: String? = nil, action: (() -> Void)? = nil) {
+            self = .simple(message: message, type: type, duration: duration, actionLabel: actionLabel, action: action)
         }
 
         var duration: TimeInterval {
             switch self {
-            case .simple(_, _, let d): return d
+            case .simple(_, _, let d, _, _): return d
             case .agent(_, _, _, let d): return d
             }
         }
@@ -221,9 +231,14 @@ struct ToastContainer: ViewModifier {
     @ViewBuilder
     private func toastContent(_ config: ToastConfig) -> some View {
         switch config {
-        case .simple(let message, let type, _):
-            ToastView(message: message, type: type)
-                .onTapGesture { dismiss() }
+        case .simple(let message, let type, _, let actionLabel, let action):
+            ToastView(
+                message: message,
+                type: type,
+                actionLabel: actionLabel,
+                action: action.map { act in { dismiss(); act() } }
+            )
+            .onTapGesture { dismiss() }
 
         case .agent(let summary, let actions, _, _):
             AgentToastView(
