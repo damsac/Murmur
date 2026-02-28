@@ -13,15 +13,16 @@
 - [x] AppState + AppAction + handle_message() — TEA core loop
 - [x] Actor thread with flume channels
 - [x] SQLite persistence (`db.rs`) — entries table, CRUD operations
-- [ ] LLM service (`llm.rs`) — reqwest client, PPQ.ai integration, tool-call parsing
-- [ ] Agent types (`agent.rs`) — AgentAction, AgentContextEntry, prompts
+- [x] Agent types (`agent.rs`) — AgentContextEntry, prompts, tool schemas, context formatting
+- [x] LLM service (`llm.rs`) — reqwest client, PPQ.ai integration, tool-call parsing
+- [x] Actor LLM wiring — ProcessTranscript spawns async LLM task, results flow back as actions
 - [ ] Credit system (`credits.rs`) — authorize, charge, balance, SQLite-backed
 - [ ] CLI binary — interactive text input → agent processing → display results
 - [ ] End-to-end test: type text → LLM creates/updates entries → persisted to SQLite
 
 ## Active Work
 
-Next: implement LLM service (`llm.rs`) — reqwest HTTP client, PPQ.ai integration with tool-call parsing.
+Next: implement credit system (`credits.rs`) — authorize, charge, balance, SQLite-backed.
 
 ## Blockers
 
@@ -39,6 +40,8 @@ None.
 | `rust/crates/murmur-core/src/update.rs` | Created | handle_message() + App actor thread (13 tests) |
 | `rust/crates/murmur-core/src/lib.rs` | Created | Module declarations |
 | `rust/crates/murmur-core/src/db.rs` | Created | SQLite persistence — Database struct, CRUD, actor integration (8 tests) |
+| `rust/crates/murmur-core/src/agent.rs` | Created | Agent types, system prompt, tool schemas, context formatting (8 tests) |
+| `rust/crates/murmur-core/src/llm.rs` | Created | PPQ.ai HTTP client, response/tool-call parsing, LlmError (9 tests) |
 | `rust/crates/murmur-cli/` | Created | Interactive CLI (stub) |
 | `docs/rust-pivot/PROCESS.md` | Created | Process constitution |
 | `docs/rust-pivot/STATE.md` | This file | Living dashboard |

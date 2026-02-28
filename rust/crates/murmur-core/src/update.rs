@@ -6,8 +6,10 @@ use uuid::Uuid;
 use crate::action::{
     AgentPipelineAction, AgentResultAction, AppAction, CreateEntryData, EntryAction, UpdateFields,
 };
+use crate::agent::AgentContextEntry;
 use crate::db::Database;
 use crate::entry::{Entry, EntrySource};
+use crate::llm::LlmService;
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
@@ -217,9 +219,12 @@ impl App {
         let (update_tx, update_rx) = flume::unbounded::<AppUpdate>();
         let state = Arc::new(RwLock::new(AppState::new()));
         let actor_state = Arc::clone(&state);
+        let actor_tx = action_tx.clone();
 
         thread::spawn(move || {
-            actor_loop_with_entries(action_rx, update_tx, actor_state, None, Vec::new());
+            actor_loop_with_entries(
+                action_rx, actor_tx, update_tx, actor_state, None, None, Vec::new(),
+            );
         });
 
         Self {
@@ -238,14 +243,45 @@ impl App {
         let (action_tx, action_rx) = flume::unbounded::<AppAction>();
         let (update_tx, update_rx) = flume::unbounded::<AppUpdate>();
 
-        // Shared state gets a copy of the loaded entries for immediate reads.
         let mut shared_init = AppState::new();
         shared_init.entries = initial_entries.clone();
         let state = Arc::new(RwLock::new(shared_init));
         let actor_state = Arc::clone(&state);
+        let actor_tx = action_tx.clone();
 
         thread::spawn(move || {
-            actor_loop_with_entries(action_rx, update_tx, actor_state, Some(db), initial_entries);
+            actor_loop_with_entries(
+                action_rx, actor_tx, update_tx, actor_state, Some(db), None, initial_entries,
+            );
+        });
+
+        Ok(Self {
+            tx: action_tx,
+            state,
+            update_rx,
+        })
+    }
+
+    /// Create a new App with SQLite persistence and LLM service.
+    /// ProcessTranscript actions will be sent to the LLM for processing.
+    pub fn with_llm(db_path: &str, api_key: &str) -> rusqlite::Result<Self> {
+        let db = Database::open(db_path)?;
+        let initial_entries = db.list_entries()?;
+        let llm = Arc::new(LlmService::new(api_key.to_string()));
+
+        let (action_tx, action_rx) = flume::unbounded::<AppAction>();
+        let (update_tx, update_rx) = flume::unbounded::<AppUpdate>();
+
+        let mut shared_init = AppState::new();
+        shared_init.entries = initial_entries.clone();
+        let state = Arc::new(RwLock::new(shared_init));
+        let actor_state = Arc::clone(&state);
+        let actor_tx = action_tx.clone();
+
+        thread::spawn(move || {
+            actor_loop_with_entries(
+                action_rx, actor_tx, update_tx, actor_state, Some(db), Some(llm), initial_entries,
+            );
         });
 
         Ok(Self {
@@ -278,18 +314,38 @@ impl App {
 }
 
 /// The actor event loop. Runs on a dedicated std::thread.
-/// Accepts an optional Database for persistence and initial entries to seed state.
+/// Accepts an optional Database for persistence, optional LLM service for
+/// async transcript processing, and initial entries to seed state.
 fn actor_loop_with_entries(
     rx: flume::Receiver<AppAction>,
+    tx: flume::Sender<AppAction>,
     update_tx: flume::Sender<AppUpdate>,
     shared_state: Arc<RwLock<AppState>>,
     db: Option<Database>,
+    llm: Option<Arc<LlmService>>,
     initial_entries: Vec<Entry>,
 ) {
     let mut state = AppState::new();
     state.entries = initial_entries;
 
+    // Create tokio runtime for async LLM calls (only if LLM is available).
+    let runtime = llm.as_ref().map(|_| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .expect("failed to create tokio runtime")
+    });
+
     while let Ok(action) = rx.recv() {
+        // Check if this is a ProcessTranscript before consuming the action.
+        let transcript_for_llm = match &action {
+            AppAction::Agent(AgentPipelineAction::ProcessTranscript { transcript, .. }) => {
+                Some(transcript.clone())
+            }
+            _ => None,
+        };
+
         // Track which action we're processing for db persistence.
         let db_op = classify_db_op(&action);
 
@@ -312,6 +368,31 @@ fn actor_loop_with_entries(
 
         // Notify listeners.
         let _ = update_tx.send(AppUpdate::StateChanged(state.rev));
+
+        // Spawn async LLM task if this was a ProcessTranscript action.
+        if let (Some(transcript), Some(ref llm), Some(ref rt)) =
+            (&transcript_for_llm, &llm, &runtime)
+        {
+            let context_entries: Vec<AgentContextEntry> =
+                state.entries.iter().map(|e| e.to_agent_context()).collect();
+            let llm = Arc::clone(llm);
+            let tx = tx.clone();
+            let transcript = transcript.clone();
+            rt.spawn(async move {
+                match llm.process(&transcript, &context_entries).await {
+                    Ok(response) => {
+                        let _ = tx.send(AppAction::Agent(
+                            AgentPipelineAction::ApplyAgentActions(response.actions),
+                        ));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppAction::Agent(AgentPipelineAction::AgentError(
+                            e.to_string(),
+                        )));
+                    }
+                }
+            });
+        }
     }
 }
 
