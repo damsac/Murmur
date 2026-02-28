@@ -1,4 +1,4 @@
-use crate::entry::Entry;
+use crate::entry::{Entry, EntrySource};
 
 /// Single source of truth for the entire application.
 /// Monotonic `rev` field enables efficient change detection across FFI.
@@ -13,6 +13,15 @@ pub struct AppState {
 
     /// User-visible toast message (errors become state, not panics).
     pub toast: Option<String>,
+
+    /// The transcript currently being processed by the agent pipeline.
+    pub current_transcript: Option<String>,
+
+    /// Source of the current transcript (voice or text).
+    pub current_source: EntrySource,
+
+    /// Whether the agent pipeline is currently processing a transcript.
+    pub processing: bool,
 }
 
 impl AppState {
@@ -21,6 +30,9 @@ impl AppState {
             entries: Vec::new(),
             rev: 0,
             toast: None,
+            current_transcript: None,
+            current_source: EntrySource::default(),
+            processing: false,
         }
     }
 

@@ -10,8 +10,8 @@
 
 - [x] Cargo workspace scaffolded (`rust/Cargo.toml`, `murmur-core`, `murmur-cli`)
 - [x] Entry domain model (`entry.rs`) — create, update, complete, archive, snooze
-- [ ] AppState + AppAction + handle_message() — TEA core loop
-- [ ] Actor thread with flume channels
+- [x] AppState + AppAction + handle_message() — TEA core loop
+- [x] Actor thread with flume channels
 - [ ] SQLite persistence (`db.rs`) — entries table, CRUD operations
 - [ ] LLM service (`llm.rs`) — reqwest client, PPQ.ai integration, tool-call parsing
 - [ ] Agent types (`agent.rs`) — AgentAction, AgentContextEntry, prompts
@@ -21,7 +21,7 @@
 
 ## Active Work
 
-Next: implement `handle_message()` in `update.rs` — the TEA core loop that processes `AppAction` and mutates `AppState`. AppState and AppAction structs are already defined in `state.rs` and `action.rs`.
+Next: implement SQLite persistence (`db.rs`) — entries table, CRUD operations. Use rusqlite for the database layer.
 
 ## Blockers
 
@@ -36,6 +36,7 @@ None.
 | `rust/crates/murmur-core/src/entry.rs` | Created | Entry model + enums + operations (12 tests) |
 | `rust/crates/murmur-core/src/state.rs` | Created | AppState struct |
 | `rust/crates/murmur-core/src/action.rs` | Created | AppAction enum + entry/agent action types |
+| `rust/crates/murmur-core/src/update.rs` | Created | handle_message() + App actor thread (13 tests) |
 | `rust/crates/murmur-core/src/lib.rs` | Created | Module declarations |
 | `rust/crates/murmur-cli/` | Created | Interactive CLI (stub) |
 | `docs/rust-pivot/PROCESS.md` | Created | Process constitution |
