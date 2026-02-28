@@ -61,9 +61,19 @@
         devShells.default = pkgs.mkShellNoCC {
           name = "murmur-dev";
           packages = pkgs.lib.optionals isDarwin (with pkgs; [
+            # Swift / Xcode
             swiftlint
             xcodegen
             xcbeautify
+
+            # Rust
+            cargo
+            rustc
+            clippy
+            rustfmt
+            rust-analyzer
+
+            # General
             gnumake
             nodejs
             gh
