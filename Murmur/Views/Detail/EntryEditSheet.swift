@@ -11,15 +11,15 @@ struct EntryEditSheet: View {
     @FocusState private var summaryFocused: Bool
 
     private static let editableCategories: [EntryCategory] = [
-        .todo, .note, .reminder, .idea, .list, .habit
+        .todo, .reminder, .idea, .habit
     ]
 
     private var orderedCategories: [EntryCategory] {
         var cats = Self.editableCategories
         if let idx = cats.firstIndex(of: category) {
             cats.remove(at: idx)
-            cats.insert(category, at: 0)
         }
+        cats.insert(category, at: 0)
         return cats
     }
 
