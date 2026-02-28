@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import AVFAudio
+import UIKit
 import MurmurCore
 
 struct RootView: View {
@@ -21,6 +22,11 @@ struct RootView: View {
     @State private var isLoadingTopUpProducts = false
     @State private var topUpPacks: [CreditPack] = []
     @State private var topUpProductIDByCredits: [Int64: String] = [:]
+    @State private var pendingDeleteEntry: Entry?
+    @State private var pendingDeleteTask: Task<Void, Never>?
+    @State private var snoozeEntry: Entry?
+    @State private var showSnoozeDialog = false
+    @State private var showCustomSnoozeSheet = false
     private let topUpService = StoreKitTopUpService()
 
     var body: some View {
@@ -89,11 +95,9 @@ struct RootView: View {
                 entry: entry,
                 onBack: { selectedEntry = nil },
                 onViewTranscript: {},
-                onArchive: { selectedEntry = nil },
-                onSnooze: { selectedEntry = nil },
-                onDelete: {
-                    entry.perform(.delete, in: modelContext, preferences: notifPrefs)
+                onAction: { action in
                     selectedEntry = nil
+                    handleEntryAction(entry, action)
                 }
             )
             .environment(appState)
@@ -112,6 +116,34 @@ struct RootView: View {
                 onPurchase: { pack in
                     handleTopUpPurchase(pack)
                 }
+            )
+        }
+        .confirmationDialog("Snooze until...", isPresented: $showSnoozeDialog) {
+            Button("In 1 hour") {
+                performSnooze(.hour, value: 1)
+            }
+            Button("Tomorrow morning") {
+                let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+                let date = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow)
+                commitSnooze(until: date)
+            }
+            Button("Next week") {
+                performSnooze(.weekOfYear, value: 1)
+            }
+            Button("Custom time...") {
+                showCustomSnoozeSheet = true
+            }
+            Button("Cancel", role: .cancel) {
+                snoozeEntry = nil
+            }
+        }
+        .sheet(isPresented: $showCustomSnoozeSheet, onDismiss: { snoozeEntry = nil }) {
+            SnoozePickerSheet(
+                onSave: { date in
+                    commitSnooze(until: date)
+                    showCustomSnoozeSheet = false
+                },
+                onDismiss: { showCustomSnoozeSheet = false }
             )
         }
         .onAppear {
@@ -177,7 +209,7 @@ struct RootView: View {
             onEntryTap: { entry in selectedEntry = entry },
             onSettingsTap: { selectedTab = .settings },
             onAction: { entry, action in
-                entry.perform(action, in: modelContext, preferences: notifPrefs)
+                handleEntryAction(entry, action)
             }
         )
     }
@@ -444,8 +476,62 @@ struct RootView: View {
         showToast("Undone", type: .info)
     }
 
-    private func showToast(_ message: String, type: ToastView.ToastType = .success) {
-        toastConfig = ToastContainer.ToastConfig(message: message, type: type)
+    private func handleEntryAction(_ entry: Entry, _ action: EntryAction) {
+        switch action {
+        case .complete:
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            entry.perform(.complete, in: modelContext, preferences: notifPrefs)
+            showToast("Completed")
+
+        case .archive:
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            entry.perform(.archive, in: modelContext, preferences: notifPrefs)
+            showToast("Archived", type: .info)
+
+        case .unarchive:
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            entry.perform(.unarchive, in: modelContext, preferences: notifPrefs)
+            showToast("Restored")
+
+        case .delete:
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            pendingDeleteTask?.cancel()
+            pendingDeleteEntry = entry
+            showToast("Deleted", type: .warning, actionLabel: "Undo") {
+                pendingDeleteTask?.cancel()
+                pendingDeleteEntry = nil
+            }
+            pendingDeleteTask = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(4))
+                guard let pending = pendingDeleteEntry else { return }
+                pending.perform(.delete, in: modelContext, preferences: notifPrefs)
+                pendingDeleteEntry = nil
+            }
+
+        case .snooze(nil):
+            snoozeEntry = entry
+            showSnoozeDialog = true
+
+        case .snooze(let until):
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            entry.perform(.snooze(until: until), in: modelContext, preferences: notifPrefs)
+            showToast("Snoozed", type: .info)
+        }
+    }
+
+    private func showToast(
+        _ message: String,
+        type: ToastView.ToastType = .success,
+        actionLabel: String? = nil,
+        action: (() -> Void)? = nil
+    ) {
+        toastConfig = ToastContainer.ToastConfig(
+            message: message,
+            type: type,
+            duration: action != nil ? 4.0 : 3.0,
+            actionLabel: actionLabel,
+            action: action
+        )
     }
 
 }
@@ -454,11 +540,26 @@ struct RootView: View {
 
 private extension RootView {
     var activeEntries: [Entry] {
-        entries.filter { $0.status == .active }
+        entries.filter {
+            $0.status == .active && $0.persistentModelID != pendingDeleteEntry?.persistentModelID
+        }
     }
 
     var activeAndSnoozedEntries: [Entry] {
         entries.filter { $0.status == .active || $0.status == .snoozed }
+    }
+
+    func performSnooze(_ component: Calendar.Component, value: Int) {
+        let date = Calendar.current.date(byAdding: component, value: value, to: Date())
+        commitSnooze(until: date)
+    }
+
+    func commitSnooze(until date: Date?) {
+        guard let entry = snoozeEntry else { return }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        entry.perform(.snooze(until: date), in: modelContext, preferences: notifPrefs)
+        showToast("Snoozed", type: .info)
+        snoozeEntry = nil
     }
 
     func wakeUpSnoozedEntries() {
