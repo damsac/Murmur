@@ -1,0 +1,7 @@
+[package]
+name = "murmur-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+murmur-core = { path = "../murmur-core" }

@@ -2,14 +2,14 @@
 
 ## Current Phase
 
-**Phase 1: Rust Core + CLI** — Not started
+**Phase 1: Rust Core + CLI** — In progress
 
 ## Milestones
 
 ### Phase 1 Milestones
 
-- [ ] Cargo workspace scaffolded (`rust/Cargo.toml`, `murmur-core`, `murmur-cli`)
-- [ ] Entry domain model (`entry.rs`) — create, update, complete, archive, snooze
+- [x] Cargo workspace scaffolded (`rust/Cargo.toml`, `murmur-core`, `murmur-cli`)
+- [x] Entry domain model (`entry.rs`) — create, update, complete, archive, snooze
 - [ ] AppState + AppAction + handle_message() — TEA core loop
 - [ ] Actor thread with flume channels
 - [ ] SQLite persistence (`db.rs`) — entries table, CRUD operations
@@ -21,7 +21,7 @@
 
 ## Active Work
 
-None — genesis complete, ready to begin Phase 1.
+Next: implement `handle_message()` in `update.rs` — the TEA core loop that processes `AppAction` and mutates `AppState`. AppState and AppAction structs are already defined in `state.rs` and `action.rs`.
 
 ## Blockers
 
@@ -31,9 +31,13 @@ None.
 
 | File | Status | Purpose |
 |------|--------|---------|
-| `rust/Cargo.toml` | Not created | Workspace manifest |
-| `rust/crates/murmur-core/` | Not created | Domain logic |
-| `rust/crates/murmur-cli/` | Not created | Interactive CLI |
+| `rust/Cargo.toml` | Created | Workspace manifest |
+| `rust/crates/murmur-core/` | Created | Domain logic |
+| `rust/crates/murmur-core/src/entry.rs` | Created | Entry model + enums + operations (12 tests) |
+| `rust/crates/murmur-core/src/state.rs` | Created | AppState struct |
+| `rust/crates/murmur-core/src/action.rs` | Created | AppAction enum + entry/agent action types |
+| `rust/crates/murmur-core/src/lib.rs` | Created | Module declarations |
+| `rust/crates/murmur-cli/` | Created | Interactive CLI (stub) |
 | `docs/rust-pivot/PROCESS.md` | Created | Process constitution |
 | `docs/rust-pivot/STATE.md` | This file | Living dashboard |
 

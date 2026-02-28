@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/murmur-core", "crates/murmur-cli"]
+resolver = "2"

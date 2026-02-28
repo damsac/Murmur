@@ -26,5 +26,8 @@ result
 # OS
 .DS_Store
 
+# Rust build artifacts
+rust/target/
+
 # Claude Code local settings
 .claude/settings.local.json
