@@ -6,6 +6,7 @@ use uuid::Uuid;
 use crate::action::{
     AgentPipelineAction, AgentResultAction, AppAction, CreateEntryData, EntryAction, UpdateFields,
 };
+use crate::db::Database;
 use crate::entry::{Entry, EntrySource};
 use crate::state::AppState;
 
@@ -210,7 +211,7 @@ impl Default for App {
 }
 
 impl App {
-    /// Create a new App, spawning the actor thread.
+    /// Create a new App without persistence, spawning the actor thread.
     pub fn new() -> Self {
         let (action_tx, action_rx) = flume::unbounded::<AppAction>();
         let (update_tx, update_rx) = flume::unbounded::<AppUpdate>();
@@ -218,7 +219,7 @@ impl App {
         let actor_state = Arc::clone(&state);
 
         thread::spawn(move || {
-            actor_loop(action_rx, update_tx, actor_state);
+            actor_loop_with_entries(action_rx, update_tx, actor_state, None, Vec::new());
         });
 
         Self {
@@ -226,6 +227,32 @@ impl App {
             state,
             update_rx,
         }
+    }
+
+    /// Create a new App with SQLite persistence at the given path.
+    /// Loads existing entries from the database on startup.
+    pub fn with_db(path: &str) -> rusqlite::Result<Self> {
+        let db = Database::open(path)?;
+        let initial_entries = db.list_entries()?;
+
+        let (action_tx, action_rx) = flume::unbounded::<AppAction>();
+        let (update_tx, update_rx) = flume::unbounded::<AppUpdate>();
+
+        // Shared state gets a copy of the loaded entries for immediate reads.
+        let mut shared_init = AppState::new();
+        shared_init.entries = initial_entries.clone();
+        let state = Arc::new(RwLock::new(shared_init));
+        let actor_state = Arc::clone(&state);
+
+        thread::spawn(move || {
+            actor_loop_with_entries(action_rx, update_tx, actor_state, Some(db), initial_entries);
+        });
+
+        Ok(Self {
+            tx: action_tx,
+            state,
+            update_rx,
+        })
     }
 
     /// Dispatch an action to the actor (non-blocking, fire-and-forget).
@@ -251,15 +278,27 @@ impl App {
 }
 
 /// The actor event loop. Runs on a dedicated std::thread.
-fn actor_loop(
+/// Accepts an optional Database for persistence and initial entries to seed state.
+fn actor_loop_with_entries(
     rx: flume::Receiver<AppAction>,
     update_tx: flume::Sender<AppUpdate>,
     shared_state: Arc<RwLock<AppState>>,
+    db: Option<Database>,
+    initial_entries: Vec<Entry>,
 ) {
     let mut state = AppState::new();
+    state.entries = initial_entries;
 
     while let Ok(action) = rx.recv() {
+        // Track which action we're processing for db persistence.
+        let db_op = classify_db_op(&action);
+
         handle_message(&mut state, action);
+
+        // Persist to database if available.
+        if let Some(ref db) = db {
+            persist_db_op(db, &state, db_op);
+        }
 
         // Publish state to the shared RwLock for synchronous reads.
         if let Ok(mut shared) = shared_state.write() {
@@ -273,6 +312,74 @@ fn actor_loop(
 
         // Notify listeners.
         let _ = update_tx.send(AppUpdate::StateChanged(state.rev));
+    }
+}
+
+/// What kind of db operation is needed after handle_message.
+enum DbOp {
+    /// A new entry was just created (will be the last in state.entries).
+    Insert,
+    /// An entry was updated/completed/archived/unarchived/snoozed.
+    Update(Uuid),
+    /// An entry was deleted.
+    Delete(Uuid),
+    /// Agent applied multiple actions — persist all entries that changed.
+    AgentBatch,
+    /// No db operation needed.
+    None,
+}
+
+fn classify_db_op(action: &AppAction) -> DbOp {
+    match action {
+        AppAction::Entry(ea) => match ea {
+            EntryAction::Create(_) => DbOp::Insert,
+            EntryAction::Update { id, .. }
+            | EntryAction::Complete { id }
+            | EntryAction::Archive { id }
+            | EntryAction::Unarchive { id }
+            | EntryAction::Snooze { id, .. } => DbOp::Update(*id),
+            EntryAction::Delete { id } => DbOp::Delete(*id),
+        },
+        AppAction::Agent(AgentPipelineAction::ApplyAgentActions(_)) => DbOp::AgentBatch,
+        _ => DbOp::None,
+    }
+}
+
+fn persist_db_op(db: &Database, state: &AppState, op: DbOp) {
+    match op {
+        DbOp::Insert => {
+            // The newly created entry is the last one in the vec.
+            if let Some(entry) = state.entries.last() {
+                if let Err(e) = db.insert_entry(entry) {
+                    eprintln!("db insert error: {e}");
+                }
+            }
+        }
+        DbOp::Update(id) => {
+            if let Some(entry) = state.entries.iter().find(|e| e.id == id) {
+                if let Err(e) = db.update_entry(entry) {
+                    eprintln!("db update error: {e}");
+                }
+            }
+        }
+        DbOp::Delete(id) => {
+            if let Err(e) = db.delete_entry(id) {
+                eprintln!("db delete error: {e}");
+            }
+        }
+        DbOp::AgentBatch => {
+            // Agent actions can create and modify entries. Simplest approach:
+            // upsert all entries in state. For now, just insert-or-replace all.
+            for entry in &state.entries {
+                // Try insert first; if it fails (duplicate), update.
+                if db.insert_entry(entry).is_err() {
+                    if let Err(e) = db.update_entry(entry) {
+                        eprintln!("db agent batch error: {e}");
+                    }
+                }
+            }
+        }
+        DbOp::None => {}
     }
 }
 

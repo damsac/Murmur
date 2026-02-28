@@ -12,7 +12,7 @@
 - [x] Entry domain model (`entry.rs`) — create, update, complete, archive, snooze
 - [x] AppState + AppAction + handle_message() — TEA core loop
 - [x] Actor thread with flume channels
-- [ ] SQLite persistence (`db.rs`) — entries table, CRUD operations
+- [x] SQLite persistence (`db.rs`) — entries table, CRUD operations
 - [ ] LLM service (`llm.rs`) — reqwest client, PPQ.ai integration, tool-call parsing
 - [ ] Agent types (`agent.rs`) — AgentAction, AgentContextEntry, prompts
 - [ ] Credit system (`credits.rs`) — authorize, charge, balance, SQLite-backed
@@ -21,7 +21,7 @@
 
 ## Active Work
 
-Next: implement SQLite persistence (`db.rs`) — entries table, CRUD operations. Use rusqlite for the database layer.
+Next: implement LLM service (`llm.rs`) — reqwest HTTP client, PPQ.ai integration with tool-call parsing.
 
 ## Blockers
 
@@ -38,6 +38,7 @@ None.
 | `rust/crates/murmur-core/src/action.rs` | Created | AppAction enum + entry/agent action types |
 | `rust/crates/murmur-core/src/update.rs` | Created | handle_message() + App actor thread (13 tests) |
 | `rust/crates/murmur-core/src/lib.rs` | Created | Module declarations |
+| `rust/crates/murmur-core/src/db.rs` | Created | SQLite persistence — Database struct, CRUD, actor integration (8 tests) |
 | `rust/crates/murmur-cli/` | Created | Interactive CLI (stub) |
 | `docs/rust-pivot/PROCESS.md` | Created | Process constitution |
 | `docs/rust-pivot/STATE.md` | This file | Living dashboard |
