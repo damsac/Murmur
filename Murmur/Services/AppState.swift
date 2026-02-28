@@ -6,7 +6,6 @@ enum RecordingState {
     case idle
     case recording
     case processing
-    case confirming
 }
 
 @Observable
@@ -22,12 +21,6 @@ final class AppState {
     var pipelineError: String?
     var creditGate: LocalCreditGate?
     var creditBalance: Int64 = 0
-
-    // Shared recording state — extracted entries (not yet persisted)
-    var processedEntries: [ExtractedEntry] = []
-    var processedTranscript: String = ""
-    var processedAudioDuration: TimeInterval?
-    var processedSource: EntrySource = .voice
 
     var hasCompletedOnboarding: Bool {
         get { UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") }

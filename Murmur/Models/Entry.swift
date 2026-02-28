@@ -181,6 +181,45 @@ public enum EntryStatus: String, Codable, Sendable, CaseIterable {
     }
 }
 
+// MARK: - Agent Context Bridge
+
+extension Entry {
+    /// Short ID for LLM context — first 6 chars of UUID, lowercased.
+    var shortID: String {
+        String(id.uuidString.lowercased().prefix(6))
+    }
+
+    /// Convert to the compact snapshot format used in LLM context.
+    func toAgentContext() -> AgentContextEntry {
+        let agentStatus: AgentEntryStatus = switch status {
+        case .active: .active
+        case .completed: .completed
+        case .archived: .archived
+        case .snoozed: .snoozed
+        }
+
+        return AgentContextEntry(
+            id: shortID,
+            summary: summary,
+            category: category,
+            priority: priority,
+            dueDateDescription: dueDateDescription,
+            cadence: cadence,
+            status: agentStatus,
+            createdAt: createdAt
+        )
+    }
+
+    /// Resolve a short ID prefix back to an Entry from a list.
+    /// Returns nil if zero or 2+ entries match (ambiguous).
+    static func resolve(shortID: String, in entries: [Entry]) -> Entry? {
+        let matches = entries.filter {
+            $0.id.uuidString.lowercased().hasPrefix(shortID.lowercased())
+        }
+        return matches.count == 1 ? matches[0] : nil
+    }
+}
+
 // MARK: - Entry Actions
 
 enum EntryAction {

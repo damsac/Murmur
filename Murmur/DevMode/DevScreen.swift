@@ -5,25 +5,17 @@ enum DevScreen: String, CaseIterable, Identifiable {
     // Onboarding
     case onboardingTranscript = "Onboarding: Transcript"
     case onboardingProcessing = "Onboarding: Processing"
-    case onboardingConfirm = "Onboarding: Confirm"
     case onboardingFlow = "Onboarding: Flow"
 
     // Home
     case void = "Home: Empty"
     case voidRecording = "Recording"
     case voidProcessing = "Processing"
-    case voidConfirm = "Confirm"
-    case voidTextProcessing = "Text Processing"
-    case voidTextConfirm = "Text Confirm"
-    case focusTodo = "Focus Card (Todo)"
-    case focusInsight = "Focus Card (Insight)"
-    case focusDismissed = "Focus Card (Dismissed)"
     case successToast = "Success Toast"
     case homeAI = "Home (AI Composed)"
     case entryDetail = "Entry Detail"
     case entryDetailVariants = "Entry Detail (Variants)"
     case swipeActions = "Swipe Actions"
-    case keyboardOpen = "Keyboard Input"
 
     // Views & Settings
     case viewsGrid = "Views Grid"
@@ -49,11 +41,6 @@ enum DevScreen: String, CaseIterable, Identifiable {
     case emptyReminders = "Empty: Reminders"
     case emptyHome = "Empty: Home"
 
-    // Confirm Flows
-    case confirmCards = "Confirm: Cards Flow"
-    case confirmSingle = "Confirm: Single Item"
-    case voiceCorrection = "Confirm: Voice Correction"
-
     var id: String { rawValue }
 
     @ViewBuilder
@@ -70,31 +57,7 @@ enum DevScreen: String, CaseIterable, Identifiable {
                 )
             case .onboardingProcessing:
                 ProcessingView(
-                    entries: [
-                        ExtractedEntry(
-                            content: "Start capturing ideas as they come up",
-                            category: .todo,
-                            sourceText: "",
-                            summary: "Start capturing ideas as they come up",
-                            priority: 2
-                        )
-                    ],
                     transcript: "hmm I keep forgetting things..."
-                )
-            case .onboardingConfirm:
-                ConfirmView(
-                    entries: [
-                        ExtractedEntry(
-                            content: "Start capturing ideas as they come up",
-                            category: .todo,
-                            sourceText: "",
-                            summary: "Start capturing ideas as they come up",
-                            priority: 2
-                        )
-                    ],
-                    onAccept: {},
-                    onVoiceCorrect: { _ in },
-                    onDiscard: { _ in }
                 )
             case .onboardingFlow:
                 OnboardingFlowView(onComplete: {})
@@ -117,75 +80,7 @@ enum DevScreen: String, CaseIterable, Identifiable {
                 )
             case .voidProcessing:
                 ProcessingView(
-                    entries: [
-                        ExtractedEntry(content: "Pick up dry cleaning", category: .todo, sourceText: "", summary: "Pick up dry cleaning")
-                    ],
                     transcript: "I need to pick up dry cleaning"
-                )
-            case .voidConfirm:
-                ConfirmView(
-                    entries: [
-                        ExtractedEntry(content: "Pick up dry cleaning", category: .todo, sourceText: "", summary: "Pick up dry cleaning")
-                    ],
-                    onAccept: {},
-                    onVoiceCorrect: { _ in },
-                    onDiscard: { _ in }
-                )
-            case .voidTextProcessing:
-                ProcessingView(
-                    entries: [
-                        ExtractedEntry(content: "Call dentist tomorrow", category: .reminder, sourceText: "", summary: "Call dentist tomorrow")
-                    ],
-                    transcript: "Call dentist tomorrow"
-                )
-            case .voidTextConfirm:
-                ConfirmView(
-                    entries: [
-                        ExtractedEntry(content: "Call dentist tomorrow", category: .reminder, sourceText: "", summary: "Call dentist tomorrow")
-                    ],
-                    onAccept: {},
-                    onVoiceCorrect: { _ in },
-                    onDiscard: { _ in }
-                )
-            case .focusTodo:
-                FocusCardView(
-                    entry: Entry(
-                        transcript: "",
-                        content: "Review design mockups and provide feedback",
-                        category: .todo,
-                        sourceText: "",
-                        summary: "Review design mockups and provide feedback",
-                        priority: 1
-                    ),
-                    onMarkDone: {},
-                    onSnooze: {},
-                    onDismiss: {}
-                )
-            case .focusInsight:
-                FocusCardView(
-                    entry: Entry(
-                        transcript: "",
-                        content: "The best interfaces are invisible",
-                        category: .thought,
-                        sourceText: "",
-                        summary: "The best interfaces are invisible"
-                    ),
-                    onMarkDone: nil,
-                    onSnooze: nil,
-                    onDismiss: {}
-                )
-            case .focusDismissed:
-                FocusCardView(
-                    entry: Entry(
-                        transcript: "",
-                        content: "Team standup at 10am",
-                        category: .reminder,
-                        sourceText: "",
-                        summary: "Team standup at 10am"
-                    ),
-                    onMarkDone: {},
-                    onSnooze: {},
-                    onDismiss: {}
                 )
             case .successToast:
                 ZStack {
@@ -252,9 +147,6 @@ enum DevScreen: String, CaseIterable, Identifiable {
                     onSettingsTap: {},
                     onAction: { _, _ in }
                 )
-            case .keyboardOpen:
-                MainTabView()
-
             // Views & Settings
             case .viewsGrid:
                 ViewsGridView(
@@ -359,48 +251,6 @@ enum DevScreen: String, CaseIterable, Identifiable {
             case .emptyHome:
                 EmptyStateView(type: .home, onAction: {})
 
-            // Confirm Flows
-            case .confirmCards:
-                ConfirmCardsView(
-                    transcript: "I need to pick up dry cleaning before six, oh and remind me about the DMV on Thursday",
-                    duration: 12,
-                    items: [
-                        ConfirmItem(category: .todo, summary: "Pick up dry cleaning before 6pm", priority: "High", dueDate: "Today, 6:00 PM"),
-                        ConfirmItem(category: .reminder, summary: "DMV appointment Thursday", priority: nil, dueDate: "In 2 days")
-                    ],
-                    onAccept: { _ in },
-                    onDiscard: { _ in },
-                    onCorrect: { _ in },
-                    onComplete: {}
-                )
-            case .confirmSingle:
-                ConfirmSingleView(
-                    transcript: "Remind me to call the dentist tomorrow morning",
-                    duration: 5,
-                    items: [
-                        ConfirmItem(category: .todo, summary: "Call the dentist", priority: nil, dueDate: "Tomorrow morning")
-                    ],
-                    inputTokens: 82,
-                    outputTokens: 94,
-                    onAccept: {},
-                    onDiscard: {},
-                    onCorrect: { _ in }
-                )
-            case .voiceCorrection:
-                VoiceCorrectionView(
-                    transcript: "...remind me about the DMV on Thursday...",
-                    duration: 12,
-                    items: [
-                        ConfirmItem(category: .todo, summary: "Pick up dry cleaning before 6pm", priority: nil, dueDate: nil),
-                        ConfirmItem(category: .reminder, summary: "DMV appointment Thursday", priority: nil, dueDate: nil),
-                        ConfirmItem(category: .idea, summary: "App that turns grocery receipts into meal plans", priority: nil, dueDate: nil)
-                    ],
-                    editingIndex: 1,
-                    correctionDuration: 3,
-                    correctionTranscript: "Actually it's not Thursday, it's next Friday the",
-                    onFinishCorrection: {},
-                    onCancelCorrection: {}
-                )
             }
         }
         .environment(mockAppState)

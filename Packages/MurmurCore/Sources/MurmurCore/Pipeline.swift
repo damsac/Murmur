@@ -161,6 +161,65 @@ public final class Pipeline {
         }
     }
 
+    // MARK: - Agent Processing
+
+    /// Process text through the agent with existing entry context.
+    /// Returns typed actions (create/update/complete/archive) instead of just extracted entries.
+    public func processWithAgent(
+        transcript: String,
+        existingEntries: [AgentContextEntry],
+        conversation: LLMConversation? = nil
+    ) async throws -> AgentResult {
+        guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw PipelineError.emptyTranscript
+        }
+
+        var authorization: CreditAuthorization?
+        if let creditGate {
+            do {
+                authorization = try await creditGate.authorize()
+            } catch let error as CreditError {
+                switch error {
+                case .insufficientBalance(let current):
+                    throw PipelineError.insufficientCredits(current: current)
+                default:
+                    throw PipelineError.creditAuthorizationFailed(underlying: error)
+                }
+            } catch {
+                throw PipelineError.creditAuthorizationFailed(underlying: error)
+            }
+        }
+
+        let conv = conversation ?? LLMConversation()
+        let response: AgentResponse
+        do {
+            response = try await llm.process(
+                transcript: transcript,
+                existingEntries: existingEntries,
+                conversation: conv
+            )
+        } catch {
+            throw PipelineError.extractionFailed(underlying: error)
+        }
+
+        currentConversation = conv
+
+        var receipt: CreditReceipt?
+        if let creditGate, let authorization {
+            do {
+                receipt = try await creditGate.charge(
+                    authorization,
+                    usage: response.usage,
+                    pricing: llmPricing
+                )
+            } catch {
+                throw PipelineError.creditChargeFailed(underlying: error)
+            }
+        }
+
+        return AgentResult(response: response, receipt: receipt)
+    }
+
     // MARK: - Shared Extraction Helper
 
     /// Extract entries via LLM and return as ExtractedEntry values.
@@ -214,6 +273,17 @@ public final class Pipeline {
 }
 
 // MARK: - Result Types
+
+/// The result of agent processing (create/update/complete/archive actions)
+public struct AgentResult {
+    public let response: AgentResponse
+    public let receipt: CreditReceipt?
+
+    public init(response: AgentResponse, receipt: CreditReceipt? = nil) {
+        self.response = response
+        self.receipt = receipt
+    }
+}
 
 /// The result of a completed recording session
 public struct RecordingResult {

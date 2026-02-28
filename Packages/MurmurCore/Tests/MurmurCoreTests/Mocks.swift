@@ -62,19 +62,40 @@ final class MockLLMService: LLMService, @unchecked Sendable {
     ]
     var errorToThrow: Error?
     var lastReceivedTranscript: String?
+    var lastReceivedExistingEntries: [AgentContextEntry]?
     var lastConversation: LLMConversation?
     var usageToReturn = TokenUsage(inputTokens: 100, outputTokens: 50)
 
-    func extractEntries(from transcript: String, conversation: LLMConversation) async throws -> LLMResult {
+    func process(
+        transcript: String,
+        existingEntries: [AgentContextEntry],
+        conversation: LLMConversation
+    ) async throws -> AgentResponse {
         lastReceivedTranscript = transcript
+        lastReceivedExistingEntries = existingEntries
         lastConversation = conversation
         if let error = errorToThrow {
             throw error
         }
         // Simulate conversation state accumulation (append user + fake assistant)
         conversation.messages.append(["role": "user", "content": transcript])
-        conversation.messages.append(["role": "assistant", "content": "extracted"])
-        return LLMResult(entries: entriesToReturn, usage: usageToReturn)
+        conversation.messages.append(["role": "assistant", "content": "processed"])
+
+        let actions = entriesToReturn.map {
+            AgentAction.create(
+                CreateAction(
+                    content: $0.content,
+                    category: $0.category,
+                    sourceText: $0.sourceText,
+                    summary: $0.summary,
+                    priority: $0.priority,
+                    dueDateDescription: $0.dueDateDescription,
+                    cadence: $0.cadence
+                )
+            )
+        }
+
+        return AgentResponse(actions: actions, summary: "", usage: usageToReturn)
     }
 }
 

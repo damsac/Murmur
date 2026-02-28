@@ -318,6 +318,77 @@ struct PipelineTests {
             try await pricedPipeline.extractFromText("Buy milk")
         }
     }
+
+    // MARK: - Agent Processing
+
+    @Test("processWithAgent returns agent response with actions")
+    func processWithAgentHappyPath() async throws {
+        let context = [
+            AgentContextEntry(id: "abc123", summary: "Buy groceries", category: .todo),
+        ]
+        let result = try await pipeline.processWithAgent(
+            transcript: "I got the groceries",
+            existingEntries: context
+        )
+
+        #expect(result.response.actions.count == 2)
+        #expect(llm.lastReceivedTranscript == "I got the groceries")
+        #expect(llm.lastReceivedExistingEntries?.count == 1)
+        #expect(llm.lastReceivedExistingEntries?.first?.id == "abc123")
+        #expect(pipeline.currentConversation != nil)
+    }
+
+    @Test("processWithAgent with empty transcript throws")
+    func processWithAgentEmptyTranscript() async throws {
+        await #expect(throws: PipelineError.self) {
+            try await pipeline.processWithAgent(transcript: "  ", existingEntries: [])
+        }
+    }
+
+    @Test("processWithAgent charges credits")
+    func processWithAgentCredits() async throws {
+        let pricing = ServicePricing(
+            inputUSDPer1MMicros: 1_000_000,
+            outputUSDPer1MMicros: 5_000_000,
+            minimumChargeCredits: 1
+        )
+        let pricedPipeline = Pipeline(
+            transcriber: transcriber,
+            llm: llm,
+            creditGate: creditGate,
+            llmPricing: pricing
+        )
+
+        let result = try await pricedPipeline.processWithAgent(
+            transcript: "Buy milk",
+            existingEntries: []
+        )
+
+        #expect(creditGate.authorizeCalled == true)
+        #expect(creditGate.chargeCalled == true)
+        #expect(result.receipt != nil)
+    }
+
+    @Test("processWithAgent retains conversation for multi-turn")
+    func processWithAgentMultiTurn() async throws {
+        let conversation = LLMConversation()
+
+        _ = try await pipeline.processWithAgent(
+            transcript: "Add buy milk",
+            existingEntries: [],
+            conversation: conversation
+        )
+        let msgCount1 = conversation.messages.count
+
+        _ = try await pipeline.processWithAgent(
+            transcript: "Actually make it eggs",
+            existingEntries: [],
+            conversation: conversation
+        )
+
+        #expect(conversation.messages.count > msgCount1)
+        #expect(pipeline.currentConversation === conversation)
+    }
 }
 
 @Suite("Enums")

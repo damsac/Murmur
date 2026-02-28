@@ -31,7 +31,7 @@ struct PPQLLMServiceTests {
                             "id": "call_abc",
                             "type": "function",
                             "function": {
-                                "name": "extract_entries",
+                                "name": "create_entries",
                                 "arguments": "\(escapedArgs)"
                             }
                         }]
@@ -86,7 +86,7 @@ struct PPQLLMServiceTests {
                     "message": {
                         "tool_calls": [{
                             "function": {
-                                "name": "extract_entries",
+                                "name": "create_entries",
                                 "arguments": "\(escapedArgs)"
                             }
                         }]
@@ -118,7 +118,7 @@ struct PPQLLMServiceTests {
                     "message": {
                         "tool_calls": [{
                             "function": {
-                                "name": "extract_entries",
+                                "name": "create_entries",
                                 "arguments": "{\\"entries\\":[{\\"content\\":\\"Buy milk\\",\\"category\\":\\"todo\\",\\"source_text\\":\\"buy milk\\"}]}"
                             }
                         }]
@@ -151,7 +151,7 @@ struct PPQLLMServiceTests {
         }
     }
 
-    @Test("Throws on missing tool calls")
+    @Test("Returns empty entries when LLM responds with text only (no tool calls)")
     func noToolCalls() async throws {
         let responseJSON = """
             {
@@ -165,10 +165,31 @@ struct PPQLLMServiceTests {
             """
 
         let (service, _) = makeService(responseBody: responseJSON, statusCode: 200)
+        let result = try await service.extractEntries(from: "test", conversation: LLMConversation())
+        #expect(result.entries.isEmpty)
+    }
 
-        await #expect(throws: PPQError.self) {
-            try await service.extractEntries(from: "test", conversation: LLMConversation())
-        }
+    @Test("Agent process returns text summary when no tool calls")
+    func agentTextOnlyResponse() async throws {
+        let responseJSON = """
+            {
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "I didn't find any actionable items in that."
+                    }
+                }]
+            }
+            """
+
+        let (service, _) = makeService(responseBody: responseJSON, statusCode: 200)
+        let response = try await service.process(
+            transcript: "um uh hmm",
+            existingEntries: [],
+            conversation: LLMConversation()
+        )
+        #expect(response.actions.isEmpty)
+        #expect(response.summary == "I didn't find any actionable items in that.")
     }
 
     @Test("Multi-turn conversation accumulates message history")
@@ -183,7 +204,7 @@ struct PPQLLMServiceTests {
                             "id": "call_1",
                             "type": "function",
                             "function": {
-                                "name": "extract_entries",
+                                "name": "create_entries",
                                 "arguments": "{\\"entries\\":[{\\"content\\":\\"Buy milk\\",\\"category\\":\\"todo\\",\\"source_text\\":\\"buy milk\\"}]}"
                             }
                         }]
@@ -235,7 +256,7 @@ struct PPQLLMServiceTests {
                     "message": {
                         "tool_calls": [{
                             "function": {
-                                "name": "extract_entries",
+                                "name": "create_entries",
                                 "arguments": "{\\"entries\\":[]}"
                             }
                         }]
@@ -269,7 +290,99 @@ struct PPQLLMServiceTests {
         let tools = try #require(json["tools"] as? [[String: Any]])
         #expect(tools.count == 1)
         let function = (tools[0]["function"] as? [String: Any])
-        #expect(function?["name"] as? String == "extract_entries")
+        #expect(function?["name"] as? String == "create_entries")
+    }
+
+    @Test("Parses agent tools into typed update/complete/archive actions")
+    func parsesAgentActions() async throws {
+        let updateArgs = """
+        {"updates":[{"id":"abc123","fields":{"priority":1,"due_date":"Friday","status":"snoozed","snooze_until":"Friday 9am"},"reason":"User moved and snoozed this"}]}
+        """.trimmingCharacters(in: .whitespacesAndNewlines)
+        let completeArgs = """
+        {"entries":[{"id":"def456","reason":"User said this is done"}]}
+        """.trimmingCharacters(in: .whitespacesAndNewlines)
+        let archiveArgs = """
+        {"entries":[{"id":"ghi789","reason":"No longer relevant"}]}
+        """.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let escapedUpdate = updateArgs.replacingOccurrences(of: "\"", with: "\\\"")
+        let escapedComplete = completeArgs.replacingOccurrences(of: "\"", with: "\\\"")
+        let escapedArchive = archiveArgs.replacingOccurrences(of: "\"", with: "\\\"")
+
+        let responseJSON = """
+            {
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": null,
+                        "tool_calls": [
+                            {
+                                "id": "call_upd",
+                                "type": "function",
+                                "function": {
+                                    "name": "update_entries",
+                                    "arguments": "\(escapedUpdate)"
+                                }
+                            },
+                            {
+                                "id": "call_comp",
+                                "type": "function",
+                                "function": {
+                                    "name": "complete_entries",
+                                    "arguments": "\(escapedComplete)"
+                                }
+                            },
+                            {
+                                "id": "call_arch",
+                                "type": "function",
+                                "function": {
+                                    "name": "archive_entries",
+                                    "arguments": "\(escapedArchive)"
+                                }
+                            }
+                        ]
+                    }
+                }]
+            }
+            """
+
+        let (service, _) = makeService(responseBody: responseJSON, statusCode: 200)
+        let response = try await service.process(
+            transcript: "Move dentist to Friday, mark groceries done, archive old idea",
+            existingEntries: [
+                AgentContextEntry(id: "abc123", summary: "Call dentist", category: .reminder),
+                AgentContextEntry(id: "def456", summary: "Buy groceries", category: .todo),
+                AgentContextEntry(id: "ghi789", summary: "Old app idea", category: .idea),
+            ],
+            conversation: LLMConversation()
+        )
+
+        #expect(response.actions.count == 3)
+
+        if case .update(let action) = response.actions[0] {
+            #expect(action.id == "abc123")
+            #expect(action.fields.priority == 1)
+            #expect(action.fields.dueDateDescription == "Friday")
+            #expect(action.fields.status == .snoozed)
+            #expect(action.fields.snoozeUntilDescription == "Friday 9am")
+            #expect(action.reason == "User moved and snoozed this")
+        } else {
+            Issue.record("Expected update action")
+        }
+
+        if case .complete(let action) = response.actions[1] {
+            #expect(action.id == "def456")
+            #expect(action.reason == "User said this is done")
+        } else {
+            Issue.record("Expected complete action")
+        }
+
+        if case .archive(let action) = response.actions[2] {
+            #expect(action.id == "ghi789")
+            #expect(action.reason == "No longer relevant")
+        } else {
+            Issue.record("Expected archive action")
+        }
     }
 
     // MARK: - Helpers

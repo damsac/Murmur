@@ -170,8 +170,6 @@ struct DevComponentDetailView: View {
             RecordingOverlayGallery()
         case .processingOverlay:
             ProcessingOverlayGallery()
-        case .focusOverlay:
-            FocusOverlayGallery()
         case .navHeader:
             NavHeaderGallery()
         case .settingsRow:
@@ -180,8 +178,6 @@ struct DevComponentDetailView: View {
             EntryCardGallery()
         case .reminderCard:
             ReminderCardGallery()
-        case .confirmItemCard:
-            ConfirmItemCardGallery()
         case .todoListItem:
             TodoListItemGallery()
         }
@@ -594,63 +590,13 @@ private struct RecordingOverlayGallery: View {
 
 private struct ProcessingOverlayGallery: View {
     var body: some View {
-        GallerySection(title: "With Cards") {
+        GallerySection(title: "Default") {
             ProcessingOverlay(
-                entries: [
-                    ExtractedEntry(content: "Pick up dry cleaning before 6pm", category: .todo, sourceText: "", summary: "Pick up dry cleaning before 6pm", priority: 1),
-                    ExtractedEntry(content: "The best interfaces are invisible", category: .thought, sourceText: "", summary: "The best interfaces are invisible"),
-                ],
                 transcript: "I need to pick up dry cleaning, and I had this thought about interfaces"
             )
             .frame(height: 500)
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .padding(.horizontal, Theme.Spacing.screenPadding)
-        }
-    }
-}
-
-// MARK: - FocusOverlay Gallery
-
-private struct FocusOverlayGallery: View {
-    @State private var category: EntryCategory = .todo
-
-    var body: some View {
-        GallerySection(title: "Category") {
-            Picker("Category", selection: $category) {
-                Text("Todo").tag(EntryCategory.todo)
-                Text("Thought").tag(EntryCategory.thought)
-                Text("Idea").tag(EntryCategory.idea)
-                Text("Reminder").tag(EntryCategory.reminder)
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, Theme.Spacing.screenPadding)
-        }
-
-        FocusOverlay(
-            entry: Entry(
-                transcript: "",
-                content: focusSummary(for: category),
-                category: category,
-                sourceText: "",
-                summary: focusSummary(for: category),
-                priority: category == .todo ? 1 : 3
-            ),
-            onMarkDone: (category == .todo || category == .reminder) ? {} : nil,
-            onSnooze: (category == .todo || category == .reminder) ? {} : nil,
-            onDismiss: {}
-        )
-        .frame(height: 500)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .padding(.horizontal, Theme.Spacing.screenPadding)
-    }
-
-    private func focusSummary(for category: EntryCategory) -> String {
-        switch category {
-        case .todo: return "Review design mockups and provide feedback"
-        case .thought: return "The best interfaces are invisible"
-        case .idea: return "Build a browser extension for quick voice notes"
-        case .reminder: return "Team standup at 10am tomorrow"
-        default: return "Sample entry for \(category.displayName)"
         }
     }
 }
@@ -870,52 +816,6 @@ private struct ReminderCardGallery: View {
                         dueDate: Date().addingTimeInterval(-86400)
                     ),
                     onTap: nil
-                )
-            }
-            .padding(.horizontal, Theme.Spacing.screenPadding)
-        }
-    }
-}
-
-// MARK: - ConfirmItemCard Gallery
-
-private struct ConfirmItemCardGallery: View {
-    var body: some View {
-        GallerySection(title: "Categories") {
-            VStack(spacing: 16) {
-                ConfirmItemCard(
-                    entry: ExtractedEntry(
-                        content: "Review the new design system and provide feedback to the team by end of week",
-                        category: .todo,
-                        sourceText: "",
-                        summary: "Review the new design system and provide feedback to the team by end of week",
-                        priority: 1
-                    ),
-                    onVoiceCorrect: {},
-                    onDiscard: {}
-                )
-
-                ConfirmItemCard(
-                    entry: ExtractedEntry(
-                        content: "The best interfaces are invisible - they get out of the way",
-                        category: .thought,
-                        sourceText: "",
-                        summary: "The best interfaces are invisible - they get out of the way"
-                    ),
-                    onVoiceCorrect: {},
-                    onDiscard: {}
-                )
-
-                ConfirmItemCard(
-                    entry: ExtractedEntry(
-                        content: "Build a browser extension for quick voice notes",
-                        category: .idea,
-                        sourceText: "",
-                        summary: "Build a browser extension for quick voice notes",
-                        priority: 3
-                    ),
-                    onVoiceCorrect: {},
-                    onDiscard: {}
                 )
             }
             .padding(.horizontal, Theme.Spacing.screenPadding)

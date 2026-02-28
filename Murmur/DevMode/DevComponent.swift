@@ -41,7 +41,6 @@ enum DevComponent: String, CaseIterable, Identifiable {
     // Overlays
     case recordingOverlay = "RecordingOverlay"
     case processingOverlay = "ProcessingOverlay"
-    case focusOverlay = "FocusOverlay"
 
     // Navigation
     case navHeader = "NavHeader"
@@ -50,7 +49,6 @@ enum DevComponent: String, CaseIterable, Identifiable {
     // Cards
     case entryCard = "EntryCard"
     case reminderCard = "ReminderEntryCard"
-    case confirmItemCard = "ConfirmItemCard"
     case todoListItem = "TodoListItem"
 
     var id: String { rawValue }
@@ -61,11 +59,11 @@ enum DevComponent: String, CaseIterable, Identifiable {
             return .input
         case .categoryBadge, .tokenBalance, .toastView, .waveformView, .pulsingMic:
             return .display
-        case .recordingOverlay, .processingOverlay, .focusOverlay:
+        case .recordingOverlay, .processingOverlay:
             return .overlay
         case .navHeader, .settingsRow:
             return .navigation
-        case .entryCard, .reminderCard, .confirmItemCard, .todoListItem:
+        case .entryCard, .reminderCard, .todoListItem:
             return .cards
         }
     }
@@ -82,13 +80,11 @@ enum DevComponent: String, CaseIterable, Identifiable {
         case .waveformView: return "Audio waveform with animating/frozen states"
         case .pulsingMic: return "Animated pulsing rings around mic"
         case .recordingOverlay: return "Full-screen recording with transcript"
-        case .processingOverlay: return "Spinner with materializing cards"
-        case .focusOverlay: return "Modal showing single entry with actions"
+        case .processingOverlay: return "Spinner with processing animation"
         case .navHeader: return "Top bar with title, back, and actions"
         case .settingsRow: return "Settings menu row with icon and value"
         case .entryCard: return "Card with summary, metadata, and category"
         case .reminderCard: return "Entry card with yellow accent and due date"
-        case .confirmItemCard: return "Card with Voice Correct / Discard actions"
         case .todoListItem: return "Checkbox item with swipe actions"
         }
     }

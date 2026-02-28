@@ -8,168 +8,308 @@ public final class LLMConversation: @unchecked Sendable {
     public init() {}
 }
 
-/// Configuration for LLM extraction: system prompt + tool definitions.
+public enum LLMToolChoice: Sendable {
+    case auto
+    case function(name: String)
+
+    var requestBodyValue: Any {
+        switch self {
+        case .auto:
+            return "auto"
+        case .function(let name):
+            return ["type": "function", "function": ["name": name]]
+        }
+    }
+}
+
+/// Configuration for LLM extraction/agent turns: system prompt + tool definitions.
 /// Define once, pass to any LLMService implementation.
 public struct LLMPrompt: @unchecked Sendable {
     public let systemPrompt: String
     public let tools: [[String: Any]]
-    public let toolChoice: [String: Any]
+    public let toolChoice: LLMToolChoice
 
-    public init(systemPrompt: String, tools: [[String: Any]], toolChoice: [String: Any]) {
+    public init(systemPrompt: String, tools: [[String: Any]], toolChoice: LLMToolChoice) {
         self.systemPrompt = systemPrompt
         self.tools = tools
         self.toolChoice = toolChoice
     }
 
-    /// Default prompt for extracting entries from voice transcripts.
-    public static let entryExtraction = LLMPrompt(
+    /// Agentic entry manager prompt (phase one): create/update/complete/archive tools.
+    public static let entryManager = LLMPrompt(
         systemPrompt: """
-            You are an extraction assistant for a voice-to-entries app. \
-            The user provides transcribed speech (from Apple Speech-to-Text). \
-            \
-            TRANSCRIPTION AWARENESS: \
-            The transcript comes from automatic speech recognition and WILL contain errors. \
-            Proper nouns, names, technical terms, and uncommon words are frequently \
-            mistranscribed as similar-sounding common words. Use context to infer the \
-            intended meaning. For example: a person's name transcribed as a common word, \
-            a brand name split into separate words, or technical jargon simplified. \
-            Always clean up and correct likely transcription errors in the content you produce. \
-            If the speaker corrects themselves ("actually not X, I mean Y"), use only the corrected version. \
-            \
-            EXTRACTION RULES: \
-            Extract actionable items, notes, reminders, ideas, lists, habits, questions, \
-            and thoughts that the speaker intentionally wants to record or revisit. \
-            Skip conversational filler, small talk, rhetorical musings, and casual observations \
-            that nobody would want stored as a card. \
-            If the speaker mentions the same item multiple times in different words, \
-            merge them into a single entry using the most detailed or final version. \
-            Use the provided tool to return the extracted items. \
-            Each item should have cleaned/structured content, an appropriate category, \
-            the relevant source text from the transcript, and a short summary \
-            (10 words or fewer — think card title, not description). \
-            \
-            CONTENT STYLE: \
-            Content should read like a concise card or sticky note, not a sentence from an essay. \
-            Write in a natural, human voice — the way someone would jot a quick note to themselves. \
-            Do NOT echo urgency or priority language in the content \
-            (e.g. don't write "This is urgent" or "(urgent)" — that's what the priority field is for). \
-            Do NOT include meta-commentary like "This is important" or "Absolutely must do this". \
-            Keep useful context (e.g. "leak has been going on for 2 weeks") but drop emotional emphasis. \
-            No trailing periods on short card-style content. \
-            \
-            PRIORITY: \
-            For actionable items (todos, reminders), assign a priority from 1 (highest) to 5 (lowest). \
-            Priority reflects a combination of importance and urgency. \
-            Items due sooner should generally receive higher priority \
-            unless the speaker explicitly indicates otherwise (e.g. "low priority but do it today"). \
-            Interpret verbal cues: "highest priority" / "critical" / "most urgent" → P1. \
-            "high priority" / "really urgent" / "important" → P1. \
-            "normal" / no urgency cue → P3. \
-            "low priority" / "when I get a chance" → P4. \
-            "eventually" / "someday" / "no rush" → P5. \
-            When the user explicitly says "high priority" or "mark it urgent", use P1. \
-            \
-            DUE DATES: \
-            If the text mentions a time or date phrase (e.g. "next Thursday", "in two hours", \
-            "by end of week"), extract it verbatim into the due_date field. \
-            Only include due_date if there is an explicit time reference. \
-            IMPORTANT: Distinguish between TASK deadlines and EVENT dates. \
-            If a time phrase describes when a related event occurs (a BBQ, conference, party, etc.) \
-            and the task is something to do BEFORE that event \
-            (e.g. "DM Jake about the BBQ Saturday", "book flights for the conference in two weeks"), \
-            do NOT use the event date as due_date — omit due_date entirely for these. \
-            Only set due_date when the time phrase is the actual deadline for completing the task. \
-            \
-            CATEGORIES: \
-            Use "reminder" for anything time-bound the speaker wants to remember \
-            (appointments, meetings, deadlines they might forget). \
-            Only use "question" for things the speaker genuinely wants answered or looked up, \
-            not rhetorical musings or wondering aloud. \
-            Only use "thought" for reflections the speaker seems to intentionally want to capture, \
-            not passing observations. \
-            \
-            HABIT CADENCE: \
-            For habit entries, include cadence (daily / weekdays / weekly / monthly). \
-            Infer from phrasing: "every day" / "every morning" / "daily" → daily; \
-            "on weekdays" / "Monday through Friday" → weekdays; \
-            "every week" / "weekly" / "once a week" → weekly; \
-            "once a month" / "monthly" → monthly. \
-            Omit cadence for non-habit entries. \
-            \
-            MULTI-TURN REFINEMENT: \
-            In follow-up messages, the user may ask you to modify your previous extraction. \
-            They are speaking conversationally — things like "change the first one", \
-            "remove that reminder", "make it higher priority", "add a note about X". \
-            The speech-to-text will often garble names and references to your previous entries. \
-            Use fuzzy/semantic matching to figure out which entry they mean. \
-            Apply their changes, keep everything they didn't mention, add anything new, \
-            and return the complete updated list.
+            You are Murmur, a personal entry manager for voice input.
+
+            You receive:
+            1) A compact list of current entries (may be empty)
+            2) New user transcript text from speech recognition (contains transcription errors)
+
+            Your job is to decide which actions to take using tools:
+            - create_entries: add genuinely new entries
+            - update_entries: modify existing entry fields (including snooze via status + snooze_until)
+            - complete_entries: mark entries done
+            - archive_entries: remove no-longer-relevant entries
+
+            Decision rules:
+            - Prefer updating/completing existing entries over creating duplicates.
+            - Use fuzzy semantic matching for references ("that one", "the dentist thing", garbled names).
+            - If user says done/finished/completed, use complete_entries.
+            - If user changes timing/priority/details, use update_entries.
+            - Only create when intent is genuinely new.
+            - If no current entries are provided, create_entries is usually appropriate.
+
+            Create entry quality rules:
+            - Produce concise card-style content, not long prose.
+            - summary should be 10 words or fewer.
+            - Keep due_date and snooze_until as the user's natural language phrase.
+            - For habits, set cadence to daily/weekdays/weekly/monthly when clear.
+            - Do not include urgency words in content when priority captures urgency.
+
+            Mutation rules:
+            - Every update/complete/archive item must include a short reason.
+            - Use the provided entry id exactly as given in context.
+
+            Output rules:
+            - Use tool calls only.
+            - Call multiple tools when needed.
+            - Do not ask clarifying questions; take the best action.
             """,
         tools: [
-            [
-                "type": "function",
-                "function": [
-                    "name": "extract_entries",
-                    "description": "Extract structured entries from a voice transcript",
-                    "parameters": [
-                        "type": "object",
-                        "properties": [
-                            "entries": [
-                                "type": "array",
-                                "items": [
-                                    "type": "object",
-                                    "properties": [
-                                        "content": [
-                                            "type": "string",
-                                            "description": "The cleaned, structured content of the entry",
-                                        ],
-                                        "category": [
-                                            "type": "string",
-                                            "enum": ["todo", "note", "reminder", "idea", "list", "habit", "question", "thought"],
-                                            // swiftlint:disable:next line_length
-                                            "description": "The category: todo (actionable task), note (informational), reminder (time-bound), idea (creative/conceptual), list (multi-item), habit (recurring behavior), question (genuinely wants answered — not rhetorical), thought (intentional reflection — not small talk)",
-                                        ],
-                                        "source_text": [
-                                            "type": "string",
-                                            "description": "The relevant portion of the original transcript this was extracted from",
-                                        ],
-                                        "summary": [
-                                            "type": "string",
-                                            "description": "Card title, 10 words or fewer (e.g. 'Buy groceries', 'Dentist appointment Thursday')",
-                                        ],
-                                        "priority": [
-                                            "type": "integer",
-                                            "description": "Priority 1-5 (1=highest). Reflects importance + urgency. Sooner deadline = higher priority unless speaker says otherwise.",
-                                        ],
-                                        "due_date": [
-                                            "type": "string",
-                                            "description": "Verbatim time/date phrase from the transcript, if any (e.g. 'next Thursday', 'by Friday')",
-                                        ],
-                                        "cadence": [
-                                            "type": "string",
-                                            "enum": ["daily", "weekdays", "weekly", "monthly"],
-                                            "description": "For habit entries only: how often the habit repeats. Omit for non-habits.",
-                                        ],
-                                    ] as [String: Any],
-                                    "required": ["content", "category", "source_text", "summary"],
-                                ] as [String: Any],
-                            ] as [String: Any],
-                        ],
-                        "required": ["entries"],
-                    ] as [String: Any],
-                ] as [String: Any],
-            ]
+            createEntriesToolSchema(),
+            updateEntriesToolSchema(),
+            completeEntriesToolSchema(),
+            archiveEntriesToolSchema(),
         ],
-        toolChoice: ["type": "function", "function": ["name": "extract_entries"]]
+        toolChoice: .auto
     )
+
+    /// Backward-compatible extraction prompt for current UI flow.
+    /// Uses only create_entries so existing confirm/save UI still works.
+    public static let entryCreation = LLMPrompt(
+        systemPrompt: """
+            You are an extraction assistant for a voice-to-entries app.
+
+            The transcript comes from speech recognition and can contain errors.
+            Infer intended meaning and clean up wording.
+
+            Extract intentional items the user wants to track (todo, reminder, note,
+            idea, list, habit, question, thought). Skip filler and small talk.
+
+            Return only create_entries tool calls. Each entry should include:
+            - content: concise card text
+            - category
+            - source_text: relevant transcript span
+            - summary: 10 words or fewer
+            Optional: priority (1-5), due_date (verbatim phrase), cadence (for habits)
+            """,
+        tools: [createEntriesToolSchema()],
+        toolChoice: .function(name: "create_entries")
+    )
+
+    @available(*, deprecated, message: "Use entryManager or entryCreation")
+    public static let entryExtraction = entryCreation
 }
 
-/// A service that uses an LLM to extract and categorize entries from transcripts.
-public protocol LLMService: Sendable {
+/// Agent-facing status for context snapshots and update fields.
+public enum AgentEntryStatus: String, Codable, Sendable, CaseIterable {
+    case active
+    case completed
+    case archived
+    case snoozed
+}
+
+/// Compact entry snapshot passed into the LLM context.
+public struct AgentContextEntry: Sendable, Codable, Identifiable {
+    public let id: String
+    public let summary: String
+    public let category: EntryCategory
+    public let priority: Int?
+    public let dueDateDescription: String?
+    public let cadence: HabitCadence?
+    public let status: AgentEntryStatus
+    public let createdAt: Date
+
+    public init(
+        id: String,
+        summary: String,
+        category: EntryCategory,
+        priority: Int? = nil,
+        dueDateDescription: String? = nil,
+        cadence: HabitCadence? = nil,
+        status: AgentEntryStatus = .active,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.summary = summary
+        self.category = category
+        self.priority = priority
+        self.dueDateDescription = dueDateDescription
+        self.cadence = cadence
+        self.status = status
+        self.createdAt = createdAt
+    }
+}
+
+public struct CreateAction: Sendable {
+    public let content: String
+    public let category: EntryCategory
+    public let sourceText: String
+    public let summary: String
+    public let priority: Int?
+    public let dueDateDescription: String?
+    public let cadence: HabitCadence?
+
+    public init(
+        content: String,
+        category: EntryCategory,
+        sourceText: String,
+        summary: String,
+        priority: Int? = nil,
+        dueDateDescription: String? = nil,
+        cadence: HabitCadence? = nil
+    ) {
+        self.content = content
+        self.category = category
+        self.sourceText = sourceText
+        self.summary = summary
+        self.priority = priority
+        self.dueDateDescription = dueDateDescription
+        self.cadence = cadence
+    }
+}
+
+public struct UpdateFields: Sendable {
+    public let content: String?
+    public let summary: String?
+    public let category: EntryCategory?
+    public let priority: Int?
+    public let dueDateDescription: String?
+    public let cadence: HabitCadence?
+    public let status: AgentEntryStatus?
+    public let snoozeUntilDescription: String?
+
+    public init(
+        content: String? = nil,
+        summary: String? = nil,
+        category: EntryCategory? = nil,
+        priority: Int? = nil,
+        dueDateDescription: String? = nil,
+        cadence: HabitCadence? = nil,
+        status: AgentEntryStatus? = nil,
+        snoozeUntilDescription: String? = nil
+    ) {
+        self.content = content
+        self.summary = summary
+        self.category = category
+        self.priority = priority
+        self.dueDateDescription = dueDateDescription
+        self.cadence = cadence
+        self.status = status
+        self.snoozeUntilDescription = snoozeUntilDescription
+    }
+}
+
+public struct UpdateAction: Sendable {
+    public let id: String
+    public let fields: UpdateFields
+    public let reason: String
+
+    public init(id: String, fields: UpdateFields, reason: String) {
+        self.id = id
+        self.fields = fields
+        self.reason = reason
+    }
+}
+
+public struct CompleteAction: Sendable {
+    public let id: String
+    public let reason: String
+
+    public init(id: String, reason: String) {
+        self.id = id
+        self.reason = reason
+    }
+}
+
+public struct ArchiveAction: Sendable {
+    public let id: String
+    public let reason: String
+
+    public init(id: String, reason: String) {
+        self.id = id
+        self.reason = reason
+    }
+}
+
+/// Typed actions produced by the agent.
+public enum AgentAction: Sendable {
+    case create(CreateAction)
+    case update(UpdateAction)
+    case complete(CompleteAction)
+    case archive(ArchiveAction)
+}
+
+public extension AgentAction {
+    var createdEntry: ExtractedEntry? {
+        guard case .create(let action) = self else {
+            return nil
+        }
+
+        return ExtractedEntry(
+            content: action.content,
+            category: action.category,
+            sourceText: action.sourceText,
+            summary: action.summary,
+            priority: action.priority,
+            dueDateDescription: action.dueDateDescription,
+            cadence: action.cadence
+        )
+    }
+}
+
+/// The agent response for a single turn.
+public struct AgentResponse: Sendable {
+    public let actions: [AgentAction]
+    public let summary: String
+    public let usage: TokenUsage
+
+    public init(actions: [AgentAction], summary: String, usage: TokenUsage) {
+        self.actions = actions
+        self.summary = summary
+        self.usage = usage
+    }
+}
+
+/// Protocol for the entry-management agent.
+public protocol MurmurAgent: Sendable {
+    func process(
+        transcript: String,
+        existingEntries: [AgentContextEntry],
+        conversation: LLMConversation
+    ) async throws -> AgentResponse
+}
+
+/// LLM-backed implementation contract.
+/// Keeps extractEntries for current UI compatibility.
+public protocol LLMService: MurmurAgent {
     /// Extract entries from a transcript with auto-categorization.
-    /// The conversation accumulates message history across calls —
-    /// pass the same instance for multi-turn refinement.
+    /// This is a compatibility method for current extraction-first UI flows.
     func extractEntries(from transcript: String, conversation: LLMConversation) async throws -> LLMResult
+}
+
+public extension LLMService {
+    func extractEntries(from transcript: String, conversation: LLMConversation) async throws -> LLMResult {
+        let response = try await process(
+            transcript: transcript,
+            existingEntries: [],
+            conversation: conversation
+        )
+
+        return LLMResult(
+            entries: response.actions.compactMap(\.createdEntry),
+            usage: response.usage
+        )
+    }
 }
 
 public struct LLMResult: Sendable {
@@ -241,5 +381,160 @@ public struct ExtractedEntry: Sendable, Codable, Identifiable {
         self.priority = priority
         self.dueDateDescription = dueDateDescription
         self.cadence = cadence
+    }
+}
+
+private extension LLMPrompt {
+    static func createEntriesToolSchema() -> [String: Any] {
+        [
+            "type": "function",
+            "function": [
+                "name": "create_entries",
+                "description": "Create new entries from user intent",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "entries": [
+                            "type": "array",
+                            "items": [
+                                "type": "object",
+                                "properties": [
+                                    "content": [
+                                        "type": "string",
+                                        "description": "Cleaned, concise entry content",
+                                    ],
+                                    "category": [
+                                        "type": "string",
+                                        "enum": ["todo", "note", "reminder", "idea", "list", "habit", "question", "thought"],
+                                    ],
+                                    "source_text": [
+                                        "type": "string",
+                                        "description": "Relevant source span from transcript",
+                                    ],
+                                    "summary": [
+                                        "type": "string",
+                                        "description": "Card title, 10 words or fewer",
+                                    ],
+                                    "priority": ["type": "integer"],
+                                    "due_date": ["type": "string"],
+                                    "cadence": [
+                                        "type": "string",
+                                        "enum": ["daily", "weekdays", "weekly", "monthly"],
+                                    ],
+                                ] as [String: Any],
+                                "required": ["content", "category", "source_text", "summary"],
+                            ] as [String: Any],
+                        ] as [String: Any],
+                    ],
+                    "required": ["entries"],
+                ] as [String: Any],
+            ] as [String: Any],
+        ]
+    }
+
+    static func updateEntriesToolSchema() -> [String: Any] {
+        [
+            "type": "function",
+            "function": [
+                "name": "update_entries",
+                "description": "Update one or more existing entries",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "updates": [
+                            "type": "array",
+                            "items": [
+                                "type": "object",
+                                "properties": [
+                                    "id": ["type": "string"],
+                                    "fields": [
+                                        "type": "object",
+                                        "properties": [
+                                            "content": ["type": "string"],
+                                            "summary": ["type": "string"],
+                                            "category": [
+                                                "type": "string",
+                                                "enum": ["todo", "note", "reminder", "idea", "list", "habit", "question", "thought"],
+                                            ],
+                                            "priority": ["type": "integer"],
+                                            "due_date": ["type": "string"],
+                                            "cadence": [
+                                                "type": "string",
+                                                "enum": ["daily", "weekdays", "weekly", "monthly"],
+                                            ],
+                                            "status": [
+                                                "type": "string",
+                                                "enum": ["active", "snoozed", "completed", "archived"],
+                                            ],
+                                            "snooze_until": ["type": "string"],
+                                        ] as [String: Any],
+                                    ],
+                                    "reason": [
+                                        "type": "string",
+                                        "description": "Why this update is being applied",
+                                    ],
+                                ] as [String: Any],
+                                "required": ["id", "fields", "reason"],
+                            ] as [String: Any],
+                        ] as [String: Any],
+                    ],
+                    "required": ["updates"],
+                ] as [String: Any],
+            ] as [String: Any],
+        ]
+    }
+
+    static func completeEntriesToolSchema() -> [String: Any] {
+        [
+            "type": "function",
+            "function": [
+                "name": "complete_entries",
+                "description": "Mark one or more existing entries as completed",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "entries": [
+                            "type": "array",
+                            "items": [
+                                "type": "object",
+                                "properties": [
+                                    "id": ["type": "string"],
+                                    "reason": ["type": "string"],
+                                ] as [String: Any],
+                                "required": ["id", "reason"],
+                            ] as [String: Any],
+                        ] as [String: Any],
+                    ],
+                    "required": ["entries"],
+                ] as [String: Any],
+            ] as [String: Any],
+        ]
+    }
+
+    static func archiveEntriesToolSchema() -> [String: Any] {
+        [
+            "type": "function",
+            "function": [
+                "name": "archive_entries",
+                "description": "Archive one or more existing entries",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "entries": [
+                            "type": "array",
+                            "items": [
+                                "type": "object",
+                                "properties": [
+                                    "id": ["type": "string"],
+                                    "reason": ["type": "string"],
+                                ] as [String: Any],
+                                "required": ["id", "reason"],
+                            ] as [String: Any],
+                        ] as [String: Any],
+                    ],
+                    "required": ["entries"],
+                ] as [String: Any],
+            ] as [String: Any],
+        ]
     }
 }

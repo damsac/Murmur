@@ -18,6 +18,7 @@ struct HomeView: View {
     @State private var pulseOpacity1: Double = 1.0
     @State private var pulseOpacity2: Double = 0.7
     @State private var pulseOpacity3: Double = 0.5
+    @State private var activeSwipeEntryID: UUID?
 
     var body: some View {
         if entries.isEmpty {
@@ -134,11 +135,28 @@ struct HomeView: View {
             .padding(.top, 20)
             .padding(.bottom, 16)
 
-            // Scrollable cards
+            // Daily brief
+            if !dailyBrief.isEmpty {
+                Text(dailyBrief)
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Theme.Spacing.screenPadding)
+                    .padding(.bottom, 4)
+            }
+
+            // Flat smart list
             ScrollView {
-                VStack(spacing: 16) {
-                    ForEach(composedCards, id: \.id) { card in
-                        cardView(for: card)
+                LazyVStack(spacing: 12) {
+                    ForEach(sortedEntries) { entry in
+                        SwipeableCard(
+                            actions: swipeActions(for: entry),
+                            activeSwipeID: $activeSwipeEntryID,
+                            entryID: entry.id,
+                            onTap: { onEntryTap(entry) }
+                        ) {
+                            SmartListRow(entry: entry)
+                        }
                     }
                 }
                 .padding(.horizontal, Theme.Spacing.screenPadding)
@@ -160,274 +178,136 @@ struct HomeView: View {
         Self.dateFormatter.string(from: Date())
     }
 
-    private var composedCards: [HomeCard] {
-        var cards: [HomeCard] = []
-
-        let reminders = entries.filter { $0.category == .reminder }
-        if !reminders.isEmpty {
-            cards.append(.reminders(reminders))
-        }
-
-        let todos = entries.filter { $0.category == .todo && $0.status != .completed }
-        if !todos.isEmpty {
-            cards.append(.todos(todos))
-        }
-
-        let habits = entries.filter { $0.category == .habit }
-        if !habits.isEmpty {
-            cards.append(.habits(habits))
-        }
-
-        let ideas = entries.filter { $0.category == .idea }
-        if !ideas.isEmpty {
-            cards.append(.ideas(Array(ideas.prefix(3))))
-        }
-
-        return cards
-    }
-
-    @ViewBuilder
-    private func cardView(for card: HomeCard) -> some View {
-        switch card {
-        case .reminders(let entries):
-            ExpandableStackCard(
-                entries: entries,
-                icon: "bell.fill",
-                label: "Reminder",
-                labelPlural: "Reminders",
-                accentColor: Theme.Colors.accentYellow,
-                onTap: onEntryTap,
-                onAction: onAction
-            )
-        case .todos(let entries):
-            ExpandableStackCard(
-                entries: entries,
-                icon: "checklist",
-                label: "Todo",
-                labelPlural: "Todos",
-                accentColor: Theme.Colors.accentPurple,
-                onTap: onEntryTap,
-                onAction: onAction
-            )
-        case .habits(let entries):
-            ExpandableStackCard(
-                entries: entries,
-                icon: "flame.fill",
-                label: "Habit",
-                labelPlural: "Habits",
-                accentColor: Theme.Colors.accentGreen,
-                onTap: onEntryTap,
-                onAction: onAction
-            )
-        case .ideas(let entries):
-            IdeasCard(entries: entries, onTap: onEntryTap)
-        }
-    }
-}
-
-// MARK: - Home Card Types
-
-enum HomeCard: Identifiable {
-    case reminders([Entry])
-    case todos([Entry])
-    case habits([Entry])
-    case ideas([Entry])
-
-    var id: String {
-        switch self {
-        case .reminders: return "reminders"
-        case .todos: return "todos"
-        case .habits: return "habits"
-        case .ideas: return "ideas"
-        }
-    }
-}
-
-// MARK: - Expandable Stack Card
-
-private struct ExpandableStackCard: View {
-    let entries: [Entry]
-    let icon: String
-    let label: String
-    let labelPlural: String
-    let accentColor: Color
-    let onTap: (Entry) -> Void
-    var onAction: ((Entry, EntryAction) -> Void)?
-
-    @State private var isExpanded = false
-    @State private var cardHeight: CGFloat = 86
-    @State private var activeSwipeEntryID: UUID?
-
-    private let peekOffset: CGFloat = 20
-    private let expandedSpacing: CGFloat = 12
-    private let maxVisible = 3
-
-    // MARK: - Urgency
-
-    private var isAnyOverdue: Bool {
-        let now = Date()
-        return entries.contains { $0.dueDate.map { $0 < now } ?? false }
-    }
-
-    private var groupUrgencyAccent: Color? {
-        guard entries.contains(where: { $0.dueDate != nil }) else { return nil }
-        return isAnyOverdue ? Theme.Colors.accentRed : Theme.Colors.accentYellow
-    }
-
-    private var groupUrgencyIntensity: Double {
-        isAnyOverdue ? 1.2 : 1.0
-    }
-
-    private var frontDueText: String? {
+    private var dailyBrief: String {
         let now = Date()
         let calendar = Calendar.current
-        if isAnyOverdue {
-            let count = entries.filter { $0.dueDate.map { $0 < now } ?? false }.count
-            return count == 1 ? "Overdue" : "\(count) overdue"
+
+        let overdue = entries.filter { ($0.dueDate ?? .distantFuture) < now }.count
+        let dueToday = entries.filter { guard let d = $0.dueDate else { return false }; return d >= now && calendar.isDateInToday(d) }.count
+        let endOfWeek = calendar.date(byAdding: .day, value: 7, to: calendar.startOfDay(for: now)) ?? now
+        let dueThisWeek = entries.filter { guard let d = $0.dueDate else { return false }; return d > now && !calendar.isDateInToday(d) && d <= endOfWeek }.count
+
+        var parts: [String] = []
+        if overdue > 0 { parts.append("\(overdue) overdue") }
+        if dueToday > 0 { parts.append("\(dueToday) due today") }
+        if dueThisWeek > 0 { parts.append("\(dueThisWeek) due this week") }
+
+        let total = entries.count
+        if parts.isEmpty {
+            return total == 1 ? "1 entry" : "\(total) entries"
         }
-        guard let soonest = entries.compactMap({ $0.dueDate }).filter({ $0 >= now }).min() else { return nil }
-        if calendar.isDateInToday(soonest) { return "Due today" }
-        if calendar.isDateInTomorrow(soonest) { return "Due tomorrow" }
-        let days = calendar.dateComponents([.day], from: now, to: soonest).day ?? 0
+        return parts.joined(separator: ", ")
+    }
+
+    /// Sort entries by relevance: priority (urgent first), due date (soonest first), then recency.
+    private var sortedEntries: [Entry] {
+        entries.sorted { lhs, rhs in
+            let pa = lhs.priority ?? Int.max
+            let pb = rhs.priority ?? Int.max
+            if pa != pb { return pa < pb }
+
+            let da = lhs.dueDate ?? Date.distantFuture
+            let db = rhs.dueDate ?? Date.distantFuture
+            if da != db { return da < db }
+
+            return lhs.createdAt > rhs.createdAt
+        }
+    }
+
+    private func swipeActions(for entry: Entry) -> [CardSwipeAction] {
+        let isCompletable = entry.category == .todo
+            || entry.category == .reminder
+            || entry.category == .habit
+
+        var actions: [CardSwipeAction] = []
+
+        if isCompletable {
+            actions.append(CardSwipeAction(
+                icon: "checkmark.circle.fill", label: "Done",
+                color: Theme.Colors.accentGreen
+            ) { onAction(entry, .complete) })
+        } else {
+            actions.append(CardSwipeAction(
+                icon: "archivebox.fill", label: "Archive",
+                color: Theme.Colors.accentBlue
+            ) { onAction(entry, .archive) })
+        }
+
+        actions.append(CardSwipeAction(
+            icon: "moon.zzz.fill", label: "Snooze",
+            color: Theme.Colors.accentYellow
+        ) { onAction(entry, .snooze(until: nil)) })
+
+        return actions
+    }
+}
+
+// MARK: - Smart List Row
+
+private struct SmartListRow: View {
+    let entry: Entry
+
+    private var isOverdue: Bool {
+        guard let dueDate = entry.dueDate else { return false }
+        return dueDate < Date()
+    }
+
+    private var dueText: String? {
+        guard let dueDate = entry.dueDate else { return nil }
+        let calendar = Calendar.current
+        if isOverdue { return "Overdue" }
+        if calendar.isDateInToday(dueDate) { return "Due today" }
+        if calendar.isDateInTomorrow(dueDate) { return "Due tomorrow" }
+        let days = calendar.dateComponents([.day], from: Date(), to: dueDate).day ?? 0
         return "Due in \(days)d"
     }
 
+    private var cardAccent: Color? {
+        if isOverdue { return Theme.Colors.accentRed }
+        if entry.dueDate != nil { return Theme.Colors.accentYellow }
+        return nil
+    }
+
     var body: some View {
-        let visible = Array(entries.prefix(maxVisible))
+        VStack(alignment: .leading, spacing: 10) {
+            // Category + metadata row
+            HStack(spacing: 6) {
+                CategoryBadge(category: entry.category, size: .small)
 
-        ZStack(alignment: .top) {
-            ForEach(Array(visible.enumerated().reversed()), id: \.element.id) { idx, entry in
-                card(entry: entry, index: idx, total: visible.count)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.bottom, isExpanded
-            ? CGFloat(visible.count - 1) * (cardHeight + expandedSpacing)
-            : CGFloat(visible.count - 1) * peekOffset
-        )
-        .animation(.spring(response: 0.5, dampingFraction: 0.72), value: isExpanded)
-    }
+                Spacer()
 
-    private func buildSwipeActions(for entry: Entry, index: Int) -> [CardSwipeAction] {
-        guard index == 0 || isExpanded, let onAction else { return [] }
-        var actions: [CardSwipeAction] = []
-        switch entry.category {
-        case .reminder:
-            actions.append(CardSwipeAction(icon: "moon.zzz.fill", label: "Snooze",
-                color: Theme.Colors.accentYellow) { onAction(entry, .snooze(until: nil)) })
-            actions.append(CardSwipeAction(icon: "archivebox.fill", label: "Archive",
-                color: Theme.Colors.accentBlue) { onAction(entry, .archive) })
-            actions.append(CardSwipeAction(icon: "trash.fill", label: "Delete",
-                color: Theme.Colors.accentRed) { onAction(entry, .delete) })
-        case .todo:
-            actions.append(CardSwipeAction(icon: "moon.zzz.fill", label: "Snooze",
-                color: Theme.Colors.accentYellow) { onAction(entry, .snooze(until: nil)) })
-            actions.append(CardSwipeAction(icon: "checkmark.circle.fill", label: "Done",
-                color: Theme.Colors.accentGreen) { onAction(entry, .complete) })
-            actions.append(CardSwipeAction(icon: "archivebox.fill", label: "Archive",
-                color: Theme.Colors.accentBlue) { onAction(entry, .archive) })
-            actions.append(CardSwipeAction(icon: "trash.fill", label: "Delete",
-                color: Theme.Colors.accentRed) { onAction(entry, .delete) })
-        default:
-            actions.append(CardSwipeAction(icon: "archivebox.fill", label: "Archive",
-                color: Theme.Colors.accentBlue) { onAction(entry, .archive) })
-            actions.append(CardSwipeAction(icon: "trash.fill", label: "Delete",
-                color: Theme.Colors.accentRed) { onAction(entry, .delete) })
-        }
-        return actions
-    }
-
-    @ViewBuilder
-    private func card(entry: Entry, index: Int, total: Int) -> some View {
-        let isFront = index == 0
-        let isSingle = entries.count == 1
-        let expandAnim = Animation.spring(response: 0.5, dampingFraction: 0.72)
-            .delay(isExpanded ? Double(index) * 0.05 : Double(total - 1 - index) * 0.04)
-
-        SwipeableCard(
-            actions: buildSwipeActions(for: entry, index: index),
-            activeSwipeID: $activeSwipeEntryID,
-            entryID: entry.id,
-            onHeightChange: isFront ? { h in cardHeight = h } : nil,
-            onTap: {
-                if isSingle || !isFront {
-                    onTap(entry)
-                } else {
-                    withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) {
-                        isExpanded.toggle()
+                if let priority = entry.priority, priority <= 2 {
+                    HStack(spacing: 3) {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.caption2)
+                        Text("P\(priority)")
+                            .font(Theme.Typography.badge)
                     }
+                    .foregroundStyle(Theme.Colors.accentRed)
                 }
-            }
-        ) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 6) {
-                    Image(systemName: icon)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(accentColor)
-                    Text(isSingle ? label : labelPlural)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                    Spacer()
-                    if isFront && !isSingle {
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Theme.Colors.textTertiary)
-                    }
-                }
-                Text(entry.summary)
-                    .font(.headline)
-                    .foregroundStyle(Theme.Colors.textPrimary)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                // Due date urgency row (front card only)
-                if isFront, let dueText = frontDueText {
-                    HStack(spacing: 4) {
-                        Image(systemName: isAnyOverdue ? "exclamationmark.circle.fill" : "calendar")
+                if let dueText {
+                    HStack(spacing: 3) {
+                        Image(systemName: isOverdue ? "exclamationmark.circle.fill" : "calendar")
                             .font(.caption2)
                         Text(dueText)
-                            .font(Theme.Typography.label)
+                            .font(Theme.Typography.badge)
                             .fontWeight(.medium)
                     }
-                    .foregroundStyle(isAnyOverdue ? Theme.Colors.accentRed : Theme.Colors.accentYellow)
+                    .foregroundStyle(isOverdue ? Theme.Colors.accentRed : Theme.Colors.accentYellow)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .cardStyle(accent: isFront ? groupUrgencyAccent : nil, intensity: isFront ? groupUrgencyIntensity : 1.0)
-            // Navigate into the front entry while expanded without triggering collapse
-            .overlay(alignment: .bottomTrailing) {
-                if isFront && isExpanded {
-                    Button { onTap(entry) } label: {
-                        HStack(spacing: 3) {
-                            Text("Open")
-                                .font(.caption.weight(.semibold))
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 10, weight: .semibold))
-                        }
-                        .foregroundStyle(accentColor)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(accentColor.opacity(0.12))
-                        .clipShape(Capsule())
-                        .padding(Theme.Spacing.cardPadding)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+
+            // Summary
+            Text(entry.summary)
+                .font(Theme.Typography.body)
+                .foregroundStyle(Theme.Colors.textPrimary)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .shadow(
-            color: .black.opacity(isFront ? 0.14 : 0.06),
-            radius: isFront ? 10 : 3,
-            y: isFront ? 5 : 2
-        )
-        .offset(y: isExpanded
-            ? CGFloat(index) * (cardHeight + expandedSpacing)
-            : CGFloat(index) * peekOffset
-        )
-        .scaleEffect(isExpanded ? 1.0 : 1.0 - CGFloat(index) * 0.03, anchor: .top)
-        .opacity(isExpanded ? 1.0 : 1.0 - Double(index) * 0.15)
-        .zIndex(Double(total - index))
-        .animation(expandAnim, value: isExpanded)
+        .cardStyle(accent: cardAccent, intensity: isOverdue ? 1.2 : 1.0)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(entry.category.displayName): \(entry.summary)")
     }
 }
 
@@ -483,12 +363,7 @@ struct SwipeableCard<Content: View>: View {
             }
             .frame(height: cardHeight > 0 ? cardHeight : nil)
             .clipShape(RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius))
-            // Hide when not swiping so colored buttons don't bleed through the card
-            // background when the card is at reduced opacity (e.g. in collapsed stack).
             .opacity(revealed || dragOffset < swipeVisibilityThreshold ? 1 : 0)
-            // offset() moves the card visually but not its hit-test frame, so the card's
-            // invisible frame still overlaps the buttons. Raise zIndex when revealed so
-            // the buttons win the hit-test in their area.
             .zIndex(revealed ? 1 : 0)
 
             // Card content slides left to reveal actions
@@ -500,16 +375,15 @@ struct SwipeableCard<Content: View>: View {
                                 cardHeight = geo.size.height
                                 onHeightChange?(geo.size.height)
                             }
-                            .onChange(of: geo.size.height) { _, h in
-                                cardHeight = h
-                                onHeightChange?(h)
+                            .onChange(of: geo.size.height) { _, height in
+                                cardHeight = height
+                                onHeightChange?(height)
                             }
                     }
                     .allowsHitTesting(false)
                 )
                 .offset(x: dragOffset)
                 .onTapGesture {
-                    // If a drag just ended, suppress the tap to prevent accidental navigation
                     guard Date().timeIntervalSince(lastDragEndTime) > 0.15 else { return }
                     if revealed {
                         snap(reveal: false)
@@ -539,7 +413,6 @@ struct SwipeableCard<Content: View>: View {
                 )
         }
         .onChange(of: activeSwipeID) { _, newID in
-            // Mutual exclusion: close this card if another card started swiping
             if newID != entryID && revealed {
                 snap(reveal: false)
             }
@@ -554,55 +427,7 @@ struct SwipeableCard<Content: View>: View {
     }
 }
 
-// MARK: - Ideas Card
-
-private struct IdeasCard: View {
-    let entries: [Entry]
-    let onTap: (Entry) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Label row
-            HStack(spacing: 6) {
-                Image(systemName: "lightbulb.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Colors.accentYellow)
-                Text("Ideas")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Theme.Colors.textSecondary)
-                Spacer()
-                Text("\(entries.count)")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(Theme.Colors.textTertiary)
-            }
-            .padding(.bottom, 12)
-
-            // Ideas list — each row tappable
-            VStack(spacing: 0) {
-                ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                    Button { onTap(entry) } label: {
-                        Text(entry.summary)
-                            .font(.subheadline)
-                            .foregroundStyle(Theme.Colors.textPrimary)
-                            .lineLimit(2)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 10)
-                    }
-                    .buttonStyle(.plain)
-
-                    if index < entries.count - 1 {
-                        Rectangle()
-                            .fill(Theme.Colors.borderFaint)
-                            .frame(height: 1)
-                    }
-                }
-            }
-        }
-        .cardStyle()
-    }
-}
-
-#Preview("Home AI Composed") {
+#Preview("Home - Smart List") {
     @Previewable @State var appState = AppState()
     @Previewable @State var inputText = ""
 
@@ -636,7 +461,7 @@ private struct IdeasCard: View {
             Entry(
                 transcript: "",
                 content: "Meditate for 10 minutes",
-                category: .todo,
+                category: .habit,
                 sourceText: "",
                 summary: "Meditate for 10 minutes"
             ),

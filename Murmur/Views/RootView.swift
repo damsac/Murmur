@@ -3,7 +3,6 @@ import SwiftData
 import AVFAudio
 import MurmurCore
 
-// swiftlint:disable:next type_body_length
 struct RootView: View {
     @Environment(AppState.self) private var appState
     @Environment(NotificationPreferences.self) private var notifPrefs
@@ -78,33 +77,8 @@ struct RootView: View {
                 recordingOverlays
             }
 
-            // Focus card overlay — show highest priority active entry
-            if appState.showFocusCard && !appState.showOnboarding,
-               let focusEntry = topPriorityEntry {
-                FocusCardView(
-                    entry: focusEntry,
-                    onMarkDone: {
-                        withAnimation {
-                            appState.showFocusCard = false
-                        }
-                    },
-                    onSnooze: {
-                        withAnimation {
-                            appState.showFocusCard = false
-                        }
-                    },
-                    onDismiss: {
-                        withAnimation {
-                            appState.showFocusCard = false
-                        }
-                    }
-                )
-                .transition(.opacity)
-                .zIndex(50)
-            }
-
         }
-        .toast($toastConfig)
+        .toast($toastConfig, onUndo: handleUndo)
         #if DEBUG
         .sheet(isPresented: $showDevMode) {
             DevModeView()
@@ -169,12 +143,6 @@ struct RootView: View {
             switch selectedTab {
             case .home:
                 homeContent
-
-            case .archive:
-                ArchiveView(
-                    entries: archivedEntries,
-                    onEntryTap: { entry in selectedEntry = entry }
-                )
 
             case .settings:
                 settingsContent
@@ -248,31 +216,7 @@ struct RootView: View {
 
         case .processing:
             ProcessingView(
-                entries: appState.processedEntries,
                 transcript: transcript.isEmpty ? nil : transcript
-            )
-            .transition(.opacity)
-            .zIndex(30)
-
-        case .confirming:
-            ConfirmView(
-                entries: appState.processedEntries,
-                onAccept: {
-                    handleAccept()
-                },
-                onVoiceCorrect: { entry in
-                    // Handle voice correction
-                    print("Voice correct: \(entry.summary)")
-                },
-                onDiscard: { entry in
-                    withAnimation {
-                        appState.processedEntries.removeAll { $0.id == entry.id }
-                        if appState.processedEntries.isEmpty {
-                            appState.recordingState = .idle
-                            transcript = ""
-                        }
-                    }
-                }
             )
             .transition(.opacity)
             .zIndex(30)
@@ -338,23 +282,33 @@ struct RootView: View {
                 return
             }
 
-            // Content detected — cancel recording instantly and extract from live text
+            // Content detected — cancel recording instantly and process with agent
             await pipeline.cancelRecording()
             withAnimation {
                 appState.recordingState = .processing
             }
 
             do {
-                let result = try await pipeline.extractFromText(liveText)
+                let agentContext = activeAndSnoozedEntries.map { $0.toAgentContext() }
+                let result = try await pipeline.processWithAgent(
+                    transcript: liveText,
+                    existingEntries: agentContext
+                )
                 transcript = liveText
-                appState.processedEntries = result.entries
-                appState.processedTranscript = liveText
-                appState.processedAudioDuration = nil
-                appState.processedSource = .voice
                 await appState.refreshCreditBalance()
+
+                let execResult = executeAgentActions(
+                    result.response.actions,
+                    transcript: liveText,
+                    source: .voice
+                )
+
                 withAnimation {
-                    appState.recordingState = .confirming
+                    appState.recordingState = .idle
+                    transcript = ""
                 }
+
+                showAgentToast(response: result.response, execResult: execResult)
             } catch {
                 print("Processing failed: \(error.localizedDescription)")
                 withAnimation {
@@ -383,21 +337,31 @@ struct RootView: View {
 
         Task { @MainActor in
             do {
-                let result = try await pipeline.extractFromText(text)
-                appState.processedEntries = result.entries
-                appState.processedTranscript = text
-                appState.processedAudioDuration = nil
-                appState.processedSource = .text
+                let agentContext = activeAndSnoozedEntries.map { $0.toAgentContext() }
+                let result = try await pipeline.processWithAgent(
+                    transcript: text,
+                    existingEntries: agentContext
+                )
                 await appState.refreshCreditBalance()
+
+                let execResult = executeAgentActions(
+                    result.response.actions,
+                    transcript: text,
+                    source: .text
+                )
+
                 withAnimation {
-                    appState.recordingState = .confirming
+                    appState.recordingState = .idle
+                    transcript = ""
                 }
+
+                showAgentToast(response: result.response, execResult: execResult)
             } catch {
-                print("Text extraction failed: \(error.localizedDescription)")
+                print("Text processing failed: \(error.localizedDescription)")
                 withAnimation {
                     appState.recordingState = .idle
                 }
-                handlePipelineError(error, fallbackPrefix: "Extraction failed")
+                handlePipelineError(error, fallbackPrefix: "Processing failed")
             }
         }
     }
@@ -444,40 +408,40 @@ struct RootView: View {
         showToast("\(fallbackPrefix): \(error.localizedDescription)", type: .error)
     }
 
-    private func handleAccept() {
-        guard !appState.processedEntries.isEmpty else { return }
+    private func executeAgentActions(
+        _ actions: [AgentAction],
+        transcript: String,
+        source: EntrySource
+    ) -> AgentActionExecutor.ExecutionResult {
+        let ctx = AgentActionExecutor.ExecutionContext(
+            entries: entries,
+            transcript: transcript,
+            source: source,
+            modelContext: modelContext,
+            preferences: notifPrefs
+        )
+        return AgentActionExecutor.execute(actions: actions, context: ctx)
+    }
 
-        var savedEntries: [Entry] = []
-        do {
-            for extracted in appState.processedEntries {
-                let entry = Entry(
-                    from: extracted,
-                    transcript: appState.processedTranscript,
-                    source: appState.processedSource,
-                    audioDuration: appState.processedAudioDuration
-                )
-                modelContext.insert(entry)
-                savedEntries.append(entry)
-            }
-            try modelContext.save()
-        } catch {
-            print("Failed to save entries: \(error.localizedDescription)")
-            showToast("Save failed: \(error.localizedDescription)", type: .error)
-            return
+    private func showAgentToast(
+        response: AgentResponse,
+        execResult: AgentActionExecutor.ExecutionResult
+    ) {
+        if !execResult.applied.isEmpty {
+            toastConfig = .agent(
+                summary: response.summary,
+                actions: response.actions,
+                undo: execResult.undo,
+                duration: 5.0
+            )
+        } else if !response.summary.isEmpty {
+            showToast(response.summary, type: .info)
         }
+    }
 
-        for entry in savedEntries {
-            NotificationService.shared.sync(entry, preferences: notifPrefs)
-        }
-
-        withAnimation {
-            appState.recordingState = .idle
-            transcript = ""
-            appState.processedEntries = []
-            appState.processedTranscript = ""
-            appState.processedAudioDuration = nil
-            showToast("Saved successfully")
-        }
+    private func handleUndo(_ undo: UndoTransaction) {
+        undo.execute(entries: entries, context: modelContext, preferences: notifPrefs)
+        showToast("Undone", type: .info)
     }
 
     private func showToast(_ message: String, type: ToastView.ToastType = .success) {
@@ -493,14 +457,8 @@ private extension RootView {
         entries.filter { $0.status == .active }
     }
 
-    var archivedEntries: [Entry] {
-        entries.filter { $0.status == .archived }
-    }
-
-    var topPriorityEntry: Entry? {
-        activeEntries
-            .filter { $0.priority != nil }
-            .min { ($0.priority ?? 5) < ($1.priority ?? 5) }
+    var activeAndSnoozedEntries: [Entry] {
+        entries.filter { $0.status == .active || $0.status == .snoozed }
     }
 
     func wakeUpSnoozedEntries() {
@@ -570,15 +528,6 @@ private extension RootView {
     @Previewable @State var appState = AppState()
 
     appState.showOnboarding = true
-
-    return RootView()
-        .environment(appState)
-}
-
-#Preview("With Focus Card") {
-    @Previewable @State var appState = AppState()
-
-    appState.showFocusCard = true
 
     return RootView()
         .environment(appState)
