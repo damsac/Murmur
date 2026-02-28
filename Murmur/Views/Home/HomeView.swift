@@ -145,23 +145,30 @@ struct HomeView: View {
                     .padding(.bottom, 4)
             }
 
-            // Flat smart list
+            // Scrollable content: focus strip + category sections
             ScrollView {
-                LazyVStack(spacing: 12) {
-                    ForEach(sortedEntries) { entry in
-                        SwipeableCard(
-                            actions: swipeActions(for: entry),
-                            activeSwipeID: $activeSwipeEntryID,
-                            entryID: entry.id,
-                            onTap: { onEntryTap(entry) }
-                        ) {
-                            SmartListRow(entry: entry)
+                VStack(spacing: 0) {
+                    // Focus strip (hidden when no urgent entries)
+                    if !focusEntries.isEmpty {
+                        FocusStripView(entries: focusEntries, onEntryTap: onEntryTap)
+                            .padding(.top, 12)
+                            .padding(.bottom, 16)
+                    }
+
+                    // Category sections
+                    LazyVStack(spacing: 0) {
+                        ForEach(entriesByCategory, id: \.category) { group in
+                            CategorySectionView(
+                                category: group.category,
+                                entries: group.entries,
+                                activeSwipeEntryID: $activeSwipeEntryID,
+                                onEntryTap: onEntryTap,
+                                swipeActionsProvider: swipeActions(for:)
+                            )
                         }
                     }
+                    .padding(.bottom, 16)
                 }
-                .padding(.horizontal, Theme.Spacing.screenPadding)
-                .padding(.top, 10)
-                .padding(.bottom, 16)
             }
         }
     }
@@ -199,20 +206,52 @@ struct HomeView: View {
         return parts.joined(separator: ", ")
     }
 
-    /// Sort entries by relevance: priority (urgent first), due date (soonest first), then recency.
-    private var sortedEntries: [Entry] {
-        entries.sorted { lhs, rhs in
-            let pa = lhs.priority ?? Int.max
-            let pb = rhs.priority ?? Int.max
-            if pa != pb { return pa < pb }
+    // MARK: - Focus Strip Data
 
-            let da = lhs.dueDate ?? Date.distantFuture
-            let db = rhs.dueDate ?? Date.distantFuture
-            if da != db { return da < db }
+    /// Entries qualifying for the focus strip: priority ≤ 2 or overdue.
+    private var focusEntries: [Entry] {
+        entries
+            .filter { entry in
+                let isHighPriority = (entry.priority ?? Int.max) <= 2
+                let isOverdue = entry.dueDate.map { $0 < Date() } ?? false
+                return isHighPriority || isOverdue
+            }
+            .sorted { lhs, rhs in
+                let lo = lhs.dueDate.map { $0 < Date() } ?? false
+                let ro = rhs.dueDate.map { $0 < Date() } ?? false
+                if lo != ro { return lo }
+                let pa = lhs.priority ?? Int.max
+                let pb = rhs.priority ?? Int.max
+                if pa != pb { return pa < pb }
+                return (lhs.dueDate ?? .distantFuture) < (rhs.dueDate ?? .distantFuture)
+            }
+    }
 
-            return lhs.createdAt > rhs.createdAt
+    // MARK: - Category Section Data
+
+    private static let categoryDisplayOrder: [EntryCategory] = [
+        .todo, .reminder, .habit, .idea, .list, .note, .question, .thought
+    ]
+
+    /// Entries grouped by category, in fixed display order, only non-empty categories.
+    private var entriesByCategory: [(category: EntryCategory, entries: [Entry])] {
+        let grouped = Dictionary(grouping: entries) { $0.category }
+        return Self.categoryDisplayOrder.compactMap { category in
+            guard let items = grouped[category], !items.isEmpty else { return nil }
+            let sorted = items.sorted { lhs, rhs in
+                let pa = lhs.priority ?? Int.max
+                let pb = rhs.priority ?? Int.max
+                if pa != pb { return pa < pb }
+                let da = lhs.dueDate ?? Date.distantFuture
+                let db = rhs.dueDate ?? Date.distantFuture
+                if da != db { return da < db }
+                return lhs.createdAt > rhs.createdAt
+            }
+            return (category: category, entries: sorted)
         }
     }
+
+    // MARK: - Swipe Actions
 
     private func swipeActions(for entry: Entry) -> [CardSwipeAction] {
         let isCompletable = entry.category == .todo
@@ -239,6 +278,190 @@ struct HomeView: View {
         ) { onAction(entry, .snooze(until: nil)) })
 
         return actions
+    }
+}
+
+// MARK: - Focus Strip
+
+private struct FocusStripView: View {
+    let entries: [Entry]
+    let onEntryTap: (Entry) -> Void
+
+    private let maxVisible = 4
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("FOCUS")
+                .font(Theme.Typography.badge)
+                .foregroundStyle(Theme.Colors.textTertiary)
+                .padding(.horizontal, Theme.Spacing.screenPadding)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(Array(entries.prefix(maxVisible))) { entry in
+                        FocusChipView(entry: entry) { onEntryTap(entry) }
+                    }
+
+                    if entries.count > maxVisible {
+                        Text("+\(entries.count - maxVisible) more →")
+                            .font(Theme.Typography.badge)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                Capsule()
+                                    .fill(Theme.Colors.bgCard)
+                                    .overlay(Capsule().stroke(Theme.Colors.borderSubtle, lineWidth: 1))
+                            )
+                    }
+                }
+                .padding(.horizontal, Theme.Spacing.screenPadding)
+                .padding(.vertical, 2)
+            }
+        }
+    }
+}
+
+// MARK: - Focus Chip
+
+private struct FocusChipView: View {
+    let entry: Entry
+    let onTap: () -> Void
+
+    private var color: Color { Theme.categoryColor(entry.category) }
+    private var isOverdue: Bool { entry.dueDate.map { $0 < Date() } ?? false }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 6, height: 6)
+                    .shadow(color: color.opacity(0.5), radius: 3)
+
+                Text(entry.summary)
+                    .font(Theme.Typography.badge)
+                    .foregroundStyle(Theme.Colors.textPrimary)
+                    .lineLimit(1)
+                    .frame(maxWidth: 130)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                Capsule()
+                    .fill(isOverdue ? Theme.Colors.accentRed.opacity(0.12) : color.opacity(0.10))
+                    .overlay(
+                        Capsule().stroke(
+                            isOverdue ? Theme.Colors.accentRed.opacity(0.35) : color.opacity(0.25),
+                            lineWidth: 1
+                        )
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Category Section
+
+private struct CategorySectionView: View {
+    let category: EntryCategory
+    let entries: [Entry]
+    @Binding var activeSwipeEntryID: UUID?
+    let onEntryTap: (Entry) -> Void
+    let swipeActionsProvider: (Entry) -> [CardSwipeAction]
+
+    @AppStorage private var isCollapsed: Bool
+
+    init(
+        category: EntryCategory,
+        entries: [Entry],
+        activeSwipeEntryID: Binding<UUID?>,
+        onEntryTap: @escaping (Entry) -> Void,
+        swipeActionsProvider: @escaping (Entry) -> [CardSwipeAction]
+    ) {
+        self.category = category
+        self.entries = entries
+        self._activeSwipeEntryID = activeSwipeEntryID
+        self.onEntryTap = onEntryTap
+        self.swipeActionsProvider = swipeActionsProvider
+        self._isCollapsed = AppStorage(wrappedValue: false, "section_\(category.rawValue)_collapsed")
+    }
+
+    private var color: Color { Theme.categoryColor(category) }
+    private var hasOverdue: Bool { entries.contains { $0.dueDate.map { $0 < Date() } ?? false } }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Section header
+            Button {
+                withAnimation(Animations.smoothSlide) { isCollapsed.toggle() }
+            } label: {
+                HStack(spacing: 0) {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(color)
+                            .frame(width: 8, height: 8)
+                            .shadow(color: color.opacity(0.6), radius: 4)
+
+                        Text(category.displayName.uppercased())
+                            .font(Theme.Typography.badge)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .tracking(0.8)
+                    }
+
+                    if hasOverdue {
+                        Circle()
+                            .fill(Theme.Colors.accentRed)
+                            .frame(width: 5, height: 5)
+                            .padding(.leading, 6)
+                    }
+
+                    Spacer()
+
+                    HStack(spacing: 8) {
+                        Text("\(entries.count)")
+                            .font(Theme.Typography.badge)
+                            .foregroundStyle(Theme.Colors.textTertiary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(
+                                Capsule()
+                                    .fill(Theme.Colors.bgCard)
+                                    .overlay(Capsule().stroke(Theme.Colors.borderSubtle, lineWidth: 1))
+                            )
+
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Theme.Colors.textTertiary)
+                            .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+                            .animation(Animations.smoothSlide, value: isCollapsed)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, Theme.Spacing.screenPadding)
+            .padding(.top, 20)
+            .padding(.bottom, isCollapsed ? 8 : 12)
+
+            // Section body
+            if !isCollapsed {
+                LazyVStack(spacing: 12) {
+                    ForEach(entries) { entry in
+                        SwipeableCard(
+                            actions: swipeActionsProvider(entry),
+                            activeSwipeID: $activeSwipeEntryID,
+                            entryID: entry.id,
+                            onTap: { onEntryTap(entry) }
+                        ) {
+                            SmartListRow(entry: entry)
+                        }
+                    }
+                }
+                .padding(.horizontal, Theme.Spacing.screenPadding)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
     }
 }
 
@@ -427,7 +650,7 @@ struct SwipeableCard<Content: View>: View {
     }
 }
 
-#Preview("Home - Smart List") {
+#Preview("Home - Category Sections") {
     @Previewable @State var appState = AppState()
     @Previewable @State var inputText = ""
 
@@ -440,7 +663,7 @@ struct SwipeableCard<Content: View>: View {
                 category: .reminder,
                 sourceText: "",
                 summary: "DMV appointment Thursday",
-                dueDate: Calendar.current.date(byAdding: .day, value: 2, to: Date())
+                dueDate: Calendar.current.date(byAdding: .day, value: -1, to: Date())
             ),
             Entry(
                 transcript: "",
