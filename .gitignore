@@ -28,6 +28,7 @@ result
 
 # Rust build artifacts
 rust/target/
+*.db
 
 # Claude Code local settings
 .claude/settings.local.json

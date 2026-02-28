@@ -121,7 +121,8 @@ fn handle_agent_action(state: &mut AppState, action: AgentPipelineAction) {
             let source = state.current_source;
 
             for agent_action in actions {
-                let entry_action = agent_result_to_entry_action(agent_action, &transcript, source);
+                let entry_action =
+                    agent_result_to_entry_action(agent_action, &transcript, source, &state.entries);
                 handle_entry_action(state, entry_action);
             }
 
@@ -140,10 +141,13 @@ fn handle_agent_action(state: &mut AppState, action: AgentPipelineAction) {
 }
 
 /// Convert an agent result action into an entry action.
+/// The LLM returns short IDs (first 6 hex chars of UUID), so we resolve
+/// them against the current entries list.
 fn agent_result_to_entry_action(
     action: AgentResultAction,
     transcript: &str,
     source: EntrySource,
+    entries: &[Entry],
 ) -> EntryAction {
     match action {
         AgentResultAction::Create(create) => EntryAction::Create(CreateEntryData {
@@ -159,7 +163,7 @@ fn agent_result_to_entry_action(
             audio_duration: None,
         }),
         AgentResultAction::Update(update) => {
-            let id = Uuid::parse_str(&update.id).unwrap_or_else(|_| Uuid::nil());
+            let id = resolve_agent_id(&update.id, entries);
             EntryAction::Update {
                 id,
                 fields: UpdateFields {
@@ -173,14 +177,26 @@ fn agent_result_to_entry_action(
             }
         }
         AgentResultAction::Complete(complete) => {
-            let id = Uuid::parse_str(&complete.id).unwrap_or_else(|_| Uuid::nil());
+            let id = resolve_agent_id(&complete.id, entries);
             EntryAction::Complete { id }
         }
         AgentResultAction::Archive(archive) => {
-            let id = Uuid::parse_str(&archive.id).unwrap_or_else(|_| Uuid::nil());
+            let id = resolve_agent_id(&archive.id, entries);
             EntryAction::Archive { id }
         }
     }
+}
+
+/// Resolve an ID from the LLM — could be a full UUID or a short ID prefix.
+fn resolve_agent_id(id_str: &str, entries: &[Entry]) -> Uuid {
+    // Try full UUID first
+    if let Ok(id) = Uuid::parse_str(id_str) {
+        return id;
+    }
+    // Fall back to short ID resolution
+    Entry::resolve_short_id(id_str, entries)
+        .map(|e| e.id)
+        .unwrap_or_else(Uuid::nil)
 }
 
 // ---------------------------------------------------------------------------
