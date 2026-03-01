@@ -255,9 +255,13 @@ struct RootView: View {
         }
     }
 
-    // MARK: - Actions
+}
 
-    private func handleMicTap() {
+// MARK: - Actions
+
+private extension RootView {
+
+    func handleMicTap() {
         guard let pipeline = appState.pipeline else {
             showToast("Pipeline not configured — check API key", type: .error)
             return
@@ -289,7 +293,7 @@ struct RootView: View {
         }
     }
 
-    private func handleStopRecording() {
+    func handleStopRecording() {
         guard let pipeline = appState.pipeline else {
             showToast("Pipeline not configured — check API key", type: .error)
             return
@@ -349,7 +353,7 @@ struct RootView: View {
         }
     }
 
-    private func handleTextSubmit() {
+    func handleTextSubmit() {
         guard !inputText.isEmpty else { return }
 
         let text = inputText
@@ -397,7 +401,7 @@ struct RootView: View {
         }
     }
 
-    private func handleTopUpPurchase(_ pack: CreditPack) {
+    func handleTopUpPurchase(_ pack: CreditPack) {
         guard !isPurchasingTopUp else { return }
 
         isPurchasingTopUp = true
@@ -429,7 +433,7 @@ struct RootView: View {
         }
     }
 
-    private func handlePipelineError(_ error: Error, fallbackPrefix: String) {
+    func handlePipelineError(_ error: Error, fallbackPrefix: String) {
         if case PipelineError.insufficientCredits = error {
             openTopUp()
             showTopUp = true
@@ -439,7 +443,7 @@ struct RootView: View {
         showToast("\(fallbackPrefix): \(error.localizedDescription)", type: .error)
     }
 
-    private func executeAgentActions(
+    func executeAgentActions(
         _ actions: [AgentAction],
         transcript: String,
         source: EntrySource
@@ -454,7 +458,7 @@ struct RootView: View {
         return AgentActionExecutor.execute(actions: actions, context: ctx)
     }
 
-    private func showAgentToast(
+    func showAgentToast(
         response: AgentResponse,
         execResult: AgentActionExecutor.ExecutionResult
     ) {
@@ -474,12 +478,12 @@ struct RootView: View {
         }
     }
 
-    private func handleUndo(_ undo: UndoTransaction) {
+    func handleUndo(_ undo: UndoTransaction) {
         undo.execute(entries: entries, context: modelContext, preferences: notifPrefs)
         showToast("Undone", type: .info)
     }
 
-    private func handleEntryAction(_ entry: Entry, _ action: EntryAction) {
+    func handleEntryAction(_ entry: Entry, _ action: EntryAction) {
         switch action {
         case .complete:
             UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -511,6 +515,10 @@ struct RootView: View {
                 pendingDeleteEntry = nil
             }
 
+        case .checkOffHabit:
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            entry.perform(.checkOffHabit, in: modelContext, preferences: notifPrefs)
+
         case .snooze(nil):
             snoozeEntry = entry
             showSnoozeDialog = true
@@ -522,7 +530,7 @@ struct RootView: View {
         }
     }
 
-    private func showToast(
+    func showToast(
         _ message: String,
         type: ToastView.ToastType = .success,
         actionLabel: String? = nil,
