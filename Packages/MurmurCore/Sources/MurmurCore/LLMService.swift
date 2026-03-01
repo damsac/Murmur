@@ -6,6 +6,32 @@ public final class LLMConversation: @unchecked Sendable {
     var messages: [[String: Any]] = []
 
     public init() {}
+
+    /// Number of messages in the conversation history.
+    public var messageCount: Int { messages.count }
+
+    /// Truncate conversation history, keeping the most recent messages.
+    /// Preserves the first message (system context) and trims the oldest middle messages.
+    public func truncate(keepingLast maxMessages: Int) {
+        guard messages.count > maxMessages else { return }
+        let excess = messages.count - maxMessages
+        if excess > 0 && messages.count > 1 {
+            messages.removeSubrange(1..<min(1 + excess, messages.count))
+        }
+    }
+
+    /// Replace synthetic tool result messages with real execution outcomes.
+    /// Matches on `tool_call_id` and overwrites `content` in-place.
+    public func replaceToolResults(_ results: [(toolCallID: String, content: String)]) {
+        let lookup = Dictionary(uniqueKeysWithValues: results.map { ($0.toolCallID, $0.content) })
+        for i in messages.indices {
+            guard let role = messages[i]["role"] as? String, role == "tool",
+                  let callID = messages[i]["tool_call_id"] as? String,
+                  let replacement = lookup[callID]
+            else { continue }
+            messages[i]["content"] = replacement
+        }
+    }
 }
 
 public enum LLMToolChoice: Sendable {
@@ -72,7 +98,8 @@ public struct LLMPrompt: @unchecked Sendable {
             Output rules:
             - Use tool calls only.
             - Call multiple tools when needed.
-            - Do not ask clarifying questions; take the best action.
+            - Act decisively on clear inputs — never ask for confirmation on straightforward requests.
+            - When genuinely ambiguous (e.g., multiple entries match, or intent unclear), ask a brief clarifying question instead of guessing wrong.
 
             Memory rules:
             - You have persistent memory across sessions via update_memory.
@@ -288,11 +315,26 @@ public struct ParseFailure: Sendable {
     public let toolName: String
     public let rawArguments: String
     public let errorDescription: String
+    public let toolCallID: String?
 
-    public init(toolName: String, rawArguments: String, errorDescription: String) {
+    public init(toolName: String, rawArguments: String, errorDescription: String, toolCallID: String? = nil) {
         self.toolName = toolName
         self.rawArguments = rawArguments
         self.errorDescription = errorDescription
+        self.toolCallID = toolCallID
+    }
+}
+
+/// Maps a single LLM tool_call_id to the contiguous slice of actions it produced.
+public struct ToolCallGroup: Sendable {
+    public let toolCallID: String
+    public let toolName: String
+    public let actionRange: Range<Int>
+
+    public init(toolCallID: String, toolName: String, actionRange: Range<Int>) {
+        self.toolCallID = toolCallID
+        self.toolName = toolName
+        self.actionRange = actionRange
     }
 }
 
@@ -302,17 +344,26 @@ public struct AgentResponse: Sendable {
     public let summary: String
     public let usage: TokenUsage
     public let parseFailures: [ParseFailure]
+    public let toolCallGroups: [ToolCallGroup]
+
+    /// Text content from the agent when responding without tool calls (clarifications, summaries).
+    /// Only populated when the model returns text content — nil when actions-only.
+    public let textResponse: String?
 
     public init(
         actions: [AgentAction],
         summary: String,
         usage: TokenUsage,
-        parseFailures: [ParseFailure] = []
+        parseFailures: [ParseFailure] = [],
+        toolCallGroups: [ToolCallGroup] = [],
+        textResponse: String? = nil
     ) {
         self.actions = actions
         self.summary = summary
         self.usage = usage
         self.parseFailures = parseFailures
+        self.toolCallGroups = toolCallGroups
+        self.textResponse = textResponse
     }
 }
 

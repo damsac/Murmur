@@ -79,12 +79,17 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         )
 
         let parseResult = parseActions(from: turn.assistantMessage)
-        let summary = parseSummary(from: turn.assistantMessage) ?? summarize(actions: parseResult.actions)
+        let textContent = parseSummary(from: turn.assistantMessage)
+        let summary = textContent ?? summarize(actions: parseResult.actions)
+        // textResponse is only set when the agent responds with text and no actions
+        let textResponse = parseResult.actions.isEmpty ? textContent : nil
         return AgentResponse(
             actions: parseResult.actions,
             summary: summary,
             usage: turn.usage,
-            parseFailures: parseResult.failures
+            parseFailures: parseResult.failures,
+            toolCallGroups: parseResult.groups,
+            textResponse: textResponse
         )
     }
 
@@ -224,17 +229,20 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
     private struct ParseActionResult {
         let actions: [AgentAction]
         let failures: [ParseFailure]
+        let groups: [ToolCallGroup]
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func parseActions(from assistantMessage: [String: Any]) -> ParseActionResult {
         guard let toolCalls = assistantMessage["tool_calls"] as? [[String: Any]] else {
             // With toolChoice: .auto, the model may respond with text only (no actions).
             // This is valid — return empty actions and let the caller use parseSummary().
-            return ParseActionResult(actions: [], failures: [])
+            return ParseActionResult(actions: [], failures: [], groups: [])
         }
 
         var actions: [AgentAction] = []
         var failures: [ParseFailure] = []
+        var groups: [ToolCallGroup] = []
 
         for toolCall in toolCalls {
             guard let function = toolCall["function"] as? [String: Any],
@@ -244,6 +252,9 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
             else {
                 continue
             }
+
+            let toolCallID = toolCall["id"] as? String ?? UUID().uuidString
+            let startIndex = actions.count
 
             do {
                 switch name {
@@ -274,16 +285,26 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
                 default:
                     continue
                 }
+
+                let endIndex = actions.count
+                if endIndex > startIndex {
+                    groups.append(ToolCallGroup(
+                        toolCallID: toolCallID,
+                        toolName: name,
+                        actionRange: startIndex..<endIndex
+                    ))
+                }
             } catch {
                 failures.append(ParseFailure(
                     toolName: name,
                     rawArguments: argumentsString,
-                    errorDescription: error.localizedDescription
+                    errorDescription: error.localizedDescription,
+                    toolCallID: toolCallID
                 ))
             }
         }
 
-        return ParseActionResult(actions: actions, failures: failures)
+        return ParseActionResult(actions: actions, failures: failures, groups: groups)
     }
 
     private func parseSummary(from assistantMessage: [String: Any]) -> String? {
