@@ -24,6 +24,9 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         self.session = session
     }
 
+    /// Tracks how many recordings have been processed in this service instance (≈ session).
+    private var sessionRecordingCount = 0
+
     private static let dateTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEEE, MMMM d, yyyy 'at' h:mm a zzz"
@@ -31,11 +34,36 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         return formatter
     }()
 
+    /// Builds a compact temporal context block (~20 tokens) for the system prompt.
+    private func buildTemporalContext(for date: Date = Date()) -> String {
+        let calendar = Calendar.current
+        let hour = calendar.component(.hour, from: date)
+
+        let timeOfDay: String
+        switch hour {
+        case 5..<12: timeOfDay = "morning"
+        case 12..<17: timeOfDay = "afternoon"
+        case 17..<21: timeOfDay = "evening"
+        default: timeOfDay = "night"
+        }
+
+        let isWeekend = calendar.isDateInWeekend(date)
+        let dayType = isWeekend ? "weekend" : "weekday"
+        let dateString = Self.dateTimeFormatter.string(from: date)
+
+        var context = "Current: \(dateString) (\(dayType), \(timeOfDay))"
+        if sessionRecordingCount > 1 {
+            context += "\nThis session: recording #\(sessionRecordingCount)"
+        }
+        return context
+    }
+
     public func process(
         transcript: String,
         existingEntries: [AgentContextEntry],
         conversation: LLMConversation
     ) async throws -> AgentResponse {
+        sessionRecordingCount += 1
         let userContent = buildAgentUserContent(
             transcript: transcript,
             existingEntries: existingEntries
@@ -118,8 +146,8 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         conversation: LLMConversation
     ) -> [[String: Any]] {
         if conversation.messages.isEmpty {
-            let currentDateTime = Self.dateTimeFormatter.string(from: Date())
-            let systemContent = "Current date and time: \(currentDateTime)\n\n" + prompt.systemPrompt
+            let temporalContext = buildTemporalContext()
+            let systemContent = temporalContext + "\n\n" + prompt.systemPrompt
             return [
                 ["role": "system", "content": systemContent],
                 ["role": "user", "content": userContent],
