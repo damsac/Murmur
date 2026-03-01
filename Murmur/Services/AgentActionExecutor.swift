@@ -13,6 +13,7 @@ struct AgentActionExecutor {
         let source: EntrySource
         let modelContext: ModelContext
         let preferences: NotificationPreferences
+        let memoryStore: AgentMemoryStore?
     }
 
     struct ExecutionResult {
@@ -101,6 +102,15 @@ struct AgentActionExecutor {
                 entry.perform(.archive, in: ctx.modelContext, preferences: ctx.preferences)
                 return .archived(entryID: entry.id, previousStatus: prev)
             }
+        case .updateMemory(let a):
+            if let store = ctx.memoryStore {
+                do {
+                    try store.save(a.content)
+                } catch {
+                    return .failed("Memory save failed: \(error.localizedDescription)")
+                }
+            }
+            return .skipped
         }
     }
 

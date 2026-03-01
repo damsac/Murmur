@@ -73,12 +73,19 @@ public struct LLMPrompt: @unchecked Sendable {
             - Use tool calls only.
             - Call multiple tools when needed.
             - Do not ask clarifying questions; take the best action.
+
+            Memory rules:
+            - You have persistent memory across sessions via update_memory.
+            - Store: user preferences, naming patterns, recurring schedules, vocabulary corrections.
+            - Do NOT store entry data (already in context). Keep under 500 words.
+            - Replace full content each time. Only update when you learn something new.
             """,
         tools: [
             createEntriesToolSchema(),
             updateEntriesToolSchema(),
             completeEntriesToolSchema(),
             archiveEntriesToolSchema(),
+            updateMemoryToolSchema(),
         ],
         toolChoice: .auto
     )
@@ -241,12 +248,21 @@ public struct ArchiveAction: Sendable {
     }
 }
 
+public struct UpdateMemoryAction: Sendable {
+    public let content: String
+
+    public init(content: String) {
+        self.content = content
+    }
+}
+
 /// Typed actions produced by the agent.
 public enum AgentAction: Sendable {
     case create(CreateAction)
     case update(UpdateAction)
     case complete(CompleteAction)
     case archive(ArchiveAction)
+    case updateMemory(UpdateMemoryAction)
 }
 
 public extension AgentAction {
@@ -553,6 +569,26 @@ private extension LLMPrompt {
                         ] as [String: Any],
                     ],
                     "required": ["entries"],
+                ] as [String: Any],
+            ] as [String: Any],
+        ]
+    }
+
+    static func updateMemoryToolSchema() -> [String: Any] {
+        [
+            "type": "function",
+            "function": [
+                "name": "update_memory",
+                "description": "Replace your persistent memory with updated content. Called when you learn something new about the user.",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "content": [
+                            "type": "string",
+                            "description": "Full replacement text for your memory. Keep under 500 words.",
+                        ],
+                    ],
+                    "required": ["content"],
                 ] as [String: Any],
             ] as [String: Any],
         ]

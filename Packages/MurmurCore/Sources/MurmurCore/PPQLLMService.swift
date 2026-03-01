@@ -8,6 +8,9 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
     private let extractionPrompt: LLMPrompt
     private let session: URLSession
 
+    /// Persistent memory content injected into the system prompt.
+    public var agentMemory: String?
+
     private static let endpoint = URL(string: "https://api.ppq.ai/chat/completions")!
 
     public init(
@@ -147,7 +150,10 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
     ) -> [[String: Any]] {
         if conversation.messages.isEmpty {
             let temporalContext = buildTemporalContext()
-            let systemContent = temporalContext + "\n\n" + prompt.systemPrompt
+            var systemContent = temporalContext + "\n\n" + prompt.systemPrompt
+            if let memory = agentMemory, !memory.isEmpty {
+                systemContent += "\n\n## Your Memory\n" + memory
+            }
             return [
                 ["role": "system", "content": systemContent],
                 ["role": "user", "content": userContent],
@@ -260,6 +266,10 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
                     actions.append(contentsOf: wrapper.entries.map {
                         .archive(ArchiveAction(id: $0.id, reason: $0.normalizedReason))
                     })
+
+                case "update_memory":
+                    let wrapper = try JSONDecoder().decode(UpdateMemoryArguments.self, from: argumentsData)
+                    actions.append(.updateMemory(UpdateMemoryAction(content: wrapper.content)))
 
                 default:
                     continue
@@ -570,6 +580,10 @@ private struct RawUpdateFields: Decodable {
 
 private struct EntryMutationArguments: Decodable {
     let entries: [RawEntryMutation]
+}
+
+private struct UpdateMemoryArguments: Decodable {
+    let content: String
 }
 
 private struct RawEntryMutation: Decodable {
