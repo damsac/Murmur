@@ -74,6 +74,9 @@ public final class Entry {
     /// When a snoozed entry should resurface
     public var snoozeUntil: Date?
 
+    /// When this habit was last checked off (used to determine isDoneForPeriod)
+    public var lastHabitCompletionDate: Date?
+
     // MARK: - Source metadata
 
     /// Recording length in seconds
@@ -136,6 +139,7 @@ public final class Entry {
         status: EntryStatus = .active,
         completedAt: Date? = nil,
         snoozeUntil: Date? = nil,
+        lastHabitCompletionDate: Date? = nil,
         audioDuration: TimeInterval? = nil,
         source: EntrySource = .voice
     ) {
@@ -154,6 +158,7 @@ public final class Entry {
         self.statusRawValue = status.rawValue
         self.completedAt = completedAt
         self.snoozeUntil = snoozeUntil
+        self.lastHabitCompletionDate = lastHabitCompletionDate
         self.audioDuration = audioDuration
         self.sourceRawValue = source.rawValue
     }
@@ -220,6 +225,29 @@ extension Entry {
     }
 }
 
+// MARK: - Habit Period Tracking
+
+extension Entry {
+    /// True if this habit has been checked off for the current cadence period.
+    public var isDoneForPeriod: Bool {
+        guard category == .habit, let lastCompleted = lastHabitCompletionDate else { return false }
+        let calendar = Calendar.current
+        let now = Date()
+        switch cadence ?? .daily {
+        case .daily:
+            return calendar.isDateInToday(lastCompleted)
+        case .weekdays:
+            let weekday = calendar.component(.weekday, from: now)
+            guard weekday != 1 && weekday != 7 else { return false }
+            return calendar.isDateInToday(lastCompleted)
+        case .weekly:
+            return calendar.isDate(lastCompleted, equalTo: now, toGranularity: .weekOfYear)
+        case .monthly:
+            return calendar.isDate(lastCompleted, equalTo: now, toGranularity: .month)
+        }
+    }
+}
+
 // MARK: - Entry Actions
 
 enum EntryAction {
@@ -228,6 +256,7 @@ enum EntryAction {
     case archive
     case unarchive
     case delete
+    case checkOffHabit         // toggle done-for-period on habit entries
 }
 
 extension Entry {
@@ -264,6 +293,11 @@ extension Entry {
         case .delete:
             NotificationService.shared.cancel(self)
             context.delete(self)
+            save(in: context)
+
+        case .checkOffHabit:
+            lastHabitCompletionDate = isDoneForPeriod ? nil : Date()
+            updatedAt = Date()
             save(in: context)
         }
     }

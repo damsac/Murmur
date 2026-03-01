@@ -148,12 +148,10 @@ struct HomeView: View {
             // Scrollable content: focus strip + category sections
             ScrollView {
                 VStack(spacing: 0) {
-                    // Focus strip (hidden when no urgent entries)
-                    if !focusEntries.isEmpty {
-                        FocusStripView(entries: focusEntries, onEntryTap: onEntryTap)
-                            .padding(.top, 12)
-                            .padding(.bottom, 16)
-                    }
+                    // Focus strip (always pinned at top)
+                    FocusStripView(entries: focusEntries, onEntryTap: onEntryTap)
+                        .padding(.top, 12)
+                        .padding(.bottom, 16)
 
                     // Category sections
                     LazyVStack(spacing: 0) {
@@ -163,7 +161,8 @@ struct HomeView: View {
                                 entries: group.entries,
                                 activeSwipeEntryID: $activeSwipeEntryID,
                                 onEntryTap: onEntryTap,
-                                swipeActionsProvider: swipeActions(for:)
+                                swipeActionsProvider: swipeActions(for:),
+                                onAction: onAction
                             )
                         }
                     }
@@ -208,17 +207,19 @@ struct HomeView: View {
 
     // MARK: - Focus Strip Data
 
-    /// Entries qualifying for the focus strip: priority ≤ 2 or overdue.
+    /// Entries qualifying for the focus strip: overdue (dueDate < now) or P1/P2.
     private var focusEntries: [Entry] {
-        entries
+        let now = Date()
+        return entries
             .filter { entry in
+                let isOverdue = entry.dueDate.map { $0 < now } ?? false
                 let isHighPriority = (entry.priority ?? Int.max) <= 2
-                let isOverdue = entry.dueDate.map { $0 < Date() } ?? false
-                return isHighPriority || isOverdue
+                return isOverdue || isHighPriority
             }
             .sorted { lhs, rhs in
-                let lo = lhs.dueDate.map { $0 < Date() } ?? false
-                let ro = rhs.dueDate.map { $0 < Date() } ?? false
+                let now = Date()
+                let lo = lhs.dueDate.map { $0 < now } ?? false
+                let ro = rhs.dueDate.map { $0 < now } ?? false
                 if lo != ro { return lo }
                 let pa = lhs.priority ?? Int.max
                 let pb = rhs.priority ?? Int.max
@@ -290,35 +291,63 @@ private struct FocusStripView: View {
     private let maxVisible = 4
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("FOCUS")
-                .font(Theme.Typography.badge)
-                .foregroundStyle(Theme.Colors.textTertiary)
-                .padding(.horizontal, Theme.Spacing.screenPadding)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Theme.Colors.accentRed)
+                Text("NEEDS ATTENTION")
+                    .font(Theme.Typography.badge)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+            }
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(Array(entries.prefix(maxVisible))) { entry in
-                        FocusChipView(entry: entry) { onEntryTap(entry) }
-                    }
+            if entries.isEmpty {
+                Text("All clear")
+                    .font(Theme.Typography.badge)
+                    .foregroundStyle(Theme.Colors.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(entries.prefix(maxVisible))) { entry in
+                            FocusChipView(entry: entry) { onEntryTap(entry) }
+                        }
 
-                    if entries.count > maxVisible {
-                        Text("+\(entries.count - maxVisible) more →")
-                            .font(Theme.Typography.badge)
-                            .foregroundStyle(Theme.Colors.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                Capsule()
-                                    .fill(Theme.Colors.bgCard)
-                                    .overlay(Capsule().stroke(Theme.Colors.borderSubtle, lineWidth: 1))
-                            )
+                        if entries.count > maxVisible {
+                            Text("+\(entries.count - maxVisible) more →")
+                                .font(Theme.Typography.badge)
+                                .foregroundStyle(Theme.Colors.textSecondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule()
+                                        .fill(Theme.Colors.bgCard)
+                                        .overlay(Capsule().stroke(Theme.Colors.borderSubtle, lineWidth: 1))
+                                )
+                        }
                     }
+                    .padding(.bottom, 1) // prevents shadow clipping
                 }
-                .padding(.horizontal, Theme.Spacing.screenPadding)
-                .padding(.vertical, 2)
             }
         }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Theme.Colors.bgCard)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(entries.isEmpty
+                            ? Theme.Colors.borderSubtle
+                            : Theme.Colors.accentRed.opacity(0.20),
+                            lineWidth: 1)
+                )
+                .shadow(color: entries.isEmpty
+                    ? Color.clear
+                    : Theme.Colors.accentRed.opacity(0.06),
+                    radius: 12, x: 0, y: 2)
+        )
+        .padding(.horizontal, Theme.Spacing.screenPadding)
     }
 }
 
@@ -370,6 +399,7 @@ private struct CategorySectionView: View {
     @Binding var activeSwipeEntryID: UUID?
     let onEntryTap: (Entry) -> Void
     let swipeActionsProvider: (Entry) -> [CardSwipeAction]
+    let onAction: (Entry, EntryAction) -> Void
 
     @AppStorage private var isCollapsed: Bool
 
@@ -378,13 +408,15 @@ private struct CategorySectionView: View {
         entries: [Entry],
         activeSwipeEntryID: Binding<UUID?>,
         onEntryTap: @escaping (Entry) -> Void,
-        swipeActionsProvider: @escaping (Entry) -> [CardSwipeAction]
+        swipeActionsProvider: @escaping (Entry) -> [CardSwipeAction],
+        onAction: @escaping (Entry, EntryAction) -> Void
     ) {
         self.category = category
         self.entries = entries
         self._activeSwipeEntryID = activeSwipeEntryID
         self.onEntryTap = onEntryTap
         self.swipeActionsProvider = swipeActionsProvider
+        self.onAction = onAction
         self._isCollapsed = AppStorage(wrappedValue: false, "section_\(category.rawValue)_collapsed")
     }
 
@@ -454,7 +486,7 @@ private struct CategorySectionView: View {
                             entryID: entry.id,
                             onTap: { onEntryTap(entry) }
                         ) {
-                            SmartListRow(entry: entry)
+                            SmartListRow(entry: entry, onAction: onAction)
                         }
                     }
                 }
@@ -469,6 +501,7 @@ private struct CategorySectionView: View {
 
 private struct SmartListRow: View {
     let entry: Entry
+    let onAction: (Entry, EntryAction) -> Void
 
     private var isOverdue: Bool {
         guard let dueDate = entry.dueDate else { return false }
@@ -486,9 +519,7 @@ private struct SmartListRow: View {
     }
 
     private var cardAccent: Color? {
-        if isOverdue { return Theme.Colors.accentRed }
-        if entry.dueDate != nil { return Theme.Colors.accentYellow }
-        return nil
+        isOverdue ? Theme.Colors.accentRed : nil
     }
 
     var body: some View {
@@ -521,12 +552,30 @@ private struct SmartListRow: View {
                 }
             }
 
-            // Summary
-            Text(entry.summary)
-                .font(Theme.Typography.body)
-                .foregroundStyle(Theme.Colors.textPrimary)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Summary + habit check-off
+            HStack(alignment: .center, spacing: 12) {
+                Text(entry.summary)
+                    .font(Theme.Typography.body)
+                    .foregroundStyle(entry.isDoneForPeriod ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if entry.category == .habit {
+                    Button {
+                        onAction(entry, .checkOffHabit)
+                    } label: {
+                        Image(systemName: entry.isDoneForPeriod ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 24))
+                            .foregroundStyle(
+                                entry.isDoneForPeriod
+                                    ? Theme.categoryColor(entry.category)
+                                    : Theme.Colors.textTertiary
+                            )
+                            .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isDoneForPeriod)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
         .cardStyle(accent: cardAccent, intensity: isOverdue ? 1.2 : 1.0)
         .accessibilityElement(children: .combine)
@@ -606,14 +655,14 @@ struct SwipeableCard<Content: View>: View {
                     .allowsHitTesting(false)
                 )
                 .offset(x: dragOffset)
-                .onTapGesture {
+                .gesture(TapGesture().onEnded {
                     guard Date().timeIntervalSince(lastDragEndTime) > 0.15 else { return }
                     if revealed {
                         snap(reveal: false)
                     } else {
                         onTap()
                     }
-                }
+                })
                 .simultaneousGesture(
                     DragGesture(minimumDistance: 10, coordinateSpace: .local)
                         .onChanged { value in
@@ -671,7 +720,8 @@ struct SwipeableCard<Content: View>: View {
                 category: .todo,
                 sourceText: "",
                 summary: "Review design system and provide feedback",
-                priority: 1
+                priority: 1,
+                dueDate: Date()
             ),
             Entry(
                 transcript: "",
