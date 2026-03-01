@@ -24,6 +24,17 @@ final class AppState {
     private(set) var llmService: PPQLLMService?
     var memoryStore: AgentMemoryStore?
 
+    // Lazy conversation state — only allocated on first access
+    private var _conversation: ConversationState?
+    var conversation: ConversationState {
+        if _conversation == nil {
+            let state = ConversationState()
+            state.appState = self
+            _conversation = state
+        }
+        return _conversation!
+    }
+
     var hasCompletedOnboarding: Bool {
         get { UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") }
         set { UserDefaults.standard.set(newValue, forKey: "hasCompletedOnboarding") }
