@@ -52,11 +52,11 @@ Branch off the current working branch for the PR:
 
 ```bash
 # Determine PR branch name — ask user for a short name or derive from the work
-git checkout -b <user>/<pr-name>
+git checkout -b pr/<user>/<pr-name>
 git push -u origin HEAD
 ```
 
-Use `dam/<name>` or `sac/<name>` based on the current user (e.g. `dam/meta-genesis`, `sac/category-cleanup`).
+Use `pr/dam/<name>` or `pr/sac/<name>` based on the current user (e.g. `pr/dam/meta-genesis`, `pr/sac/category-cleanup`).
 
 ## Step 6 — Detect linked issue
 

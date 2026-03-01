@@ -24,7 +24,7 @@ Updated via PR. Changes to this file require review from the other person.
 
 ## Conventions
 
-- **Branch model:** `main` (stable), `dam` (dam's working branch), `sac` (sac's working branch). PRs go from `dam/<name>` or `sac/<name>` → `main`. Rebase working branch onto main after merge.
+- **Branch model:** `main` (stable), `dam` (dam's working branch), `sac` (sac's working branch). PRs go from `pr/dam/<name>` or `pr/sac/<name>` → `main`. Rebase working branch onto main after merge.
 - **Commit format:** `type: short description` (no Co-Authored-By footers)
 - **PR process:** Feature branches to main, PR review required, includes Thinking section
 - **Default simulator:** iPhone 17 Pro

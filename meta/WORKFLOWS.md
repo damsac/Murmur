@@ -28,8 +28,8 @@ How dam and sac work together on Murmur. The day-to-day practices.
 ### 3. Ship (`/ship`)
 
 - Update your STATE.md with decisions, open questions, needs
-- Branch off for the PR: `git checkout -b dam/<pr-name>`
-- Open PR from `dam/<pr-name>` → `main` with **Thinking** section
+- Branch off for the PR: `git checkout -b pr/dam/<pr-name>`
+- Open PR from `pr/dam/<pr-name>` → `main` with **Thinking** section
 - Update ROADMAP.md if priorities changed
 - Propose CANON.md additions if decisions were made
 - Go back to your working branch and keep going: `git checkout dam`
