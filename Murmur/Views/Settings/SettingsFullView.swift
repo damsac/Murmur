@@ -6,7 +6,18 @@ struct SettingsFullView: View {
     let onBack: () -> Void
     let onTopUp: () -> Void
 
+    @State private var showArchive = false
+
     var body: some View {
+        if showArchive {
+            ArchiveView(onBack: { showArchive = false })
+        } else {
+            settingsContent
+        }
+    }
+
+    @ViewBuilder
+    private var settingsContent: some View {
         ZStack(alignment: .top) {
             // Background
             Theme.Colors.bgDeep
@@ -31,6 +42,46 @@ struct SettingsFullView: View {
                         VStack(spacing: 12) {
                             SectionHeader(title: "NOTIFICATIONS")
                             notificationsGroup
+                        }
+
+                        // Archive link
+                        VStack(spacing: 12) {
+                            SectionHeader(title: "DATA")
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    showArchive = true
+                                }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "archivebox.fill")
+                                        .font(.system(size: 18, weight: .medium))
+                                        .foregroundStyle(Theme.Colors.accentPurple)
+                                        .frame(width: 32)
+
+                                    Text("Archive")
+                                        .font(Theme.Typography.body)
+                                        .foregroundStyle(Theme.Colors.textPrimary)
+
+                                    Spacer()
+
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundStyle(Theme.Colors.textTertiary)
+                                }
+                                .padding(.horizontal, Theme.Spacing.screenPadding)
+                                .padding(.vertical, 14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius)
+                                        .fill(Theme.Colors.bgCard)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius)
+                                                .stroke(Theme.Colors.borderSubtle, lineWidth: 1)
+                                        )
+                                )
+                                .contentShape(Rectangle())
+                                .padding(.horizontal, Theme.Spacing.screenPadding)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.top, 20)
