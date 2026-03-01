@@ -10,7 +10,12 @@ description: >
 
 # Meta Workflow
 
-Create structured developer journal entries in `workflows/meta/<author>/`.
+Create structured developer journal entries.
+
+> **Note:** The old `workflows/meta/<author>/` directory has been archived to `workflows.archive/`.
+> Journal entries now live alongside the collaborative meta structure. For the canonical
+> collaboration files, see `meta/` at the project root (CANON.md, ROADMAP.md, WORKFLOWS.md,
+> RECONCILIATION.md, and per-person PROCESS.md/STATE.md).
 
 ## Step 1: Resolve Author & Next Entry
 

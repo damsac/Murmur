@@ -42,14 +42,21 @@ gh api graphql -f query='{
 }'
 ```
 
-## Step 3 — Check local state
+## Step 3 — Read meta state
+
+```bash
+cat meta/dam/STATE.md
+cat meta/sac/STATE.md
+```
+
+## Step 4 — Check local state
 
 ```bash
 git status
 git branch --show-current
 ```
 
-## Step 4 — Display the summary
+## Step 5 — Display the summary
 
 Format the output in three sections:
 
@@ -75,6 +82,15 @@ Available to pick up:
   #26  Clean up Settings view
   #28  Clean up confirmation flow
   #31  Entry status change UX
+```
+
+### Meta State
+Show both collaborators' current focus from their STATE.md files:
+```
+Meta:
+  dam  — [current focus from meta/dam/STATE.md]
+  sac  — [current focus from meta/sac/STATE.md]
+  Open questions for you: [any "What I need from <you>" items]
 ```
 
 ### Conflict check
