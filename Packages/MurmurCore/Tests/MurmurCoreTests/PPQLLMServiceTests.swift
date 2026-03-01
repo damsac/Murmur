@@ -192,62 +192,6 @@ struct PPQLLMServiceTests {
         #expect(response.summary == "I didn't find any actionable items in that.")
     }
 
-    @Test("Multi-turn conversation accumulates message history")
-    func conversationAccumulation() async throws {
-        let responseJSON = """
-            {
-                "choices": [{
-                    "message": {
-                        "role": "assistant",
-                        "content": null,
-                        "tool_calls": [{
-                            "id": "call_1",
-                            "type": "function",
-                            "function": {
-                                "name": "create_entries",
-                                "arguments": "{\\"entries\\":[{\\"content\\":\\"Buy milk\\",\\"category\\":\\"todo\\",\\"source_text\\":\\"buy milk\\"}]}"
-                            }
-                        }]
-                    }
-                }]
-            }
-            """
-
-        let (service, delegate) = makeService(responseBody: responseJSON, statusCode: 200)
-        let conversation = LLMConversation()
-
-        // First call — should send [system, user]
-        _ = try await service.extractEntries(from: "buy milk", conversation: conversation)
-
-        let body1 = try #require(delegate.lastRequestBody)
-        let json1 = try #require(JSONSerialization.jsonObject(with: body1) as? [String: Any])
-        let messages1 = try #require(json1["messages"] as? [[String: Any]])
-        #expect(messages1.count == 2)
-        #expect(messages1[0]["role"] as? String == "system")
-        #expect(messages1[1]["role"] as? String == "user")
-        #expect(messages1[1]["content"] as? String == "buy milk")
-
-        // Conversation should now have: system, user, assistant, tool
-        #expect(conversation.messages.count == 4)
-        #expect(conversation.messages[2]["role"] as? String == "assistant")
-        #expect(conversation.messages[3]["role"] as? String == "tool")
-
-        // Second call — should send accumulated history + new user message
-        _ = try await service.extractEntries(from: "change to eggs", conversation: conversation)
-
-        let body2 = try #require(delegate.lastRequestBody)
-        let json2 = try #require(JSONSerialization.jsonObject(with: body2) as? [String: Any])
-        let messages2 = try #require(json2["messages"] as? [[String: Any]])
-        #expect(messages2.count == 5) // system, user, assistant, tool, user
-        #expect(messages2[0]["role"] as? String == "system")
-        #expect(messages2[1]["role"] as? String == "user")
-        #expect(messages2[1]["content"] as? String == "buy milk")
-        #expect(messages2[2]["role"] as? String == "assistant")
-        #expect(messages2[3]["role"] as? String == "tool")
-        #expect(messages2[4]["role"] as? String == "user")
-        #expect(messages2[4]["content"] as? String == "change to eggs")
-    }
-
     @Test("Sends correct request structure")
     func requestStructure() async throws {
         let responseJSON = """

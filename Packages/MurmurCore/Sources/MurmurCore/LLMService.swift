@@ -267,16 +267,36 @@ public extension AgentAction {
     }
 }
 
+/// A tool call that failed to decode.
+public struct ParseFailure: Sendable {
+    public let toolName: String
+    public let rawArguments: String
+    public let errorDescription: String
+
+    public init(toolName: String, rawArguments: String, errorDescription: String) {
+        self.toolName = toolName
+        self.rawArguments = rawArguments
+        self.errorDescription = errorDescription
+    }
+}
+
 /// The agent response for a single turn.
 public struct AgentResponse: Sendable {
     public let actions: [AgentAction]
     public let summary: String
     public let usage: TokenUsage
+    public let parseFailures: [ParseFailure]
 
-    public init(actions: [AgentAction], summary: String, usage: TokenUsage) {
+    public init(
+        actions: [AgentAction],
+        summary: String,
+        usage: TokenUsage,
+        parseFailures: [ParseFailure] = []
+    ) {
         self.actions = actions
         self.summary = summary
         self.usage = usage
+        self.parseFailures = parseFailures
     }
 }
 

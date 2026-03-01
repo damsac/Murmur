@@ -321,7 +321,8 @@ struct RootView: View {
                 let agentContext = activeAndSnoozedEntries.map { $0.toAgentContext() }
                 let result = try await pipeline.processWithAgent(
                     transcript: liveText,
-                    existingEntries: agentContext
+                    existingEntries: agentContext,
+                    conversation: pipeline.currentConversation
                 )
                 transcript = liveText
                 await appState.refreshCreditBalance()
@@ -369,7 +370,8 @@ struct RootView: View {
                 let agentContext = activeAndSnoozedEntries.map { $0.toAgentContext() }
                 let result = try await pipeline.processWithAgent(
                     transcript: text,
-                    existingEntries: agentContext
+                    existingEntries: agentContext,
+                    conversation: pipeline.currentConversation
                 )
                 await appState.refreshCreditBalance()
 
@@ -457,8 +459,12 @@ struct RootView: View {
         execResult: AgentActionExecutor.ExecutionResult
     ) {
         if !execResult.applied.isEmpty {
+            var summary = response.summary
+            if !response.parseFailures.isEmpty {
+                summary += " (\(response.parseFailures.count) couldn't be processed)"
+            }
             toastConfig = .agent(
-                summary: response.summary,
+                summary: summary,
                 actions: response.actions,
                 undo: execResult.undo,
                 duration: 5.0
