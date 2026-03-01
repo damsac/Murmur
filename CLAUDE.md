@@ -71,6 +71,27 @@ The project uses a Nix flake for reproducible tooling. `direnv allow` activates 
 - **xcbeautify** — pretty xcodebuild output
 - **git hooks** — pre-commit (lint + entitlements check), post-merge (auto-regenerate)
 
+## Collaboration (dam + sac)
+
+This project is built by **damsac** — two collaborators (dam and sac) working with Claude Code.
+
+The `meta/` directory at the project root is the collaboration hub:
+
+| File | Purpose |
+|------|---------|
+| `meta/CANON.md` | Shared decisions both have agreed on |
+| `meta/ROADMAP.md` | Shared priorities and sequencing |
+| `meta/WORKFLOWS.md` | How dam and sac work together |
+| `meta/RECONCILIATION.md` | PR review protocol (review thinking, not code) |
+| `meta/dam/STATE.md` | What dam is working on right now |
+| `meta/sac/STATE.md` | What sac is working on right now |
+| `meta/dam/PROCESS.md` | How dam works with Claude |
+| `meta/sac/PROCESS.md` | How sac works with Claude |
+
+**Key principle:** PRs must include a **Thinking** section. Reviewers read thinking first, code second. If the thinking is sound, the code follows.
+
+**Session start:** Always read the other person's STATE.md and check CANON.md before working.
+
 ## Conventions
 
 - Default simulator: **iPhone 17 Pro** (override with `make build SIM_NAME="iPhone 16"`)

@@ -2,9 +2,18 @@ Start a new work session on the Murmur project. Follow these steps in order:
 
 ## Step 1 — Sync with main
 
-Run:
+Determine the current user's branch (`dam` or `sac`) based on their git login:
+```bash
+gh api user --jq .login
+```
+
+- If `gudnuf` → working branch is `dam`
+- If `IsaacMenge` → working branch is `sac`
+
+Then sync:
 ```bash
 git checkout main && git pull
+git checkout <your-branch> && git pull && git merge main
 ```
 
 Report what changed (or confirm already up to date).
@@ -76,7 +85,25 @@ Available work:
 
 If there are items assigned to the *other* team member (not the current user), list them separately under "Assigned to partner — do not pick these".
 
-## Step 4 — Check for open PRs
+## Step 4 — Read the meta
+
+Read the shared meta files to understand the current state of collaboration:
+
+```bash
+cat meta/CANON.md
+cat meta/ROADMAP.md
+```
+
+Then read your partner's state to see what they're working on:
+
+```bash
+# If you're gudnuf, read sac's state. If you're IsaacMenge, read dam's state.
+cat meta/dam/STATE.md   # or meta/sac/STATE.md
+```
+
+Briefly summarize: what the other person is working on, any open questions directed at you, and any canon decisions you haven't seen yet.
+
+## Step 5 — Check for open PRs
 
 Run:
 ```bash
@@ -85,7 +112,7 @@ gh pr list --repo damsac/Murmur --state open --json number,title,author,headRefN
 
 Show a brief summary: what's in review, who opened it. Flag any that might relate to what the user is about to work on.
 
-## Step 5 — Ask what to work on
+## Step 6 — Ask what to work on
 
 Ask the user: "What would you like to work on?" They can:
 - Pick a number from the list above
@@ -94,14 +121,16 @@ Ask the user: "What would you like to work on?" They can:
 
 Wait for their answer before proceeding.
 
-## Step 6 — Create a branch
+## Step 7 — Confirm branch
 
-Once the user picks something:
-1. Confirm we're on main: `git status`
-2. Create a branch: `git checkout -b feat/issue-N-short-description` (use the issue number and a 2-4 word slug from the title)
-3. Confirm: "Created branch `feat/issue-N-short-description`. Ready to build."
+Work happens on your branch (`dam` or `sac`), not feature branches by default. Confirm you're on the right branch:
+```bash
+git branch --show-current
+```
 
-## Step 7 — Assign the issue
+If the user explicitly wants a feature branch for this work, create one from their working branch.
+
+## Step 8 — Assign the issue
 
 If the user picked an existing board item, assign it to them and move it to "In Progress":
 
