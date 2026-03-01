@@ -28,6 +28,13 @@ public enum EntryCategory: String, Codable, Sendable, CaseIterable {
     public init(from rawValue: String) {
         self = EntryCategory(rawValue: rawValue) ?? .note
     }
+
+    /// Custom Decodable — unknown values decode as .note instead of throwing
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        self = EntryCategory(rawValue: rawValue) ?? .note
+    }
 }
 
 /// How the entry was captured

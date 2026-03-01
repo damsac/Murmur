@@ -47,9 +47,14 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
             conversation: conversation
         )
 
-        let actions = try parseActions(from: turn.assistantMessage)
-        let summary = parseSummary(from: turn.assistantMessage) ?? summarize(actions: actions)
-        return AgentResponse(actions: actions, summary: summary, usage: turn.usage)
+        let parseResult = parseActions(from: turn.assistantMessage)
+        let summary = parseSummary(from: turn.assistantMessage) ?? summarize(actions: parseResult.actions)
+        return AgentResponse(
+            actions: parseResult.actions,
+            summary: summary,
+            usage: turn.usage,
+            parseFailures: parseResult.failures
+        )
     }
 
     /// Backward-compatible extraction path for current UI flow.
@@ -61,8 +66,8 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
             conversation: conversation
         )
 
-        let actions = try parseActions(from: turn.assistantMessage)
-        return LLMResult(entries: actions.compactMap(\.createdEntry), usage: turn.usage)
+        let parseResult = parseActions(from: turn.assistantMessage)
+        return LLMResult(entries: parseResult.actions.compactMap(\.createdEntry), usage: turn.usage)
     }
 
     // MARK: - Turn Execution
@@ -182,14 +187,20 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         return assistantMessage
     }
 
-    private func parseActions(from assistantMessage: [String: Any]) throws -> [AgentAction] {
+    private struct ParseActionResult {
+        let actions: [AgentAction]
+        let failures: [ParseFailure]
+    }
+
+    private func parseActions(from assistantMessage: [String: Any]) -> ParseActionResult {
         guard let toolCalls = assistantMessage["tool_calls"] as? [[String: Any]] else {
             // With toolChoice: .auto, the model may respond with text only (no actions).
             // This is valid — return empty actions and let the caller use parseSummary().
-            return []
+            return ParseActionResult(actions: [], failures: [])
         }
 
         var actions: [AgentAction] = []
+        var failures: [ParseFailure] = []
 
         for toolCall in toolCalls {
             guard let function = toolCall["function"] as? [String: Any],
@@ -200,33 +211,41 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
                 continue
             }
 
-            switch name {
-            case "create_entries":
-                let wrapper = try JSONDecoder().decode(CreateEntriesArguments.self, from: argumentsData)
-                actions.append(contentsOf: wrapper.entries.map { .create($0.asAction) })
+            do {
+                switch name {
+                case "create_entries":
+                    let wrapper = try JSONDecoder().decode(CreateEntriesArguments.self, from: argumentsData)
+                    actions.append(contentsOf: wrapper.entries.map { .create($0.asAction) })
 
-            case "update_entries":
-                let wrapper = try JSONDecoder().decode(UpdateEntriesArguments.self, from: argumentsData)
-                actions.append(contentsOf: wrapper.updates.map { .update($0.asAction) })
+                case "update_entries":
+                    let wrapper = try JSONDecoder().decode(UpdateEntriesArguments.self, from: argumentsData)
+                    actions.append(contentsOf: wrapper.updates.map { .update($0.asAction) })
 
-            case "complete_entries":
-                let wrapper = try JSONDecoder().decode(EntryMutationArguments.self, from: argumentsData)
-                actions.append(contentsOf: wrapper.entries.map {
-                    .complete(CompleteAction(id: $0.id, reason: $0.normalizedReason))
-                })
+                case "complete_entries":
+                    let wrapper = try JSONDecoder().decode(EntryMutationArguments.self, from: argumentsData)
+                    actions.append(contentsOf: wrapper.entries.map {
+                        .complete(CompleteAction(id: $0.id, reason: $0.normalizedReason))
+                    })
 
-            case "archive_entries":
-                let wrapper = try JSONDecoder().decode(EntryMutationArguments.self, from: argumentsData)
-                actions.append(contentsOf: wrapper.entries.map {
-                    .archive(ArchiveAction(id: $0.id, reason: $0.normalizedReason))
-                })
+                case "archive_entries":
+                    let wrapper = try JSONDecoder().decode(EntryMutationArguments.self, from: argumentsData)
+                    actions.append(contentsOf: wrapper.entries.map {
+                        .archive(ArchiveAction(id: $0.id, reason: $0.normalizedReason))
+                    })
 
-            default:
-                continue
+                default:
+                    continue
+                }
+            } catch {
+                failures.append(ParseFailure(
+                    toolName: name,
+                    rawArguments: argumentsString,
+                    errorDescription: error.localizedDescription
+                ))
             }
         }
 
-        return actions
+        return ParseActionResult(actions: actions, failures: failures)
     }
 
     private func parseSummary(from assistantMessage: [String: Any]) -> String? {
@@ -400,6 +419,22 @@ private struct RawCreateAction: Decodable {
         case cadence
     }
 
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        content = try container.decode(String.self, forKey: .content)
+        category = try container.decode(EntryCategory.self, forKey: .category)
+        sourceText = try container.decodeIfPresent(String.self, forKey: .sourceText)
+        summary = try container.decodeIfPresent(String.self, forKey: .summary)
+        priority = try container.decodeIfPresent(Int.self, forKey: .priority)
+        dueDate = try container.decodeIfPresent(String.self, forKey: .dueDate)
+        // Defensive: unknown cadence values become nil
+        if let cadenceString = try container.decodeIfPresent(String.self, forKey: .cadence) {
+            cadence = HabitCadence(rawValue: cadenceString)
+        } else {
+            cadence = nil
+        }
+    }
+
     var asAction: CreateAction {
         let normalizedSummary = summary?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedSource = sourceText?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -421,7 +456,7 @@ private struct RawCreateAction: Decodable {
             category: category,
             sourceText: finalSource,
             summary: finalSummary,
-            priority: priority,
+            priority: priority.map { max(1, min(5, $0)) },
             dueDateDescription: dueDate,
             cadence: cadence
         )
@@ -474,12 +509,29 @@ private struct RawUpdateFields: Decodable {
         case snoozeUntil = "snooze_until"
     }
 
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        content = try container.decodeIfPresent(String.self, forKey: .content)
+        summary = try container.decodeIfPresent(String.self, forKey: .summary)
+        category = try container.decodeIfPresent(EntryCategory.self, forKey: .category)
+        priority = try container.decodeIfPresent(Int.self, forKey: .priority)
+        dueDate = try container.decodeIfPresent(String.self, forKey: .dueDate)
+        // Defensive: unknown cadence values become nil
+        if let cadenceString = try container.decodeIfPresent(String.self, forKey: .cadence) {
+            cadence = HabitCadence(rawValue: cadenceString)
+        } else {
+            cadence = nil
+        }
+        status = try container.decodeIfPresent(AgentEntryStatus.self, forKey: .status)
+        snoozeUntil = try container.decodeIfPresent(String.self, forKey: .snoozeUntil)
+    }
+
     var asFields: UpdateFields {
         UpdateFields(
             content: content,
             summary: summary,
             category: category,
-            priority: priority,
+            priority: priority.map { max(1, min(5, $0)) },
             dueDateDescription: dueDate,
             cadence: cadence,
             status: status,

@@ -12,6 +12,7 @@ Updated when priorities shift. Either person can propose changes via PR.
 |------|-------|--------|--------|
 | Agentic entry management (UI simplification) | sac | In progress | — |
 | Focus strip + category sections | sac | In review | PR #59 |
+| Resilient action parsing + multi-turn wiring | dam | In review | PR pending |
 
 ## Up Next
 
