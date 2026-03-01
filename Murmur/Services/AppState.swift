@@ -21,6 +21,8 @@ final class AppState {
     var pipelineError: String?
     var creditGate: LocalCreditGate?
     var creditBalance: Int64 = 0
+    private(set) var llmService: PPQLLMService?
+    var memoryStore: AgentMemoryStore?
 
     var hasCompletedOnboarding: Bool {
         get { UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") }
@@ -53,6 +55,11 @@ final class AppState {
             llmPricing: pricing
         )
         creditGate = gate
+        llmService = llm
+
+        let store = AgentMemoryStore()
+        memoryStore = store
+        llm.agentMemory = store.load()
 
         Task { @MainActor in
             await refreshCreditBalance()
