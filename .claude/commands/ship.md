@@ -46,11 +46,17 @@ type: short description
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 ```
 
-## Step 5 — Push the branch
+## Step 5 — Create PR branch and push
+
+Branch off the current working branch for the PR:
 
 ```bash
+# Determine PR branch name — ask user for a short name or derive from the work
+git checkout -b <user>/<pr-name>
 git push -u origin HEAD
 ```
+
+Use `dam/<name>` or `sac/<name>` based on the current user (e.g. `dam/meta-genesis`, `sac/category-cleanup`).
 
 ## Step 6 — Detect linked issue
 
@@ -110,12 +116,21 @@ gh api graphql -f query='
 '
 ```
 
-## Step 9 — Report
+## Step 9 — Return to working branch
+
+Go back to your working branch so you can keep going:
+
+```bash
+git checkout dam   # or sac
+```
+
+## Step 10 — Report
 
 Print a summary:
 ```
 ✓ PR #N opened: [title]
-  Branch: feat/issue-N-...
+  Branch: <user>/<pr-name>
   Linked issue: #N — [title]
   URL: https://github.com/damsac/Murmur/pull/N
+  Back on: dam (ready to keep working)
 ```

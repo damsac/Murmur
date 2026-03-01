@@ -21,18 +21,28 @@ How dam and sac work together on Murmur. The day-to-day practices.
 
 ### 2. Build
 
-- Work on your branch (`dam` or `sac`) — feature branches used selectively, not by default
-- Pull main before starting to make sure you have the latest
+- Work on your branch (`dam` or `sac`) — commit freely
 - Each person works with their own Claude instance
 - Claude's reasoning is the valuable artifact — not just the code it produces
 
 ### 3. Ship (`/ship`)
 
 - Update your STATE.md with decisions, open questions, needs
-- Commit with `type: description`
-- Open PR with **Thinking** section as the primary content
+- Branch off for the PR: `git checkout -b dam/<pr-name>`
+- Open PR from `dam/<pr-name>` → `main` with **Thinking** section
 - Update ROADMAP.md if priorities changed
 - Propose CANON.md additions if decisions were made
+- Go back to your working branch and keep going: `git checkout dam`
+
+### After a PR merges
+
+Rebase your working branch onto main to stay clean:
+```
+git checkout main && git pull
+git checkout dam && git rebase main
+```
+
+This keeps your next PR's diff clean — no duplicate commits from already-merged work.
 
 ### 4. Review
 
@@ -46,6 +56,8 @@ Read in this order:
 
 If the thinking is wrong, the code doesn't matter. Push back on the thinking.
 If the thinking is sound but the code is off, that's a smaller conversation.
+
+Sac reviews dam's PRs in order. Dam reviews sac's PRs in order. Linear thinking review.
 
 ### 5. Reconcile
 
