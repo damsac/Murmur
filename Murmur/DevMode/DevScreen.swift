@@ -190,11 +190,7 @@ enum DevScreen: String, CaseIterable, Identifiable {
             case .settingsFull:
                 SettingsFullView(
                     onBack: {},
-                    onTopUp: {},
-                    onManageViews: {},
-                    onExportData: {},
-                    onClearData: {},
-                    onOpenSourceLicenses: {}
+                    onTopUp: {}
                 )
 
             // Top-Up & Recording

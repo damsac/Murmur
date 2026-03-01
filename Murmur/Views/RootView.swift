@@ -4,6 +4,7 @@ import AVFAudio
 import UIKit
 import MurmurCore
 
+// swiftlint:disable:next type_body_length
 struct RootView: View {
     @Environment(AppState.self) private var appState
     @Environment(NotificationPreferences.self) private var notifPrefs
@@ -223,11 +224,7 @@ struct RootView: View {
             onTopUp: {
                 openTopUp()
                 showTopUp = true
-            },
-            onManageViews: {},
-            onExportData: {},
-            onClearData: {},
-            onOpenSourceLicenses: {}
+            }
         )
     }
 

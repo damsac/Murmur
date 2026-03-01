@@ -6,22 +6,25 @@ What dam is working on right now. Updated with every PR.
 
 ## Current focus
 
-- Bootstrapping collaborative meta structure (this genesis)
+- Cleaned up Settings view (#26): removed placeholder sections (AI Backend, Views, Data, About), kept only Credits + Notifications
+- Redesigned Settings UI: balance hero at top, notification toggle chips (tappable icons instead of toggle switches), capsule CTA for top-up
 
 ## Recent decisions
 
-- Adopted `meta/` at project root as collaborative meta structure
-- Archived `workflows/` to `workflows.archive/`
-- PRs now require Thinking section for review
-- Canon/Roadmap/Reconciliation as shared truth between dam and sac
+- Settings should only show functional sections — no placeholders
+- Balance hero + "Get More Credits" grouped at top (credits are the primary settings concern)
+- Notification toggles replaced with tappable icon chips — more compact, more visual
+- Added `SettingsGroup` and `SettingsGroupDivider` components for iOS-style grouped rows
+- `cancelRecording()` over `stopRecording()` in agent path (speed over completeness)
 
 ## Open questions
 
 - How does sac want to structure their PROCESS.md? (Sac should fill in their own)
-- Should we align on a shared Claude Code memory format?
+- Should notification chips have any additional visual feedback (haptic, scale animation)?
+- Settings will need sections back when features mature (export, clear data, about) — add them when they're real
 
 ## What I need from sac
 
-- Review and agree on the CANON.md decisions
-- Fill in `meta/sac/PROCESS.md` with your working style
-- Update `meta/sac/STATE.md` with your current work
+- Review and agree on the CANON.md decisions (roles, branch model)
+- Fill in `meta/sac/PROCESS.md` and `meta/sac/STATE.md`
+- Feedback on notification chip pattern — does it feel right on device?
