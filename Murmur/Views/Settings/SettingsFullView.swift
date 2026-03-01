@@ -5,10 +5,6 @@ struct SettingsFullView: View {
     @Environment(NotificationPreferences.self) private var notifPrefs
     let onBack: () -> Void
     let onTopUp: () -> Void
-    let onManageViews: () -> Void
-    let onExportData: () -> Void
-    let onClearData: () -> Void
-    let onOpenSourceLicenses: () -> Void
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -27,131 +23,15 @@ struct SettingsFullView: View {
 
                 // Settings content
                 ScrollView {
-                    VStack(spacing: 0) {
+                    VStack(spacing: 24) {
+                        // Credits section: balance hero + top up CTA
+                        creditsSection
+
                         // Notifications section
-                        SectionHeader(title: "NOTIFICATIONS")
-
-                        notificationsSection
-
-                        // Credits section
-                        SectionHeader(title: "CREDITS")
-                            .padding(.top, 32)
-
-                        SettingsRow(
-                            icon: "bolt.fill",
-                            iconColor: Theme.Colors.accentPurple,
-                            label: "Balance",
-                            value: "\(appState.creditBalance.formatted()) credits",
-                            showChevron: false,
-                            action: {}
-                        )
-
-                        SettingsRow(
-                            icon: "arrow.up.circle.fill",
-                            iconColor: Theme.Colors.accentPurple,
-                            label: "Top Up",
-                            value: nil,
-                            showChevron: true,
-                            action: onTopUp
-                        )
-
-                        // AI Backend section
-                        SectionHeader(title: "AI BACKEND")
-                            .padding(.top, 32)
-
-                        SettingsRow(
-                            icon: "waveform",
-                            iconColor: Theme.Colors.accentBlue,
-                            label: "Transcription Service",
-                            value: "Whisper API",
-                            showChevron: true,
-                            action: { print("Transcription service") }
-                        )
-
-                        SettingsRow(
-                            icon: "brain",
-                            iconColor: Theme.Colors.accentPurple,
-                            label: "LLM Endpoint",
-                            value: "Claude 3.5 Sonnet",
-                            showChevron: true,
-                            action: { print("LLM endpoint") }
-                        )
-
-                        SettingsRow(
-                            icon: "key.fill",
-                            iconColor: Theme.Colors.accentYellow,
-                            label: "API Key",
-                            value: "sk-ant-api03-••••",
-                            showChevron: true,
-                            action: { print("API key") }
-                        )
-
-                        // Views section
-                        SectionHeader(title: "VIEWS")
-                            .padding(.top, 32)
-
-                        SettingsRow(
-                            icon: "rectangle.grid.2x2",
-                            iconColor: Theme.Colors.accentPurple,
-                            label: "Manage Views",
-                            value: nil,
-                            showChevron: true,
-                            action: onManageViews
-                        )
-
-                        SettingsRow(
-                            icon: "house.fill",
-                            iconColor: Theme.Colors.accentBlue,
-                            label: "Default Home Layout",
-                            value: "AI Composed",
-                            showChevron: true,
-                            action: { print("Home layout") }
-                        )
-
-                        // Data section
-                        SectionHeader(title: "DATA")
-                            .padding(.top, 32)
-
-                        SettingsRow(
-                            icon: "square.and.arrow.up",
-                            iconColor: Theme.Colors.accentGreen,
-                            label: "Export Thoughts",
-                            value: nil,
-                            showChevron: true,
-                            action: onExportData
-                        )
-
-                        SettingsRow(
-                            icon: "trash.fill",
-                            iconColor: Theme.Colors.accentRed,
-                            label: "Clear All Data",
-                            value: nil,
-                            showChevron: true,
-                            action: onClearData
-                        )
-
-                        // About section
-                        SectionHeader(title: "ABOUT")
-                            .padding(.top, 32)
-
-                        SettingsRow(
-                            icon: "info.circle.fill",
-                            iconColor: Theme.Colors.textSecondary,
-                            label: "Version",
-                            value: "1.0.0 (beta)",
-                            showChevron: false,
-                            action: {}
-                        )
-
-                        SettingsRow(
-                            icon: "doc.text.fill",
-                            iconColor: Theme.Colors.textSecondary,
-                            label: "Open Source Licenses",
-                            value: nil,
-                            showChevron: true,
-                            action: onOpenSourceLicenses
-                        )
-
+                        VStack(spacing: 12) {
+                            SectionHeader(title: "NOTIFICATIONS")
+                            notificationsGroup
+                        }
                     }
                     .padding(.top, 20)
                     .padding(.bottom, 40)
@@ -160,32 +40,111 @@ struct SettingsFullView: View {
         }
     }
 
-    // MARK: - Notifications Section
+    // MARK: - Credits Section
 
     @ViewBuilder
-    private var notificationsSection: some View {
+    private var creditsSection: some View {
+        VStack(spacing: 0) {
+            // Balance hero
+            VStack(spacing: 6) {
+                Text(appState.creditBalance.formatted())
+                    .font(.system(size: 40, weight: .bold))
+                    .tracking(-0.8)
+                    .foregroundStyle(Theme.Colors.textPrimary)
+
+                Text("credits remaining")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Theme.Colors.textTertiary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 28)
+            .padding(.bottom, 20)
+
+            // Top up button
+            Button(action: onTopUp) {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text("Get More Credits")
+                        .font(.system(size: 15, weight: .semibold))
+                }
+                .foregroundStyle(Theme.Colors.accentPurple)
+                .padding(.vertical, 10)
+                .padding(.horizontal, 20)
+                .background(
+                    Capsule()
+                        .fill(Theme.Colors.accentPurple.opacity(0.12))
+                )
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, 24)
+        }
+    }
+
+    // MARK: - Notifications Group
+
+    @ViewBuilder
+    private var notificationsGroup: some View {
         @Bindable var prefs = notifPrefs
 
-        SettingsToggleRow(
-            icon: "bell.fill",
-            iconColor: Theme.Colors.accentPurple,
-            label: "Reminders",
-            isOn: $prefs.remindersEnabled
-        )
+        HStack(spacing: 12) {
+            NotificationChip(
+                icon: "bell.fill",
+                label: "Reminders",
+                isOn: $prefs.remindersEnabled
+            )
 
-        SettingsToggleRow(
-            icon: "clock.fill",
-            iconColor: Theme.Colors.accentYellow,
-            label: "Due Soon (todos)",
-            isOn: $prefs.dueSoonEnabled
-        )
+            NotificationChip(
+                icon: "clock.fill",
+                label: "Due Soon",
+                isOn: $prefs.dueSoonEnabled
+            )
 
-        SettingsToggleRow(
-            icon: "moon.zzz.fill",
-            iconColor: Theme.Colors.accentBlue,
-            label: "Snooze Wake-Up",
-            isOn: $prefs.snoozeWakeUpEnabled
-        )
+            NotificationChip(
+                icon: "moon.zzz.fill",
+                label: "Snooze",
+                isOn: $prefs.snoozeWakeUpEnabled
+            )
+        }
+        .padding(.horizontal, Theme.Spacing.screenPadding)
+    }
+}
+
+// MARK: - Notification Chip
+
+private struct NotificationChip: View {
+    let icon: String
+    let label: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isOn.toggle()
+            }
+        } label: {
+            VStack(spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(isOn ? Theme.Colors.accentPurple.opacity(0.15) : Theme.Colors.bgCard)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(isOn ? Theme.Colors.accentPurple.opacity(0.3) : Theme.Colors.borderSubtle, lineWidth: 1)
+                        )
+                        .frame(height: 52)
+
+                    Image(systemName: icon)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(isOn ? Theme.Colors.accentPurple : Theme.Colors.textTertiary)
+                }
+
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(isOn ? Theme.Colors.textSecondary : Theme.Colors.textTertiary)
+            }
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -201,7 +160,6 @@ private struct SectionHeader: View {
             .foregroundStyle(Theme.Colors.textTertiary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, Theme.Spacing.screenPadding)
-            .padding(.bottom, 12)
     }
 }
 
@@ -211,11 +169,7 @@ private struct SectionHeader: View {
 
     SettingsFullView(
         onBack: { print("Back") },
-        onTopUp: { print("Top up") },
-        onManageViews: { print("Manage views") },
-        onExportData: { print("Export data") },
-        onClearData: { print("Clear data") },
-        onOpenSourceLicenses: { print("Licenses") }
+        onTopUp: { print("Top up") }
     )
     .environment(appState)
     .environment(notifPrefs)

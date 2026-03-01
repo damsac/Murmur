@@ -673,13 +673,15 @@ private struct SettingsRowGallery: View {
         }
 
         GallerySection(title: "Toggle Rows") {
-            VStack(spacing: 8) {
+            SettingsGroup {
                 SettingsToggleRow(
                     icon: "moon",
                     iconColor: Theme.Colors.accentPurple,
                     label: "Auto-categorize entries",
                     isOn: $toggle1
                 )
+
+                SettingsGroupDivider()
 
                 SettingsToggleRow(
                     icon: "waveform",
@@ -688,7 +690,6 @@ private struct SettingsRowGallery: View {
                     isOn: $toggle2
                 )
             }
-            .padding(.horizontal, Theme.Spacing.screenPadding)
         }
     }
 }

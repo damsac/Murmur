@@ -70,7 +70,7 @@ struct SettingsRow: View {
     }
 }
 
-// Toggle variant
+// Toggle variant — no background; wrap in a SettingsGroup for card styling
 struct SettingsToggleRow: View {
     let icon: String
     let iconColor: Color
@@ -115,10 +115,35 @@ struct SettingsToggleRow: View {
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 16)
+    }
+}
+
+// Groups rows into a single card with dividers between them
+struct SettingsGroup<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        let subviews = Group { content }
+
+        VStack(spacing: 0) {
+            subviews
+        }
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(Theme.Colors.bgCard)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, Theme.Spacing.screenPadding)
+    }
+}
+
+// Thin divider for use between rows inside a SettingsGroup
+struct SettingsGroupDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(Theme.Colors.borderSubtle)
+            .frame(height: 1)
+            .padding(.leading, 68) // align with text, past icon
     }
 }
 
@@ -143,51 +168,28 @@ struct SettingsToggleRow: View {
                 action: { print("Notifications tapped") }
             )
 
-            SettingsRow(
-                icon: "paintbrush",
-                iconColor: Theme.Colors.accentPurple,
-                label: "Appearance",
-                value: "Dark",
-                showChevron: true,
-                action: { print("Appearance tapped") }
-            )
-
-            SettingsRow(
-                icon: "creditcard",
-                iconColor: Theme.Colors.accentGreen,
-                label: "Top Up Credits",
-                value: nil,
-                showChevron: true,
-                action: { print("Top up tapped") }
-            )
-
-            SettingsRow(
-                icon: "info.circle",
-                iconColor: Theme.Colors.textSecondary,
-                label: "About",
-                value: "v1.0.0",
-                showChevron: true,
-                action: { print("About tapped") }
-            )
-
             Divider()
                 .padding(.vertical, 8)
 
-            SettingsToggleRow(
-                icon: "moon",
-                iconColor: Theme.Colors.accentPurple,
-                label: "Auto-categorize entries",
-                isOn: .constant(true)
-            )
+            SettingsGroup {
+                SettingsToggleRow(
+                    icon: "moon",
+                    iconColor: Theme.Colors.accentPurple,
+                    label: "Auto-categorize entries",
+                    isOn: .constant(true)
+                )
 
-            SettingsToggleRow(
-                icon: "waveform",
-                iconColor: Theme.Colors.accentBlue,
-                label: "Haptic feedback",
-                isOn: .constant(false)
-            )
+                SettingsGroupDivider()
+
+                SettingsToggleRow(
+                    icon: "waveform",
+                    iconColor: Theme.Colors.accentBlue,
+                    label: "Haptic feedback",
+                    isOn: .constant(false)
+                )
+            }
         }
-        .padding(Theme.Spacing.screenPadding)
+        .padding(.vertical, Theme.Spacing.screenPadding)
     }
     .background(Theme.Colors.bgDeep)
 }

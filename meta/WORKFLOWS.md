@@ -66,6 +66,14 @@ After merging:
 - Both STATE files should be consistent with reality
 - ROADMAP reflects what just shipped and what's next
 
+## Who does what
+
+**dam** focuses on architecture, backend, and core systems — the pipeline in `Packages/MurmurCore/`, data models, agent protocol, and LLM integration. Also contributes to the frontend.
+
+**sac** focuses on frontend — SwiftUI views, interactions, gestures, and the user-facing experience in `Murmur/`.
+
+These are centers of gravity, not walls. Both touch whatever needs touching.
+
 ## Communication patterns
 
 ### Async (default)

@@ -22,6 +22,13 @@ Updated via PR. Changes to this file require review from the other person.
 - **Privacy (goal):** All user data encrypted at rest. Zero plaintext storage. Not yet implemented — required for production release.
 - **Credits as fuel:** Token-based usage with starter balance. Additional payment methods planned post-launch.
 
+## Roles
+
+- **dam** — Architecture, backend, core systems (`Packages/MurmurCore/`), and frontend contributions. Owns the foundation that the UI builds on.
+- **sac** — Frontend, UI/UX, SwiftUI views and interactions (`Murmur/`). Owns the user-facing experience.
+
+Both touch the full stack when needed — these are centers of gravity, not hard boundaries.
+
 ## Conventions
 
 - **Branch model:** `main` (stable), `dam` (dam's working branch), `sac` (sac's working branch). PRs go from `pr/dam/<name>` or `pr/sac/<name>` → `main`. Rebase working branch onto main after merge.
@@ -41,3 +48,4 @@ Append new decisions here with date, who proposed, who agreed.
 | 2026-02-28 | Archive old `workflows/` to `workflows.archive/` | dam | Clean slate for meta |
 | 2026-02-28 | PRs must include Thinking section | dam | Review thinking, not just code |
 | 2026-02-28 | Metacraft skills installed at user level (~/.claude/skills/) | dam | Shared tooling: genesis, meta-agent, session-lifecycle, tmux-lanes, gather, skill-creator |
+| 2026-02-28 | Use cancelRecording() over stopRecording() in agent path | dam | Optimizing for speed. Accept potential loss of final partial transcript (~500ms of speech) rather than blocking for finalization. Revisit if users report missing words. |
