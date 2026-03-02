@@ -6,26 +6,26 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-Home screen visual polish — reduced noise, improved focus section UX.
+Onboarding redesign + habit check-off button fix.
 
 ## Recent decisions
 
-- **Category badges text-free** — removed category name label (e.g. "TODO") from `CategoryBadge`, keeping only the colored dot + capsule. Less clutter, color alone carries the signal.
-- **No red overdue dot in section headers** — removed the small red indicator dot next to category names when overdue items exist. Redundant given the focus strip.
-- **Focus strip redesigned as vertical cards** — replaced horizontal chip scroll with up to 3 full `FocusCardView`s. Each card shows category badge, Overdue/P1/P2 reason badge, and summary text. Capped at 3.
-- **Focus zone uses yellow not red** — yellow (`accentYellow`) feels softer and less alarming than red for the attention container. Background `opacity(0.05)`, border `opacity(0.18)`.
-- **No colored card outlines anywhere** — removed `cardAccent` / `cardIntensity` from both `SmartListRow` and `EntryCard`. All cards use plain `.cardStyle()`. Urgency communicated via text badges, not border color.
-- **Focus cards pulse** — staggered opacity animation (1.0 → 0.72, 2.4s easeInOut, delays 0s/0.6s/1.2s) draws the eye without being jarring.
-- **Focus strip header** — two-line: bold `Greeting.current + "."` (title3.semibold) + softer "Focus on these things today." (body, textSecondary). Left-aligned — consistent with the rest of the UI.
-- **No greeting popup** — tried a popup on app open but it didn't feel right. Removed. Greeting lives in the focus strip header instead.
-- **Focus strip hidden when empty** — conditionally rendered; if no focus entries, the section doesn't appear at all.
+- **Onboarding now 3 moments** — welcome → demo → result. Previously dropped straight into the transcript demo with no hook. Added `OnboardingWelcomeView` (hook + CTA) and `OnboardingResultView` (payoff — see what was captured).
+- **Multiple demo entries** — changed from single-entry demo to 3 entries (reminder + todo + idea) to show the full breadth of what Murmur captures in one voice note.
+- **Skip on welcome screen** — added skip button top-right. Calls `skipAndComplete()` without saving any entries. The demo is ~5s but some users will reject all onboarding.
+- **Processing auto-advances to result** — reduced delay from 2s → 1.5s; result screen is where the payoff happens. User explicitly taps "Start capturing" to save and proceed.
+- **isDevMode defaults true in DEBUG** — was always `false`; means every dev build needs to manually toggle dev mode. Now `#if DEBUG` sets it to `true` automatically.
+- **Focus cards got swipe actions** — FocusCardView now participates in the shared `activeSwipeEntryID` binding and receives swipe actions from the parent. Previously it had no swipe actions.
+- **Habit check-off button fix** — replaced `onTapGesture` on background with a proper `Button` wrapper in `SwipeableCard`. SwiftUI's inner-Button-wins rule means the habit circle button now correctly takes priority over card navigation.
+- **Done habits excluded from focus strip** — habits already checked off for the period are filtered out of `focusEntries`. Reduces noise; no point showing a done item as urgent.
+- **Focus strip visual cleanup** — removed yellow zone container (background + border). Cards sit directly in the list without a bounding box.
 
 ## Open questions
 
-- Should focus cards support swipe actions (complete/snooze) directly, or just tap-to-open?
-- Is 3 the right cap for focus items, or should it adapt based on available screen space?
+- Habit button fix needs a test run — confirm the circle toggles and doesn't open the detail sheet
+- Is 3 the right cap for focus items, or should it adapt to screen space?
 
 ## What I need from dam
 
-- Any thoughts on the focus strip UX overall — does the yellow zone + vertical cards feel right?
-- The `Greeting.current` call is duplicated in `FocusStripView` — if you add a proper date/time context model, it should replace this.
+- Confirm onboarding demo transcript still feels like a real use case. Current: "Gotta call mom before the weekend. We're out of milk and eggs too. Oh — what if you could share entries with other people?"
+- Thoughts on 3 demo entries vs 1 — is the variety valuable or overwhelming?

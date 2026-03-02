@@ -14,7 +14,11 @@ final class AppState {
     var recordingState: RecordingState = .idle
     var showOnboarding: Bool = false
     var showFocusCard: Bool = false
+    #if DEBUG
+    var isDevMode: Bool = true
+    #else
     var isDevMode: Bool = false
+    #endif
 
     // Pipeline
     var pipeline: Pipeline?
