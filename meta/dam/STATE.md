@@ -6,42 +6,38 @@ What dam is working on right now. Updated with every PR.
 
 ## Current focus
 
-- **Daily focus — UI bugs** — LLM-composed focus strip is wired end-to-end but has UI issues to fix next session
-- **Results surface** — new `ResultsSurfaceView` replaces toast-based agent response display; confirmation flow added
-- **Recording UI** — minimal wave line with real audio input
+- **Shipped** — daily focus system, results surface, confirmation UI, focus strip polish, recording UI fix, thought category removal
 
 ## What happened last session
 
-- Implemented `compose_focus` tool + `DailyFocus` types in MurmurCore
-- `PPQLLMService.composeDailyFocus()` — one-shot LLM call, separate conversation
-- `DailyFocusStore` — JSON cache in Documents, load/save/clear
-- `AppState.requestDailyFocus()` — cache check → credit gate → LLM → persist → deterministic fallback
-- `FocusStripView` rewired to accept `DailyFocus` (LLM message + resolved entry IDs)
-- `FocusCardView` takes `reason: String` from LLM instead of computing from entry fields
-- `FocusShimmerView` — loading placeholder while LLM composes
-- Dev mode: "Regenerate Daily Focus" button — clears cache + triggers fresh LLM call on dismiss
-- Fixed pre-existing `.confirm` case exhaustiveness in ToastView, AgentActionExecutor
-- `ResultsSurfaceView` + `ConfirmationData` + `DenialLogStore` added (prior session, untracked until now)
-
-## Known UI bugs to fix
-
-- Focus strip UI issues dam wants to address (unspecified — inspect in simulator)
-- Mock focus IDs don't resolve to real entries (expected, but worth testing with real data)
+- Removed `.thought` category — no distinct behavior, falls back to `.note`
+- Daily focus system end-to-end: `compose_focus` tool, `DailyFocusStore`, `AppState.requestDailyFocus()`, deterministic fallback
+- `FocusStripView` rewired for LLM-curated focus: greeting + briefing message + staggered card entry
+- `FocusShimmerView` — rippling shimmer placeholder while LLM composes
+- `FocusContainerView` — stable-height container through loading → loaded transition
+- `ResultsSurfaceView` + `ConfirmationData` + `DenialLogStore` — replaces toast-based agent responses
+- Confirmation UI: tap-to-cycle actions, removed header clutter, fixed card backgrounds
+- Dev mode: "Regenerate Daily Focus" button clears cache + triggers fresh LLM call
+- Recording UI: removed waveform from mic button during processing, edge glow only
 
 ## Recent decisions
 
+- `.thought` removed — category must drive different behavior to earn existence
 - Daily focus fires once per app launch, cached for the day
-- Deterministic fallback uses same overdue + P1/P2 rules as before
-- Credit gating: authorize/charge wraps the briefing call for consistency
-- `compose_focus` is a forced tool call (not auto) — always returns structured data
+- Deterministic fallback uses overdue + P1/P2 rules when LLM unavailable
+- `compose_focus` is forced tool call — always returns structured data
+- Focus strip uses staggered entry animation (message first, then cards one-by-one)
+- Shimmer uses rippling glow pattern (not uniform pulse)
+- Mic button: edge glow only during processing, no waveform overlay
 
 ## Open questions
 
 - Conversation reset: timer, explicit button, or N seconds of silence?
 - Token budget for context window
-- Confirmation flow UX: how should confirm/deny feel?
+- Confirmation flow UX: how should confirm/deny feel in practice?
 
 ## What I need from sac
 
-- Continue iterating on focus section UI — dam has wired LLM curation behind it
-- Coordinate on remaining conversation UI PR
+- Iterate on focus section UI — LLM curation is wired, visual polish welcome
+- Review color remapping — `.thought` removed, colors redistributed
+- Coordinate on remaining conversation UI
