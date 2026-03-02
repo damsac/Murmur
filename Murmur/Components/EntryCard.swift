@@ -19,7 +19,7 @@ struct EntryCard: View {
     // MARK: - Attention State
 
     private var isIdea: Bool {
-        entry.category == .idea || entry.category == .thought
+        entry.category == .idea
     }
 
     private var isCompleted: Bool {
@@ -156,7 +156,7 @@ struct EntryCard: View {
                 entry: Entry(
                     transcript: "",
                     content: "The best interfaces are invisible - they get out of the way and let users focus on their work",
-                    category: .thought,
+                    category: .note,
                     sourceText: "",
                     createdAt: Date().addingTimeInterval(-3600),
                     summary: "The best interfaces are invisible - they get out of the way and let users focus on their work"

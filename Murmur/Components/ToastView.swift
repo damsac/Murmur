@@ -67,7 +67,9 @@ struct AgentToastView: View {
     let summary: String
     let actions: [AgentAction]
     let onUndo: () -> Void
+    var onDismiss: (() -> Void)?
     @State private var isExpanded = false
+    @State private var dragOffset: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -83,16 +85,18 @@ struct AgentToastView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .lineLimit(isExpanded ? nil : 2)
 
-                Button(action: onUndo) {
-                    Text("Undo")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Theme.Colors.accentPurple)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Theme.Colors.accentPurple.opacity(0.15))
-                        .clipShape(Capsule())
+                if !actions.isEmpty {
+                    Button(action: onUndo) {
+                        Text("Undo")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.Colors.accentPurple)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Theme.Colors.accentPurple.opacity(0.15))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
@@ -114,15 +118,40 @@ struct AgentToastView: View {
         }
         .background(toastBackground(color: Theme.Colors.accentPurple))
         .padding(.horizontal, Theme.Spacing.screenPadding)
+        .offset(y: dragOffset)
         .transition(toastTransition)
         .onTapGesture {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                isExpanded.toggle()
+            if isExpanded {
+                // Second tap on expanded toast dismisses it
+                onDismiss?()
+            } else {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    isExpanded.toggle()
+                }
             }
         }
+        .gesture(
+            DragGesture(minimumDistance: 10)
+                .onChanged { value in
+                    // Only track upward drags
+                    if value.translation.height < 0 {
+                        dragOffset = value.translation.height
+                    }
+                }
+                .onEnded { value in
+                    if value.translation.height < -40 {
+                        // Swipe up to dismiss
+                        onDismiss?()
+                    } else {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            dragOffset = 0
+                        }
+                    }
+                }
+        )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Agent response: \(summary)")
-        .accessibilityHint("Tap to see details. Double tap Undo to reverse.")
+        .accessibilityHint("Tap to see details, swipe up to dismiss. Double tap Undo to reverse.")
     }
 
     @ViewBuilder
@@ -225,7 +254,12 @@ struct ToastContainer: ViewModifier {
                 toastContent(config)
                     .padding(.top, 60)
                     .zIndex(999)
-                    .onAppear { scheduleDismiss(after: config.duration) }
+                    .onAppear {
+                        // Agent toasts with duration 0 persist until dismissed
+                        if config.duration > 0 {
+                            scheduleDismiss(after: config.duration)
+                        }
+                    }
             }
         }
         .animation(Animations.toastSpring, value: toast != nil)
@@ -247,7 +281,8 @@ struct ToastContainer: ViewModifier {
             AgentToastView(
                 summary: summary,
                 actions: actions,
-                onUndo: handleUndo
+                onUndo: handleUndo,
+                onDismiss: dismiss
             )
         }
     }

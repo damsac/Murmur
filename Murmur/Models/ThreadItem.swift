@@ -46,6 +46,14 @@ struct ActionResultData {
     var isEmpty: Bool { applied.isEmpty && failures.isEmpty }
 }
 
+/// Data for a pending agent toast, emitted by ConversationState and consumed by RootView.
+struct PendingToastData: Identifiable {
+    let id = UUID()
+    let summary: String
+    let actions: [AgentAction]
+    let undo: UndoTransaction
+}
+
 /// Info about a single applied action for display in the thread.
 struct AppliedActionInfo: Identifiable {
     let id: UUID

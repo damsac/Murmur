@@ -122,10 +122,15 @@ struct HomeView: View {
             // Scrollable content: focus strip + category sections
             ScrollView {
                 VStack(spacing: 0) {
-                    // Focus strip (only shown when there are focus items)
-                    if !focusEntries.isEmpty {
+                    // Focus strip: LLM-composed or loading shimmer
+                    if appState.isFocusLoading && appState.dailyFocus == nil {
+                        FocusShimmerView()
+                            .padding(.top, 12)
+                            .padding(.bottom, 16)
+                    } else if let focus = appState.dailyFocus, !focus.items.isEmpty {
                         FocusStripView(
-                            entries: focusEntries,
+                            dailyFocus: focus,
+                            allEntries: entries,
                             activeSwipeEntryID: $activeSwipeEntryID,
                             onEntryTap: onEntryTap,
                             swipeActionsProvider: swipeActions(for:),
@@ -167,37 +172,10 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Focus Strip Data
-
-    /// Entries qualifying for the focus strip: overdue (dueDate < now) or P1/P2.
-    /// Habits already checked off for the current period are excluded.
-    private var focusEntries: [Entry] {
-        let now = Date()
-        return entries
-            .filter { entry in
-                let isOverdue = entry.dueDate.map { $0 < now } ?? false
-                let isHighPriority = (entry.priority ?? Int.max) <= 2
-                guard isOverdue || isHighPriority else { return false }
-                if entry.category == .habit && !entry.appliesToday { return false }
-                if entry.category == .habit && (entry.isDoneForPeriod || entry.isCompletedToday) { return false }
-                return true
-            }
-            .sorted { lhs, rhs in
-                let now = Date()
-                let lo = lhs.dueDate.map { $0 < now } ?? false
-                let ro = rhs.dueDate.map { $0 < now } ?? false
-                if lo != ro { return lo }
-                let pa = lhs.priority ?? Int.max
-                let pb = rhs.priority ?? Int.max
-                if pa != pb { return pa < pb }
-                return (lhs.dueDate ?? .distantFuture) < (rhs.dueDate ?? .distantFuture)
-            }
-    }
-
     // MARK: - Category Section Data
 
     private static let categoryDisplayOrder: [EntryCategory] = [
-        .todo, .reminder, .habit, .idea, .list, .note, .question, .thought
+        .todo, .reminder, .habit, .idea, .list, .note, .question
     ]
 
     /// Entries grouped by category, in fixed display order, only non-empty categories.
@@ -251,41 +229,99 @@ struct HomeView: View {
 // MARK: - Focus Strip
 
 private struct FocusStripView: View {
-    let entries: [Entry]
+    let dailyFocus: DailyFocus
+    let allEntries: [Entry]
     @Binding var activeSwipeEntryID: UUID?
     let onEntryTap: (Entry) -> Void
     let swipeActionsProvider: (Entry) -> [CardSwipeAction]
     let onAction: (Entry, EntryAction) -> Void
 
+    private var resolvedItems: [(entry: Entry, reason: String)] {
+        dailyFocus.items.compactMap { item in
+            guard let entry = Entry.resolve(shortID: item.id, in: allEntries) else { return nil }
+            return (entry, item.reason)
+        }
+    }
+
     var body: some View {
-        VStack(spacing: 12) {
-            // Section header
-            VStack(alignment: .leading, spacing: 2) {
-                Text(Greeting.current + ".")
+        let items = resolvedItems
+        if !items.isEmpty {
+            VStack(spacing: 12) {
+                // Briefing message from LLM
+                Text(dailyFocus.message)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(Theme.Colors.textPrimary)
-                Text("Focus on these things today.")
-                    .font(Theme.Typography.body)
-                    .foregroundStyle(Theme.Colors.textSecondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Focus cards (top 3 only)
-            VStack(spacing: 10) {
-                ForEach(Array(entries.prefix(3).enumerated()), id: \.element.id) { index, entry in
-                    FocusCardView(
-                        entry: entry,
-                        activeSwipeEntryID: $activeSwipeEntryID,
-                        swipeActionsProvider: swipeActionsProvider,
-                        onAction: onAction,
-                        onTap: { onEntryTap(entry) },
-                        animationDelay: Double(index) * 0.6
-                    )
+                // Focus cards
+                VStack(spacing: 10) {
+                    ForEach(Array(items.enumerated()), id: \.element.entry.id) { index, item in
+                        FocusCardView(
+                            entry: item.entry,
+                            reason: item.reason,
+                            activeSwipeEntryID: $activeSwipeEntryID,
+                            swipeActionsProvider: swipeActionsProvider,
+                            onAction: onAction,
+                            onTap: { onEntryTap(item.entry) },
+                            animationDelay: Double(index) * 0.6
+                        )
+                    }
                 }
             }
+            .padding(.vertical, 8)
+            .padding(.horizontal, Theme.Spacing.screenPadding)
+        }
+    }
+}
+
+// MARK: - Focus Shimmer (Loading State)
+
+private struct FocusShimmerView: View {
+    @State private var shimmerPhase: Bool = false
+
+    var body: some View {
+        VStack(spacing: 12) {
+            // Message placeholder
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Theme.Colors.bgCard)
+                .frame(width: 200, height: 20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            // 3 placeholder cards
+            VStack(spacing: 10) {
+                ForEach(0..<3, id: \.self) { _ in
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Theme.Colors.bgCard)
+                                .frame(width: 50, height: 14)
+                            Spacer()
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Theme.Colors.bgCard)
+                                .frame(width: 40, height: 14)
+                        }
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Theme.Colors.bgCard)
+                            .frame(height: 16)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .cardStyle()
+                }
+            }
+
+            Text("Thinking about your day...")
+                .font(Theme.Typography.caption)
+                .foregroundStyle(Theme.Colors.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 8)
         .padding(.horizontal, Theme.Spacing.screenPadding)
+        .opacity(shimmerPhase ? 0.5 : 1.0)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                shimmerPhase = true
+            }
+        }
     }
 }
 
@@ -293,6 +329,7 @@ private struct FocusStripView: View {
 
 private struct FocusCardView: View {
     let entry: Entry
+    let reason: String
     @Binding var activeSwipeEntryID: UUID?
     let swipeActionsProvider: (Entry) -> [CardSwipeAction]
     let onAction: (Entry, EntryAction) -> Void
@@ -306,16 +343,6 @@ private struct FocusCardView: View {
 
     private var accentColor: Color { Theme.categoryColor(entry.category) }
 
-    private var isOverdue: Bool {
-        entry.dueDate.map { $0 < Date() } ?? false
-    }
-
-    private var reasonLabel: String {
-        if isOverdue { return "Overdue" }
-        if let p = entry.priority, p <= 2 { return "P\(p)" }
-        return ""
-    }
-
     var body: some View {
         SwipeableCard(
             actions: swipeActionsProvider(entry),
@@ -327,11 +354,11 @@ private struct FocusCardView: View {
                 HStack(spacing: 6) {
                     CategoryBadge(category: entry.category, size: .small)
                     Spacer()
-                    if !reasonLabel.isEmpty {
+                    if !reason.isEmpty {
                         HStack(spacing: 3) {
                             Image(systemName: "exclamationmark.circle.fill")
                                 .font(.caption2)
-                            Text(reasonLabel)
+                            Text(reason)
                                 .font(Theme.Typography.badge)
                         }
                         .foregroundStyle(Theme.Colors.accentRed)

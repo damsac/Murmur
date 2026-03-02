@@ -98,18 +98,13 @@ struct RootView: View {
                     .transition(.opacity.animation(.easeInOut(duration: 0.35)))
                     .zIndex(20)
                 }
-                // Processing / response overlay (not shown during recording)
-                if !conversation.isRecording && (conversation.isProcessing || conversation.agentStreamText != nil) {
-                    let transcript = conversation.displayTranscript ?? ""
-                    AgentStreamOverlay(
-                        transcript: transcript,
-                        responseText: conversation.agentStreamText,
-                        isRecording: false,
-                        onDismiss: { conversation.agentStreamText = nil }
-                    )
-                    .transition(.opacity)
-                    .zIndex(30)
+                // Processing edge glow (behind stream overlay)
+                if conversation.isProcessing {
+                    ProcessingGlowView()
+                        .transition(.opacity)
+                        .zIndex(15)
                 }
+                // (Agent response now shown via toast system — see .onChange below)
             }
 
             // Post-onboarding card hints
@@ -251,9 +246,26 @@ struct RootView: View {
             Task { @MainActor in
                 await appState.refreshCreditBalance()
             }
+            Task { @MainActor in
+                await appState.requestDailyFocus(entries: activeEntries)
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { wakeUpSnoozedEntries() }
+        }
+        .onChange(of: appState.conversation.pendingToast?.id) { _, newID in
+            guard newID != nil,
+                  let toast = appState.conversation.pendingToast else { return }
+            // Consume the pending toast and show it via the toast system
+            appState.conversation.pendingToast = nil
+            appState.conversation.agentStreamText = nil
+            appState.conversation.displayTranscript = nil
+            toastConfig = .agent(
+                summary: toast.summary,
+                actions: toast.actions,
+                undo: toast.undo,
+                duration: 0 // Agent toasts don't auto-dismiss
+            )
         }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
             wakeUpSnoozedEntries()

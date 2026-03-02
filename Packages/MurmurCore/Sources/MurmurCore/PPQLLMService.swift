@@ -1,5 +1,6 @@
 import Foundation
 
+// swiftlint:disable type_body_length
 /// LLMService implementation using PPQ.ai's OpenAI-compatible API with tool calling.
 public final class PPQLLMService: LLMService, @unchecked Sendable {
     private let apiKey: String
@@ -104,6 +105,60 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
 
         let parseResult = parseActions(from: turn.assistantMessage)
         return LLMResult(entries: parseResult.actions.compactMap(\.createdEntry), usage: turn.usage)
+    }
+
+    // MARK: - Daily Focus
+
+    /// One-shot LLM call to compose the daily focus briefing.
+    /// Uses a separate conversation (not the ongoing agent conversation).
+    public func composeDailyFocus(entries: [AgentContextEntry]) async throws -> DailyFocus {
+        let userContent = buildBriefingUserContent(entries: entries)
+        let conversation = LLMConversation()
+
+        let turn = try await runTurn(
+            userContent: userContent,
+            prompt: .dailyBriefing,
+            conversation: conversation
+        )
+
+        return try parseDailyFocus(from: turn.assistantMessage)
+    }
+
+    private func buildBriefingUserContent(entries: [AgentContextEntry]) -> String {
+        guard !entries.isEmpty else {
+            return "[BRIEFING] No entries."
+        }
+
+        let sortedEntries = entries.sorted { lhs, rhs in
+            let leftPriority = lhs.priority ?? 6
+            let rightPriority = rhs.priority ?? 6
+            if leftPriority != rightPriority {
+                return leftPriority < rightPriority
+            }
+            return lhs.createdAt > rhs.createdAt
+        }
+
+        var lines: [String] = ["[BRIEFING] Select up to 3 entries for today's focus.", "", "## Current Entries", ""]
+        lines.append(contentsOf: sortedEntries.map(formatContextLine(for:)))
+        return lines.joined(separator: "\n")
+    }
+
+    private func parseDailyFocus(from assistantMessage: [String: Any]) throws -> DailyFocus {
+        guard let toolCalls = assistantMessage["tool_calls"] as? [[String: Any]],
+              let firstCall = toolCalls.first,
+              let function = firstCall["function"] as? [String: Any],
+              let name = function["name"] as? String, name == "compose_focus",
+              let argsString = function["arguments"] as? String,
+              let argsData = argsString.data(using: .utf8)
+        else {
+            throw PPQError.noToolCalls
+        }
+
+        let args = try JSONDecoder().decode(ComposeFocusArguments.self, from: argsData)
+        return DailyFocus(
+            items: args.items.map { FocusItem(id: $0.id, reason: $0.reason) },
+            message: args.message
+        )
     }
 
     // MARK: - Turn Execution
@@ -452,6 +507,7 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         return normalized.isEmpty ? nil : normalized
     }
 }
+// swiftlint:enable type_body_length
 
 // MARK: - Response Decoding Types
 
@@ -597,6 +653,16 @@ private struct RawUpdateFields: Decodable {
             snoozeUntilDescription: snoozeUntil
         )
     }
+}
+
+private struct ComposeFocusArguments: Decodable {
+    let items: [RawFocusItem]
+    let message: String
+}
+
+private struct RawFocusItem: Decodable {
+    let id: String
+    let reason: String
 }
 
 private struct EntryMutationArguments: Decodable {

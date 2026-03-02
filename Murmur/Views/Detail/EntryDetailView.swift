@@ -668,7 +668,7 @@ private extension Date {
         entry: Entry(
             transcript: "",
             content: "The best interfaces are invisible - they get out of the way and let users focus on their task without distraction.",
-            category: .thought,
+            category: .note,
             sourceText: "",
             summary: "The best interfaces are invisible - they get out of the way and let users focus on their task without distraction."
         ),

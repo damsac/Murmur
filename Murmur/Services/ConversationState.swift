@@ -22,6 +22,10 @@ final class ConversationState {
     /// Latest agent response text for the stream overlay. Cleared after animation.
     var agentStreamText: String?
 
+    /// Pending toast data to be picked up by RootView and shown via the toast system.
+    /// Set when processing completes with results; cleared by RootView after consumption.
+    var pendingToast: PendingToastData?
+
     /// Transcript saved when recording stops, shown in overlay during processing.
     var displayTranscript: String?
 
@@ -300,17 +304,25 @@ final class ConversationState {
                 // Remove processing status
                 removeStatusItem()
 
-                // Add agent text response if present (text-only response, no actions)
+                // Add agent text response if present
                 if let textResponse = result.response.textResponse,
                    !textResponse.isEmpty {
                     threadItems.append(.agentText(text: textResponse))
-                    // Set stream text for inline overlay
                     self.agentStreamText = textResponse
                 }
 
                 // Add action result if there were actions
-                if !execResult.applied.isEmpty || !execResult.failures.isEmpty {
+                let hasActions = !execResult.applied.isEmpty || !execResult.failures.isEmpty
+                if hasActions {
                     handleActionResult(execResult: execResult, generation: gen)
+                } else if let textResponse = result.response.textResponse,
+                          !textResponse.isEmpty {
+                    // Text-only response (clarification/summary) — show as simple toast
+                    self.pendingToast = PendingToastData(
+                        summary: textResponse,
+                        actions: [],
+                        undo: UndoTransaction(items: [])
+                    )
                 }
 
                 inputState = .idle
@@ -368,10 +380,15 @@ final class ConversationState {
         )
         threadItems.append(.actionResult(result: resultData))
 
-        // Set agent stream text from summary if no text response
-        if self.agentStreamText == nil {
-            self.agentStreamText = resultData.summary
-        }
+        // Use LLM text response as toast summary if available, otherwise use action summary
+        let toastSummary = self.agentStreamText ?? resultData.summary
+
+        // Emit pending toast for RootView to pick up
+        self.pendingToast = PendingToastData(
+            summary: toastSummary,
+            actions: execResult.applied.map(\.action),
+            undo: execResult.undo
+        )
 
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
@@ -411,6 +428,7 @@ final class ConversationState {
         generationCounter = 0
         conversation = LLMConversation()
         agentStreamText = nil
+        pendingToast = nil
         displayTranscript = nil
         audioLevels = []
 
