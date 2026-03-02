@@ -96,10 +96,13 @@ public struct LLMPrompt: @unchecked Sendable {
             - Use the provided entry id exactly as given in context.
 
             Output rules:
-            - Use tool calls only.
+            - Use tool calls for all entry operations.
+            - After tool calls, include a brief status message (under 15 words) summarizing what you did.
+              Examples: "Added 2 reminders for tomorrow", "Marked dentist appointment complete", "Updated grocery list with 3 items"
+              This message appears as a notification to the user — be concise and specific.
             - Call multiple tools when needed.
             - Act decisively on clear inputs — never ask for confirmation on straightforward requests.
-            - When genuinely ambiguous (e.g., multiple entries match, or intent unclear), ask a brief clarifying question instead of guessing wrong.
+            - When genuinely ambiguous (e.g., multiple entries match, or intent unclear), use confirm_actions to propose what you'd do — the user sees a preview and confirms or declines.
 
             Memory rules:
             - You have persistent memory across sessions via update_memory.
@@ -113,6 +116,7 @@ public struct LLMPrompt: @unchecked Sendable {
             completeEntriesToolSchema(),
             archiveEntriesToolSchema(),
             updateMemoryToolSchema(),
+            confirmActionsToolSchema(),
         ],
         toolChoice: .auto
     )
@@ -127,7 +131,7 @@ public struct LLMPrompt: @unchecked Sendable {
             Infer intended meaning and clean up wording.
 
             Extract intentional items the user wants to track (todo, reminder, note,
-            idea, list, habit, question, thought). Skip filler and small talk.
+            idea, list, habit, question). Skip filler and small talk.
 
             Return only create_entries tool calls. Each entry should include:
             - content: concise card text
@@ -142,6 +146,63 @@ public struct LLMPrompt: @unchecked Sendable {
 
     @available(*, deprecated, message: "Use entryManager or entryCreation")
     public static let entryExtraction = entryCreation
+
+    /// Daily briefing prompt: selects up to 3 focus entries + writes a short message.
+    public static let dailyBriefing = LLMPrompt(
+        systemPrompt: """
+            You are Murmur's daily briefing system.
+
+            You receive the user's current entries. Your job is to select up to 3 entries that deserve
+            the user's attention today, and write a brief natural-language message (under 12 words).
+
+            Selection criteria (in priority order):
+            1. Overdue entries (due date has passed)
+            2. Due today
+            3. High priority (P1, P2)
+            4. Stale entries (created long ago, never updated)
+            5. Habits not yet done for the current period
+
+            For each selected entry, provide a 1-word reason: Overdue, Today, Urgent, Stale, Due, etc.
+
+            The message should feel natural and concise, like a quick briefing:
+            - "Busy Monday — tackle these first."
+            - "Two things overdue, one due today."
+            - "Light day — just one thing needs attention."
+
+            Always call compose_focus with your selections. If no entries deserve focus, call it with
+            an empty items array and a message like "All clear — nothing pressing today."
+            """,
+        tools: [composeFocusToolSchema()],
+        toolChoice: .function(name: "compose_focus")
+    )
+}
+
+// MARK: - Daily Focus Types
+
+public struct FocusItem: Codable, Sendable, Identifiable {
+    public let id: String      // entry short ID
+    public let reason: String  // 1-word LLM reason
+
+    public init(id: String, reason: String) {
+        self.id = id
+        self.reason = reason
+    }
+}
+
+public struct DailyFocus: Codable, Sendable {
+    public let items: [FocusItem]
+    public let message: String
+    public let composedAt: Date
+
+    public var isFromToday: Bool {
+        Calendar.current.isDateInToday(composedAt)
+    }
+
+    public init(items: [FocusItem], message: String, composedAt: Date = Date()) {
+        self.items = items
+        self.message = message
+        self.composedAt = composedAt
+    }
 }
 
 /// Agent-facing status for context snapshots and update fields.
@@ -283,6 +344,17 @@ public struct UpdateMemoryAction: Sendable {
     }
 }
 
+/// Proposed actions awaiting user confirmation.
+public struct ConfirmationRequest: Sendable {
+    public let message: String
+    public let proposedActions: [AgentAction]
+
+    public init(message: String, proposedActions: [AgentAction]) {
+        self.message = message
+        self.proposedActions = proposedActions
+    }
+}
+
 /// Typed actions produced by the agent.
 public enum AgentAction: Sendable {
     case create(CreateAction)
@@ -290,6 +362,7 @@ public enum AgentAction: Sendable {
     case complete(CompleteAction)
     case archive(ArchiveAction)
     case updateMemory(UpdateMemoryAction)
+    case confirm(ConfirmationRequest)
 }
 
 public extension AgentAction {
@@ -307,6 +380,11 @@ public extension AgentAction {
             dueDateDescription: action.dueDateDescription,
             cadence: action.cadence
         )
+    }
+
+    var isConfirmation: Bool {
+        if case .confirm = self { return true }
+        return false
     }
 }
 
@@ -492,7 +570,7 @@ private extension LLMPrompt {
                                     ],
                                     "category": [
                                         "type": "string",
-                                        "enum": ["todo", "note", "reminder", "idea", "list", "habit", "question", "thought"],
+                                        "enum": ["todo", "note", "reminder", "idea", "list", "habit", "question"],
                                     ],
                                     "source_text": [
                                         "type": "string",
@@ -541,7 +619,7 @@ private extension LLMPrompt {
                                             "summary": ["type": "string"],
                                             "category": [
                                                 "type": "string",
-                                                "enum": ["todo", "note", "reminder", "idea", "list", "habit", "question", "thought"],
+                                                "enum": ["todo", "note", "reminder", "idea", "list", "habit", "question"],
                                             ],
                                             "priority": ["type": "integer"],
                                             "due_date": ["type": "string"],
@@ -625,6 +703,44 @@ private extension LLMPrompt {
         ]
     }
 
+    static func composeFocusToolSchema() -> [String: Any] {
+        [
+            "type": "function",
+            "function": [
+                "name": "compose_focus",
+                "description": "Select up to 3 entries for the user's daily focus and write a briefing message",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "items": [
+                            "type": "array",
+                            "description": "Up to 3 entries that deserve attention today",
+                            "items": [
+                                "type": "object",
+                                "properties": [
+                                    "id": [
+                                        "type": "string",
+                                        "description": "Entry short ID from the context list",
+                                    ],
+                                    "reason": [
+                                        "type": "string",
+                                        "description": "1-word reason: Overdue, Today, Urgent, Stale, Due, etc.",
+                                    ],
+                                ] as [String: Any],
+                                "required": ["id", "reason"],
+                            ] as [String: Any],
+                        ] as [String: Any],
+                        "message": [
+                            "type": "string",
+                            "description": "Natural briefing message, under 12 words",
+                        ],
+                    ] as [String: Any],
+                    "required": ["items", "message"],
+                ] as [String: Any],
+            ] as [String: Any],
+        ]
+    }
+
     static func updateMemoryToolSchema() -> [String: Any] {
         [
             "type": "function",
@@ -640,6 +756,45 @@ private extension LLMPrompt {
                         ],
                     ],
                     "required": ["content"],
+                ] as [String: Any],
+            ] as [String: Any],
+        ]
+    }
+
+    static func confirmActionsToolSchema() -> [String: Any] {
+        [
+            "type": "function",
+            "function": [
+                "name": "confirm_actions",
+                "description": "Propose actions for user confirmation when intent is ambiguous. The user sees a preview and confirms or declines.",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "message": [
+                            "type": "string",
+                            "description": "Brief explanation of the ambiguity, under 20 words",
+                        ],
+                        "actions": [
+                            "type": "array",
+                            "description": "Proposed actions to preview",
+                            "items": [
+                                "type": "object",
+                                "properties": [
+                                    "tool": [
+                                        "type": "string",
+                                        "enum": ["create_entries", "update_entries", "complete_entries", "archive_entries"],
+                                        "description": "Which tool to call if confirmed",
+                                    ],
+                                    "arguments": [
+                                        "type": "object",
+                                        "description": "Arguments in the same format as the respective tool",
+                                    ],
+                                ] as [String: Any],
+                                "required": ["tool", "arguments"],
+                            ] as [String: Any],
+                        ] as [String: Any],
+                    ] as [String: Any],
+                    "required": ["message", "actions"],
                 ] as [String: Any],
             ] as [String: Any],
         ]

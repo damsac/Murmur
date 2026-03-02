@@ -98,17 +98,52 @@ struct RootView: View {
                     .transition(.opacity.animation(.easeInOut(duration: 0.35)))
                     .zIndex(20)
                 }
-                // Processing / response overlay (not shown during recording)
-                if !conversation.isRecording && (conversation.isProcessing || conversation.agentStreamText != nil) {
-                    let transcript = conversation.displayTranscript ?? ""
-                    AgentStreamOverlay(
-                        transcript: transcript,
-                        responseText: conversation.agentStreamText,
-                        isRecording: false,
-                        onDismiss: { conversation.agentStreamText = nil }
+                // Processing edge glow (behind stream overlay)
+                if conversation.isProcessing {
+                    ProcessingGlowView()
+                        .transition(.opacity)
+                        .zIndex(15)
+                }
+                // Results surface — shows after agent completes actions or requests confirmation
+                if conversation.showResultsSurface {
+                    ResultsSurfaceView(
+                        results: conversation.pendingResults,
+                        confirmation: conversation.pendingConfirmation,
+                        entries: entries,
+                        onDismiss: {
+                            withAnimation(Animations.overlayDismiss) {
+                                conversation.dismissResults()
+                            }
+                        },
+                        onUndo: { data in
+                            data.undo.execute(
+                                entries: entries,
+                                context: modelContext,
+                                preferences: notifPrefs
+                            )
+                            withAnimation(Animations.overlayDismiss) {
+                                conversation.dismissResults()
+                            }
+                            showToast("Undone", type: .info)
+                        },
+                        onConfirm: { actions in
+                            withAnimation(Animations.overlayDismiss) {
+                                conversation.confirmPendingActions(
+                                    actions: actions,
+                                    entries: entries,
+                                    modelContext: modelContext,
+                                    preferences: notifPrefs
+                                )
+                            }
+                        },
+                        onDeny: {
+                            withAnimation(Animations.overlayDismiss) {
+                                conversation.denyPendingActions()
+                            }
+                        }
                     )
-                    .transition(.opacity)
-                    .zIndex(30)
+                    .transition(.opacity.animation(.easeInOut(duration: 0.3)))
+                    .zIndex(25)
                 }
             }
 
@@ -186,9 +221,15 @@ struct RootView: View {
             }
 
         }
-        .toast($toastConfig, onUndo: handleUndo)
+        .toast($toastConfig)
         #if DEBUG
-        .sheet(isPresented: $showDevMode) {
+        .sheet(isPresented: $showDevMode, onDismiss: {
+            if appState.dailyFocus == nil && !appState.isFocusLoading {
+                Task { @MainActor in
+                    await appState.requestDailyFocus(entries: activeEntries)
+                }
+            }
+        }) {
             DevModeView()
         }
         #endif
@@ -250,6 +291,9 @@ struct RootView: View {
             }
             Task { @MainActor in
                 await appState.refreshCreditBalance()
+            }
+            Task { @MainActor in
+                await appState.requestDailyFocus(entries: activeEntries)
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -355,11 +399,6 @@ struct RootView: View {
                 showToast("Top-up failed: \(error.localizedDescription)", type: .error)
             }
         }
-    }
-
-    private func handleUndo(_ undo: UndoTransaction) {
-        undo.execute(entries: entries, context: modelContext, preferences: notifPrefs)
-        showToast("Undone", type: .info)
     }
 
     private func handleEntryAction(_ entry: Entry, _ action: EntryAction) {

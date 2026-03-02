@@ -74,7 +74,6 @@ enum Theme {
         case .idea:     return Colors.accentOrange
         case .habit:    return Colors.accentGreen
         case .note:     return Colors.accentSlate
-        case .thought:  return Colors.accentBlue
         case .question: return Colors.accentFuchsia
         case .list:     return Colors.accentTeal
         }

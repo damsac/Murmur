@@ -402,7 +402,6 @@ struct EnumTests {
         #expect(EntryCategory.list.displayName == "List")
         #expect(EntryCategory.habit.displayName == "Habit")
         #expect(EntryCategory.question.displayName == "Question")
-        #expect(EntryCategory.thought.displayName == "Thought")
     }
 
     @Test("EntrySource display names")

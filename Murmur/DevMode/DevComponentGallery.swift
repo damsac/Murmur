@@ -715,7 +715,7 @@ private struct EntryCardGallery: View {
                     entry: Entry(
                         transcript: "",
                         content: "The best interfaces are invisible - they get out of the way and let users focus",
-                        category: .thought,
+                        category: .note,
                         sourceText: "",
                         createdAt: Date().addingTimeInterval(-3600),
                         summary: "The best interfaces are invisible - they get out of the way and let users focus"

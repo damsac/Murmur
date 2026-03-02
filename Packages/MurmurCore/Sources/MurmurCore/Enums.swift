@@ -9,7 +9,6 @@ public enum EntryCategory: String, Codable, Sendable, CaseIterable {
     case list       // Multi-item list: "groceries: eggs, bread, butter"
     case habit      // Recurring behavior: "start meditating every morning"
     case question   // Something to look up: "what's the capital of Portugal?"
-    case thought    // Reflection/observation: "I've been feeling more productive lately"
 
     public var displayName: String {
         switch self {
@@ -20,7 +19,6 @@ public enum EntryCategory: String, Codable, Sendable, CaseIterable {
         case .list: return "List"
         case .habit: return "Habit"
         case .question: return "Question"
-        case .thought: return "Thought"
         }
     }
 

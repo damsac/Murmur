@@ -23,7 +23,7 @@ enum MockDataService {
             Entry(
                 transcript: "",
                 content: "The best ideas come when you're not actively searching for them",
-                category: .thought,
+                category: .note,
                 sourceText: "",
                 createdAt: Date().addingTimeInterval(-3600),
                 summary: "The best ideas come when you're not actively searching for them",
@@ -78,7 +78,7 @@ enum MockDataService {
             Entry(
                 transcript: "",
                 content: "Progressive disclosure reduces cognitive load in complex interfaces",
-                category: .thought,
+                category: .note,
                 sourceText: "",
                 createdAt: Date().addingTimeInterval(-57600),
                 summary: "Progressive disclosure reduces cognitive load in complex interfaces",
@@ -87,7 +87,7 @@ enum MockDataService {
             Entry(
                 transcript: "",
                 content: "Voice input is faster than typing for capturing quick thoughts",
-                category: .thought,
+                category: .note,
                 sourceText: "",
                 createdAt: Date().addingTimeInterval(-50400),
                 summary: "Voice input is faster than typing for capturing quick thoughts",
@@ -227,7 +227,7 @@ enum MockDataService {
             Entry(
                 transcript: "",
                 content: "The constraint of limited tokens makes every word count",
-                category: .thought,
+                category: .note,
                 sourceText: "",
                 createdAt: Date().addingTimeInterval(-75600),
                 summary: "The constraint of limited tokens makes every word count",
@@ -314,10 +314,10 @@ enum MockDataService {
             ("Test voice recognition accuracy in noisy environments", .todo, 3),
             ("Optimize SwiftData queries for better performance", .todo, 1),
 
-            ("Simplicity is the ultimate sophistication", .thought, 3),
-            ("Users judge interfaces in milliseconds, not minutes", .thought, 3),
-            ("The best interface is no interface", .thought, 5),
-            ("Constraints breed creativity", .thought, 3),
+            ("Simplicity is the ultimate sophistication", .note, 3),
+            ("Users judge interfaces in milliseconds, not minutes", .note, 3),
+            ("The best interface is no interface", .note, 5),
+            ("Constraints breed creativity", .note, 3),
 
             ("Explore using machine learning for priority suggestions", .idea, 3),
             ("Create a watch app for quick voice capture", .idea, 3),

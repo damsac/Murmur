@@ -1,5 +1,6 @@
 import Foundation
 
+// swiftlint:disable type_body_length
 /// LLMService implementation using PPQ.ai's OpenAI-compatible API with tool calling.
 public final class PPQLLMService: LLMService, @unchecked Sendable {
     private let apiKey: String
@@ -104,6 +105,60 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
 
         let parseResult = parseActions(from: turn.assistantMessage)
         return LLMResult(entries: parseResult.actions.compactMap(\.createdEntry), usage: turn.usage)
+    }
+
+    // MARK: - Daily Focus
+
+    /// One-shot LLM call to compose the daily focus briefing.
+    /// Uses a separate conversation (not the ongoing agent conversation).
+    public func composeDailyFocus(entries: [AgentContextEntry]) async throws -> DailyFocus {
+        let userContent = buildBriefingUserContent(entries: entries)
+        let conversation = LLMConversation()
+
+        let turn = try await runTurn(
+            userContent: userContent,
+            prompt: .dailyBriefing,
+            conversation: conversation
+        )
+
+        return try parseDailyFocus(from: turn.assistantMessage)
+    }
+
+    private func buildBriefingUserContent(entries: [AgentContextEntry]) -> String {
+        guard !entries.isEmpty else {
+            return "[BRIEFING] No entries."
+        }
+
+        let sortedEntries = entries.sorted { lhs, rhs in
+            let leftPriority = lhs.priority ?? 6
+            let rightPriority = rhs.priority ?? 6
+            if leftPriority != rightPriority {
+                return leftPriority < rightPriority
+            }
+            return lhs.createdAt > rhs.createdAt
+        }
+
+        var lines: [String] = ["[BRIEFING] Select up to 3 entries for today's focus.", "", "## Current Entries", ""]
+        lines.append(contentsOf: sortedEntries.map(formatContextLine(for:)))
+        return lines.joined(separator: "\n")
+    }
+
+    private func parseDailyFocus(from assistantMessage: [String: Any]) throws -> DailyFocus {
+        guard let toolCalls = assistantMessage["tool_calls"] as? [[String: Any]],
+              let firstCall = toolCalls.first,
+              let function = firstCall["function"] as? [String: Any],
+              let name = function["name"] as? String, name == "compose_focus",
+              let argsString = function["arguments"] as? String,
+              let argsData = argsString.data(using: .utf8)
+        else {
+            throw PPQError.noToolCalls
+        }
+
+        let args = try JSONDecoder().decode(ComposeFocusArguments.self, from: argsData)
+        return DailyFocus(
+            items: args.items.map { FocusItem(id: $0.id, reason: $0.reason) },
+            message: args.message
+        )
     }
 
     // MARK: - Turn Execution
@@ -282,6 +337,14 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
                     let wrapper = try JSONDecoder().decode(UpdateMemoryArguments.self, from: argumentsData)
                     actions.append(.updateMemory(UpdateMemoryAction(content: wrapper.content)))
 
+                case "confirm_actions":
+                    let wrapper = try JSONDecoder().decode(ConfirmActionsArguments.self, from: argumentsData)
+                    let proposed = parseProposedActions(wrapper.actions)
+                    actions.append(.confirm(ConfirmationRequest(
+                        message: wrapper.message,
+                        proposedActions: proposed
+                    )))
+
                 default:
                     continue
                 }
@@ -387,6 +450,42 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         return nil
     }
 
+    // MARK: - Confirmation Parsing
+
+    /// Parse proposed actions from a confirm_actions tool call.
+    /// Reuses the same decoding types as regular tool calls.
+    private func parseProposedActions(_ proposals: [RawProposedAction]) -> [AgentAction] {
+        var result: [AgentAction] = []
+        for proposal in proposals {
+            guard let data = proposal.argumentsData else { continue }
+            do {
+                switch proposal.tool {
+                case "create_entries":
+                    let wrapper = try JSONDecoder().decode(CreateEntriesArguments.self, from: data)
+                    result.append(contentsOf: wrapper.entries.map { .create($0.asAction) })
+                case "update_entries":
+                    let wrapper = try JSONDecoder().decode(UpdateEntriesArguments.self, from: data)
+                    result.append(contentsOf: wrapper.updates.map { .update($0.asAction) })
+                case "complete_entries":
+                    let wrapper = try JSONDecoder().decode(EntryMutationArguments.self, from: data)
+                    result.append(contentsOf: wrapper.entries.map {
+                        .complete(CompleteAction(id: $0.id, reason: $0.normalizedReason))
+                    })
+                case "archive_entries":
+                    let wrapper = try JSONDecoder().decode(EntryMutationArguments.self, from: data)
+                    result.append(contentsOf: wrapper.entries.map {
+                        .archive(ArchiveAction(id: $0.id, reason: $0.normalizedReason))
+                    })
+                default:
+                    break
+                }
+            } catch {
+                // Skip individual proposal parse failures silently
+            }
+        }
+        return result
+    }
+
     // MARK: - Context Formatting
 
     private func buildAgentUserContent(
@@ -452,6 +551,7 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         return normalized.isEmpty ? nil : normalized
     }
 }
+// swiftlint:enable type_body_length
 
 // MARK: - Response Decoding Types
 
@@ -599,6 +699,16 @@ private struct RawUpdateFields: Decodable {
     }
 }
 
+private struct ComposeFocusArguments: Decodable {
+    let items: [RawFocusItem]
+    let message: String
+}
+
+private struct RawFocusItem: Decodable {
+    let id: String
+    let reason: String
+}
+
 private struct EntryMutationArguments: Decodable {
     let entries: [RawEntryMutation]
 }
@@ -617,6 +727,45 @@ private struct RawEntryMutation: Decodable {
             return trimmed
         }
         return "No reason provided"
+    }
+}
+
+private struct ConfirmActionsArguments: Decodable {
+    let message: String
+    let actions: [RawProposedAction]
+}
+
+private struct RawProposedAction: Decodable {
+    let tool: String
+    let arguments: AnyCodable
+
+    /// Re-serialize the arguments object back to Data for reuse by existing decoders.
+    var argumentsData: Data? {
+        try? JSONSerialization.data(withJSONObject: arguments.value)
+    }
+}
+
+/// Wrapper to decode arbitrary JSON objects from the arguments field.
+private struct AnyCodable: Decodable {
+    let value: Any
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let dict = try? container.decode([String: AnyCodable].self) {
+            value = dict.mapValues(\.value)
+        } else if let array = try? container.decode([AnyCodable].self) {
+            value = array.map(\.value)
+        } else if let string = try? container.decode(String.self) {
+            value = string
+        } else if let int = try? container.decode(Int.self) {
+            value = int
+        } else if let double = try? container.decode(Double.self) {
+            value = double
+        } else if let bool = try? container.decode(Bool.self) {
+            value = bool
+        } else {
+            value = NSNull()
+        }
     }
 }
 

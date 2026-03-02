@@ -6,27 +6,38 @@ What dam is working on right now. Updated with every PR.
 
 ## Current focus
 
-- Agent backend systems shipped: temporal context, agent memory, multi-turn plumbing, tool results
-- Next: wiring agent overlay UX, conversation thread UI, or token budget work
+- **Shipped** — daily focus system, results surface, confirmation UI, focus strip polish, recording UI fix, thought category removal
+
+## What happened last session
+
+- Removed `.thought` category — no distinct behavior, falls back to `.note`
+- Daily focus system end-to-end: `compose_focus` tool, `DailyFocusStore`, `AppState.requestDailyFocus()`, deterministic fallback
+- `FocusStripView` rewired for LLM-curated focus: greeting + briefing message + staggered card entry
+- `FocusShimmerView` — rippling shimmer placeholder while LLM composes
+- `FocusContainerView` — stable-height container through loading → loaded transition
+- `ResultsSurfaceView` + `ConfirmationData` + `DenialLogStore` — replaces toast-based agent responses
+- Confirmation UI: tap-to-cycle actions, removed header clutter, fixed card backgrounds
+- Dev mode: "Regenerate Daily Focus" button clears cache + triggers fresh LLM call
+- Recording UI: removed waveform from mic button during processing, edge glow only
 
 ## Recent decisions
 
-- `cancelRecording()` over `stopRecording()` in agent path (speed over completeness)
-- Per-tool-call error isolation over all-or-nothing (one bad tool call shouldn't nuke the batch)
-- Multi-turn is in-memory only — app termination resets conversation naturally
-- Tool results use real outcomes via `ToolResultBuilder` + `conversation.replaceToolResults()` — agent sees actual execution results, not synthetic "accepted"
-- Agent memory: file-based `AgentMemoryStore` in Documents dir, loaded into `llm.agentMemory` on AppState init
-- Temporal context: `SessionSummaryService` provides time-of-day + session history block injected into system prompt
-- `ToolCallGroup` maps tool_call_id → action range for per-call error isolation
-- `transcriptStream` on LLMService protocol for real-time streaming to overlay
+- `.thought` removed — category must drive different behavior to earn existence
+- Daily focus fires once per app launch, cached for the day
+- Deterministic fallback uses overdue + P1/P2 rules when LLM unavailable
+- `compose_focus` is forced tool call — always returns structured data
+- Focus strip uses staggered entry animation (message first, then cards one-by-one)
+- Shimmer uses rippling glow pattern (not uniform pulse)
+- Mic button: edge glow only during processing, no waveform overlay
 
 ## Open questions
 
-- How should conversation reset work beyond app termination? Timer? Explicit button? After N seconds of silence?
-- Category simplification (8 categories → fewer) — still unowned on the roadmap
-- Token budget: how many entries in context before we need to truncate?
+- Conversation reset: timer, explicit button, or N seconds of silence?
+- Token budget for context window
+- Confirmation flow UX: how should confirm/deny feel in practice?
 
 ## What I need from sac
 
-- Review agent-systems PR — thinking section covers architectural rationale
-- Coordinate on HomeView changes — sac's visual polish PR (#65) is open
+- Iterate on focus section UI — LLM curation is wired, visual polish welcome
+- Review color remapping — `.thought` removed, colors redistributed
+- Coordinate on remaining conversation UI

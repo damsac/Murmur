@@ -76,8 +76,7 @@ struct PPQLLMServiceTests {
         {"content":"App for tracking plants","category":"idea","source_text":"app for plants"},\
         {"content":"Eggs, bread, butter","category":"list","source_text":"eggs bread butter"},\
         {"content":"Meditate every morning","category":"habit","source_text":"meditate morning"},\
-        {"content":"Capital of Portugal?","category":"question","source_text":"capital portugal"},\
-        {"content":"Feeling more productive","category":"thought","source_text":"feeling productive"}]}
+        {"content":"Capital of Portugal?","category":"question","source_text":"capital portugal"}]}
         """.trimmingCharacters(in: .whitespacesAndNewlines)
         let escapedArgs = args.replacingOccurrences(of: "\"", with: "\\\"")
         let responseJSON = """
@@ -99,7 +98,7 @@ struct PPQLLMServiceTests {
         let result = try await service.extractEntries(from: "test", conversation: LLMConversation())
         let entries = result.entries
 
-        #expect(entries.count == 8)
+        #expect(entries.count == 7)
         #expect(entries[0].category == .todo)
         #expect(entries[1].category == .note)
         #expect(entries[2].category == .reminder)
@@ -107,7 +106,6 @@ struct PPQLLMServiceTests {
         #expect(entries[4].category == .list)
         #expect(entries[5].category == .habit)
         #expect(entries[6].category == .question)
-        #expect(entries[7].category == .thought)
     }
 
     @Test("Missing optional fields default gracefully")
