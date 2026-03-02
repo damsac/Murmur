@@ -22,6 +22,10 @@ enum Theme {
         static let accentYellow = Color(hex: "FBBF24")
         static let accentRed = Color(hex: "EF4444")
         static let accentBlue = Color(hex: "60A5FA")
+        static let accentOrange = Color(hex: "F97316")
+        static let accentFuchsia = Color(hex: "E879F9")
+        static let accentTeal = Color(hex: "2DD4BF")
+        static let accentSlate = Color(hex: "94A3B8")
 
         // Borders
         static let borderSubtle = Color.white.opacity(0.06)
@@ -65,22 +69,14 @@ enum Theme {
     // MARK: - Category Colors
     static func categoryColor(_ category: EntryCategory) -> Color {
         switch category {
-        case .todo:
-            return Colors.accentPurple
-        case .thought:
-            return Colors.accentBlue
-        case .idea:
-            return Colors.accentYellow
-        case .reminder:
-            return Colors.accentYellow
-        case .note:
-            return Colors.textSecondary
-        case .question:
-            return Colors.accentPurpleLight
-        case .list:
-            return Colors.accentGreen
-        case .habit:
-            return Colors.accentBlue
+        case .todo:     return Colors.accentPurple
+        case .reminder: return Colors.accentYellow
+        case .idea:     return Colors.accentOrange
+        case .habit:    return Colors.accentGreen
+        case .note:     return Colors.accentSlate
+        case .thought:  return Colors.accentBlue
+        case .question: return Colors.accentFuchsia
+        case .list:     return Colors.accentTeal
         }
     }
 }

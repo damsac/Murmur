@@ -75,7 +75,7 @@ struct OnboardingResultView: View {
                 .padding(.horizontal, Theme.Spacing.screenPadding)
                 .padding(.bottom, 48)
                 .opacity(cardVisible ? 1 : 0)
-                .animation(.easeOut(duration: 0.4).delay(0.25), value: cardVisible)
+                .animation(.easeOut(duration: 0.4).delay(0.35), value: cardVisible)
             }
         }
         .onAppear {

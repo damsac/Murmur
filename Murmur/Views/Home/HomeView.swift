@@ -178,7 +178,8 @@ struct HomeView: View {
                 let isOverdue = entry.dueDate.map { $0 < now } ?? false
                 let isHighPriority = (entry.priority ?? Int.max) <= 2
                 guard isOverdue || isHighPriority else { return false }
-                if entry.category == .habit && entry.isDoneForPeriod { return false }
+                if entry.category == .habit && !entry.appliesToday { return false }
+                if entry.category == .habit && (entry.isDoneForPeriod || entry.isCompletedToday) { return false }
                 return true
             }
             .sorted { lhs, rhs in
@@ -340,22 +341,22 @@ private struct FocusCardView: View {
                 HStack(alignment: .center, spacing: 12) {
                     Text(entry.summary)
                         .font(Theme.Typography.body)
-                        .foregroundStyle(entry.isDoneForPeriod ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
+                        .foregroundStyle(entry.isDoneForPeriod || entry.isCompletedToday ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
                         .lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    if entry.category == .habit {
+                    if entry.category == .habit && entry.appliesToday {
                         Button {
                             onAction(entry, .checkOffHabit)
                         } label: {
-                            Image(systemName: entry.isDoneForPeriod ? "checkmark.circle.fill" : "circle")
+                            Image(systemName: entry.isCompletedToday ? "checkmark.circle.fill" : "circle")
                                 .font(.system(size: 24))
                                 .foregroundStyle(
-                                    entry.isDoneForPeriod
+                                    entry.isCompletedToday
                                         ? Theme.categoryColor(entry.category)
                                         : Theme.Colors.textTertiary
                                 )
-                                .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isDoneForPeriod)
+                                .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
                         }
                         .buttonStyle(.plain)
                     }
@@ -367,6 +368,8 @@ private struct FocusCardView: View {
                     .stroke(accentColor.opacity(0.55 * glowIntensity), lineWidth: 1.5)
             )
             .shadow(color: accentColor.opacity(0.30 * glowIntensity), radius: 18, y: 0)
+            .opacity(entry.isDoneForPeriod || entry.isCompletedToday ? 0.5 : 1.0)
+            .animation(.easeInOut(duration: 0.2), value: entry.isCompletedToday)
         }
         .onAppear { playGlow() }
         .onChange(of: scenePhase) { _, newPhase in
@@ -542,28 +545,32 @@ private struct SmartListRow: View {
             HStack(alignment: .center, spacing: 12) {
                 Text(entry.summary)
                     .font(Theme.Typography.body)
-                    .foregroundStyle(entry.isDoneForPeriod ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
+                    .foregroundStyle(entry.isDoneForPeriod || entry.isCompletedToday ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                if entry.category == .habit {
+                if entry.category == .habit && entry.appliesToday {
                     Button {
                         onAction(entry, .checkOffHabit)
                     } label: {
-                        Image(systemName: entry.isDoneForPeriod ? "checkmark.circle.fill" : "circle")
+                        Image(systemName: entry.isCompletedToday ? "checkmark.circle.fill" : "circle")
                             .font(.system(size: 24))
                             .foregroundStyle(
-                                entry.isDoneForPeriod
+                                entry.isCompletedToday
                                     ? Theme.categoryColor(entry.category)
                                     : Theme.Colors.textTertiary
                             )
-                            .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isDoneForPeriod)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
             }
         }
         .cardStyle()
+        .opacity(entry.isDoneForPeriod || entry.isCompletedToday ? 0.5 : 1.0)
+        .animation(.easeInOut(duration: 0.2), value: entry.isCompletedToday)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(entry.category.displayName): \(entry.summary)")
     }
@@ -591,6 +598,7 @@ struct SwipeableCard<Content: View>: View {
     @State private var revealed = false
     @State private var lastDragEndTime: Date = .distantPast
     @State private var cardHeight: CGFloat = 0
+    @State private var isDraggingHorizontally = false
 
     private let actionWidth: CGFloat = 74
     private let swipeVisibilityThreshold: CGFloat = -1
@@ -640,31 +648,35 @@ struct SwipeableCard<Content: View>: View {
                     }
                     .allowsHitTesting(false)
                 )
+                .contentShape(Rectangle())
                 .offset(x: dragOffset)
-                .onTapGesture {
-                    guard Date().timeIntervalSince(lastDragEndTime) > 0.15 else { return }
-                    if revealed {
-                        snap(reveal: false)
-                    } else {
-                        onTap()
-                    }
-                }
-                .overlay(
-                    HorizontalPanGestureView(
-                        onChanged: { dx in
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 10, coordinateSpace: .local)
+                        .onChanged { value in
                             guard !actions.isEmpty else { return }
+                            let dx = value.translation.width
+                            let dy = value.translation.height
+                            guard abs(dx) > abs(dy) else { return }
+                            isDraggingHorizontally = true
                             activeSwipeID = entryID
                             let base: CGFloat = revealed ? -totalWidth : 0
                             dragOffset = min(0, max(-totalWidth, base + dx))
-                        },
-                        onEnded: { _ in
-                            guard !actions.isEmpty else { return }
+                        }
+                        .onEnded { _ in
+                            guard isDraggingHorizontally else { return }
+                            isDraggingHorizontally = false
                             snap(reveal: -dragOffset > totalWidth * 0.35)
                             lastDragEndTime = Date()
                         }
-                    )
-                    .allowsHitTesting(actions.isEmpty ? false : true)
                 )
+        }
+        .onTapGesture {
+            guard Date().timeIntervalSince(lastDragEndTime) > 0.15 else { return }
+            if revealed {
+                snap(reveal: false)
+            } else {
+                onTap()
+            }
         }
         .onChange(of: activeSwipeID) { _, newID in
             if newID != entryID && revealed {
@@ -678,89 +690,6 @@ struct SwipeableCard<Content: View>: View {
             revealed = reveal
             dragOffset = reveal ? -totalWidth : 0
         }
-    }
-}
-
-// MARK: - Horizontal Pan Gesture (UIKit)
-
-/// A UIKit-based horizontal pan gesture recognizer that coexists with UIScrollView.
-/// Only begins recognition for horizontal drags, letting vertical scrolls pass through.
-private struct HorizontalPanGestureView: UIViewRepresentable {
-    var onChanged: (CGFloat) -> Void
-    var onEnded: (CGFloat) -> Void
-
-    func makeUIView(context: Context) -> UIView {
-        let view = HorizontalPanHostView()
-        view.backgroundColor = .clear
-
-        let pan = DirectionalPanGestureRecognizer(
-            target: context.coordinator,
-            action: #selector(Coordinator.handlePan)
-        )
-        pan.delegate = context.coordinator
-        view.addGestureRecognizer(pan)
-
-        return view
-    }
-
-    func updateUIView(_ uiView: UIView, context: Context) {
-        context.coordinator.onChanged = onChanged
-        context.coordinator.onEnded = onEnded
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onChanged: onChanged, onEnded: onEnded)
-    }
-
-    class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        var onChanged: (CGFloat) -> Void
-        var onEnded: (CGFloat) -> Void
-
-        init(onChanged: @escaping (CGFloat) -> Void, onEnded: @escaping (CGFloat) -> Void) {
-            self.onChanged = onChanged
-            self.onEnded = onEnded
-        }
-
-        @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
-            let translation = gesture.translation(in: gesture.view)
-            switch gesture.state {
-            case .changed:
-                onChanged(translation.x)
-            case .ended, .cancelled:
-                onEnded(translation.x)
-            default:
-                break
-            }
-        }
-
-        func gestureRecognizer(
-            _ gestureRecognizer: UIGestureRecognizer,
-            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
-        ) -> Bool {
-            true
-        }
-    }
-}
-
-/// Pan gesture recognizer that only begins for horizontal drags.
-private class DirectionalPanGestureRecognizer: UIPanGestureRecognizer {
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
-        super.touchesMoved(touches, with: event)
-
-        // Only decide direction once, at the beginning of the gesture
-        guard state == .began else { return }
-        let velocity = self.velocity(in: view)
-        if abs(velocity.y) > abs(velocity.x) {
-            state = .cancelled
-        }
-    }
-}
-
-/// Host view for horizontal pan gesture overlay.
-private class HorizontalPanHostView: UIView {
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        let hit = super.hitTest(point, with: event)
-        return hit == self ? self : hit
     }
 }
 
