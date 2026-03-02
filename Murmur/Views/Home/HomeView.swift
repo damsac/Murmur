@@ -122,25 +122,16 @@ struct HomeView: View {
             // Scrollable content: focus strip + category sections
             ScrollView {
                 VStack(spacing: 0) {
-                    // Focus strip: LLM-composed or loading shimmer
-                    if appState.isFocusLoading && appState.dailyFocus == nil {
-                        FocusShimmerView()
-                            .padding(.top, 12)
-                            .padding(.bottom, 16)
-                            .transition(.opacity.animation(.easeOut(duration: 0.4)))
-                    } else if let focus = appState.dailyFocus, !focus.items.isEmpty {
-                        FocusStripView(
-                            dailyFocus: focus,
-                            allEntries: entries,
-                            activeSwipeEntryID: $activeSwipeEntryID,
-                            onEntryTap: onEntryTap,
-                            swipeActionsProvider: swipeActions(for:),
-                            onAction: onAction
-                        )
-                            .padding(.top, 12)
-                            .padding(.bottom, 16)
-                            .transition(.opacity.animation(.easeIn(duration: 0.3)))
-                    }
+                    // Focus strip: shimmer → cards in a stable-height container
+                    FocusContainerView(
+                        isLoading: appState.isFocusLoading,
+                        dailyFocus: appState.dailyFocus,
+                        allEntries: entries,
+                        activeSwipeEntryID: $activeSwipeEntryID,
+                        onEntryTap: onEntryTap,
+                        swipeActionsProvider: swipeActions(for:),
+                        onAction: onAction
+                    )
 
                     // Category sections
                     LazyVStack(spacing: 0) {
@@ -228,6 +219,59 @@ struct HomeView: View {
     }
 }
 
+// MARK: - Focus Container (stable height through loading → loaded)
+
+private struct FocusContainerView: View {
+    let isLoading: Bool
+    let dailyFocus: DailyFocus?
+    let allEntries: [Entry]
+    @Binding var activeSwipeEntryID: UUID?
+    let onEntryTap: (Entry) -> Void
+    let swipeActionsProvider: (Entry) -> [CardSwipeAction]
+    let onAction: (Entry, EntryAction) -> Void
+
+    @State private var shimmerHeight: CGFloat = 0
+
+    private var showShimmer: Bool {
+        isLoading && dailyFocus == nil
+    }
+
+    private var showStrip: Bool {
+        if let focus = dailyFocus, !focus.items.isEmpty { return true }
+        return false
+    }
+
+    var body: some View {
+        if showShimmer || showStrip {
+            ZStack(alignment: .top) {
+                // Shimmer: visible when loading, invisible spacer during card stagger
+                FocusShimmerView()
+                    .opacity(showShimmer ? 1 : 0)
+                    .overlay(
+                        GeometryReader { geo in
+                            Color.clear.onAppear { shimmerHeight = geo.size.height }
+                        }
+                    )
+
+                // Cards: overlay on top, same space
+                if let focus = dailyFocus, !focus.items.isEmpty {
+                    FocusStripView(
+                        dailyFocus: focus,
+                        allEntries: allEntries,
+                        activeSwipeEntryID: $activeSwipeEntryID,
+                        onEntryTap: onEntryTap,
+                        swipeActionsProvider: swipeActionsProvider,
+                        onAction: onAction
+                    )
+                }
+            }
+            .frame(minHeight: shimmerHeight > 0 ? shimmerHeight : nil)
+            .padding(.top, 12)
+            .padding(.bottom, 16)
+        }
+    }
+}
+
 // MARK: - Focus Strip
 
 private struct FocusStripView: View {
@@ -252,13 +296,19 @@ private struct FocusStripView: View {
         let items = resolvedItems
         if !items.isEmpty {
             VStack(spacing: 12) {
-                // Briefing message from LLM
-                Text(dailyFocus.message)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(Theme.Colors.textPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .opacity(messageVisible ? 1 : 0)
-                    .offset(y: messageVisible ? 0 : 6)
+                // Greeting + briefing
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(Greeting.current + ".")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(Theme.Colors.textPrimary)
+
+                    Text(dailyFocus.message)
+                        .font(Theme.Typography.caption)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .opacity(messageVisible ? 1 : 0)
+                .offset(y: messageVisible ? 0 : 6)
 
                 // Focus cards — stagger in one at a time
                 VStack(spacing: 10) {
@@ -314,12 +364,17 @@ private struct FocusShimmerView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            // Message placeholder
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Theme.Colors.bgCard)
-                .frame(width: 200, height: 20)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .opacity(glowPhases[0] ? 0.45 : 0.8)
+            // Greeting + briefing placeholder
+            VStack(alignment: .leading, spacing: 4) {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Theme.Colors.bgCard)
+                    .frame(width: 160, height: 20)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Theme.Colors.bgCard)
+                    .frame(width: 220, height: 14)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .opacity(glowPhases[0] ? 0.45 : 0.8)
 
             // 3 placeholder cards with staggered breathing
             VStack(spacing: 10) {
