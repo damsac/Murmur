@@ -215,10 +215,6 @@ struct RootView: View {
                         inputText = ""
                     }
                 )
-                .background(
-                    Theme.Colors.bgBody.opacity(0.95),
-                    ignoresSafeAreaEdges: .bottom
-                )
             }
             .ignoresSafeArea(.keyboard)
             .sheet(isPresented: $showSettings) {
