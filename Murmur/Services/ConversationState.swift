@@ -25,6 +25,10 @@ final class ConversationState {
     /// Transcript saved when recording stops, shown in overlay during processing.
     var displayTranscript: String?
 
+    /// Rolling buffer of recent audio levels for waveform visualization (0.0–1.0).
+    var audioLevels: [Float] = []
+    private static let maxAudioLevels = 50
+
     // MARK: - Internal
 
     private var generationCounter: Int = 0
@@ -85,27 +89,16 @@ final class ConversationState {
         guard case .idle = inputState else { return }
         guard let pipeline = appState?.pipeline else { return }
 
-        inputState = .recording(transcript: "")
+        withAnimation(.easeInOut(duration: 0.35)) {
+            inputState = .recording(transcript: "")
+        }
         // Add status indicator
         removeStatusItem()
         threadItems.append(.status(id: statusItemID, kind: .recording(transcript: "")))
 
         recordingTask?.cancel()
         recordingTask = Task { @MainActor in
-            // Request mic permission
-            let recordPermission = AVAudioApplication.shared.recordPermission
-            if recordPermission == .undetermined {
-                let granted = await AVAudioApplication.requestRecordPermission()
-                if !granted {
-                    inputState = .idle
-                    removeStatusItem()
-                    return
-                }
-            } else if recordPermission == .denied {
-                inputState = .idle
-                removeStatusItem()
-                return
-            }
+            guard await ensureMicPermission() else { return }
 
             do {
                 try await pipeline.startRecording()
@@ -115,16 +108,47 @@ final class ConversationState {
                 return
             }
 
-            // Consume live transcript stream
-            if let transcriber = pipeline.transcriber as? AppleSpeechTranscriber {
-                for await transcript in transcriber.transcriptStream {
-                    guard !Task.isCancelled else { break }
-                    inputState = .recording(transcript: transcript)
-                    // Update status item with live transcript
-                    updateStatusItem(kind: .recording(transcript: transcript))
+            await consumeRecordingStreams(from: pipeline)
+        }
+    }
+
+    private func ensureMicPermission() async -> Bool {
+        let recordPermission = AVAudioApplication.shared.recordPermission
+        if recordPermission == .undetermined {
+            let granted = await AVAudioApplication.requestRecordPermission()
+            if !granted {
+                inputState = .idle
+                removeStatusItem()
+                return false
+            }
+        } else if recordPermission == .denied {
+            inputState = .idle
+            removeStatusItem()
+            return false
+        }
+        return true
+    }
+
+    private func consumeRecordingStreams(from pipeline: Pipeline) async {
+        guard let transcriber = pipeline.transcriber as? AppleSpeechTranscriber else { return }
+
+        let audioTask = Task { @MainActor in
+            for await level in transcriber.audioLevelStream {
+                guard !Task.isCancelled else { break }
+                self.audioLevels.append(level)
+                if self.audioLevels.count > Self.maxAudioLevels {
+                    self.audioLevels.removeFirst(self.audioLevels.count - Self.maxAudioLevels)
                 }
             }
         }
+
+        for await transcript in transcriber.transcriptStream {
+            guard !Task.isCancelled else { break }
+            inputState = .recording(transcript: transcript)
+            updateStatusItem(kind: .recording(transcript: transcript))
+        }
+
+        audioTask.cancel()
     }
 
     func stopRecording(
@@ -137,13 +161,16 @@ final class ConversationState {
 
         recordingTask?.cancel()
         recordingTask = nil
+        audioLevels = []
 
         // Save transcript for overlay display during processing
         displayTranscript = currentTranscript
 
         // Grab transcript synchronously before any awaits to avoid idle flash
         let gen = nextGeneration()
-        inputState = .processing(generation: gen)
+        withAnimation(.easeInOut(duration: 0.35)) {
+            inputState = .processing(generation: gen)
+        }
         removeStatusItem()
         threadItems.append(.status(id: statusItemID, kind: .processing))
 
@@ -181,6 +208,7 @@ final class ConversationState {
 
         recordingTask?.cancel()
         recordingTask = nil
+        audioLevels = []
         Task { @MainActor in
             await pipeline.cancelRecording()
             inputState = .idle
@@ -384,6 +412,7 @@ final class ConversationState {
         conversation = LLMConversation()
         agentStreamText = nil
         displayTranscript = nil
+        audioLevels = []
 
         // Cancel any ongoing recording
         if let pipeline = appState?.pipeline {
