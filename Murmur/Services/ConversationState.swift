@@ -433,6 +433,7 @@ final class ConversationState {
     // MARK: - Confirmation
 
     func confirmPendingActions(
+        actions: [AgentAction],
         entries: [Entry],
         modelContext: ModelContext,
         preferences: NotificationPreferences
@@ -450,7 +451,7 @@ final class ConversationState {
             memoryStore: appState?.memoryStore
         )
         let execResult = AgentActionExecutor.execute(
-            actions: confirmation.proposedActions,
+            actions: actions,
             context: ctx
         )
 

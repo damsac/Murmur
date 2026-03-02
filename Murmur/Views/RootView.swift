@@ -126,9 +126,10 @@ struct RootView: View {
                             }
                             showToast("Undone", type: .info)
                         },
-                        onConfirm: {
+                        onConfirm: { actions in
                             withAnimation(Animations.overlayDismiss) {
                                 conversation.confirmPendingActions(
+                                    actions: actions,
                                     entries: entries,
                                     modelContext: modelContext,
                                     preferences: notifPrefs

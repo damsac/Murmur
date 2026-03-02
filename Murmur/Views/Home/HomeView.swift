@@ -127,6 +127,7 @@ struct HomeView: View {
                         FocusShimmerView()
                             .padding(.top, 12)
                             .padding(.bottom, 16)
+                            .transition(.opacity.animation(.easeOut(duration: 0.4)))
                     } else if let focus = appState.dailyFocus, !focus.items.isEmpty {
                         FocusStripView(
                             dailyFocus: focus,
@@ -138,6 +139,7 @@ struct HomeView: View {
                         )
                             .padding(.top, 12)
                             .padding(.bottom, 16)
+                            .transition(.opacity.animation(.easeIn(duration: 0.3)))
                     }
 
                     // Category sections
@@ -236,6 +238,9 @@ private struct FocusStripView: View {
     let swipeActionsProvider: (Entry) -> [CardSwipeAction]
     let onAction: (Entry, EntryAction) -> Void
 
+    @State private var messageVisible: Bool = false
+    @State private var visibleCardCount: Int = 0
+
     private var resolvedItems: [(entry: Entry, reason: String)] {
         dailyFocus.items.compactMap { item in
             guard let entry = Entry.resolve(shortID: item.id, in: allEntries) else { return nil }
@@ -252,24 +257,52 @@ private struct FocusStripView: View {
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(Theme.Colors.textPrimary)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .opacity(messageVisible ? 1 : 0)
+                    .offset(y: messageVisible ? 0 : 6)
 
-                // Focus cards
+                // Focus cards — stagger in one at a time
                 VStack(spacing: 10) {
                     ForEach(Array(items.enumerated()), id: \.element.entry.id) { index, item in
-                        FocusCardView(
-                            entry: item.entry,
-                            reason: item.reason,
-                            activeSwipeEntryID: $activeSwipeEntryID,
-                            swipeActionsProvider: swipeActionsProvider,
-                            onAction: onAction,
-                            onTap: { onEntryTap(item.entry) },
-                            animationDelay: Double(index) * 0.6
-                        )
+                        if index < visibleCardCount {
+                            FocusCardView(
+                                entry: item.entry,
+                                reason: item.reason,
+                                activeSwipeEntryID: $activeSwipeEntryID,
+                                swipeActionsProvider: swipeActionsProvider,
+                                onAction: onAction,
+                                onTap: { onEntryTap(item.entry) }
+                            )
+                            .transition(
+                                .asymmetric(
+                                    insertion: .opacity
+                                        .combined(with: .offset(y: 8))
+                                        .combined(with: .scale(scale: 0.97, anchor: .top)),
+                                    removal: .opacity
+                                )
+                            )
+                        }
                     }
                 }
             }
             .padding(.vertical, 8)
             .padding(.horizontal, Theme.Spacing.screenPadding)
+            .onAppear { staggerIn(count: items.count) }
+        }
+    }
+
+    private func staggerIn(count: Int) {
+        // Message fades in first
+        withAnimation(.easeOut(duration: 0.4)) {
+            messageVisible = true
+        }
+        // Cards appear one at a time
+        for i in 0..<count {
+            let delay = 0.2 + Double(i) * 0.25
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) {
+                    visibleCardCount = i + 1
+                }
+            }
         }
     }
 }
@@ -277,7 +310,7 @@ private struct FocusStripView: View {
 // MARK: - Focus Shimmer (Loading State)
 
 private struct FocusShimmerView: View {
-    @State private var shimmerPhase: Bool = false
+    @State private var glowPhases: [Bool] = [false, false, false]
 
     var body: some View {
         VStack(spacing: 12) {
@@ -286,10 +319,11 @@ private struct FocusShimmerView: View {
                 .fill(Theme.Colors.bgCard)
                 .frame(width: 200, height: 20)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .opacity(glowPhases[0] ? 0.45 : 0.8)
 
-            // 3 placeholder cards
+            // 3 placeholder cards with staggered breathing
             VStack(spacing: 10) {
-                ForEach(0..<3, id: \.self) { _ in
+                ForEach(0..<3, id: \.self) { index in
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
                             RoundedRectangle(cornerRadius: 4)
@@ -306,6 +340,11 @@ private struct FocusShimmerView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .cardStyle()
+                    .opacity(glowPhases[index] ? 0.45 : 1.0)
+                    .shadow(
+                        color: Theme.Colors.textTertiary.opacity(glowPhases[index] ? 0.15 : 0),
+                        radius: 12, y: 0
+                    )
                 }
             }
 
@@ -313,13 +352,20 @@ private struct FocusShimmerView: View {
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.Colors.textTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .opacity(glowPhases[2] ? 0.4 : 0.7)
         }
         .padding(.vertical, 8)
         .padding(.horizontal, Theme.Spacing.screenPadding)
-        .opacity(shimmerPhase ? 0.5 : 1.0)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-                shimmerPhase = true
+        .onAppear { startRipple() }
+    }
+
+    private func startRipple() {
+        for index in 0..<3 {
+            let delay = Double(index) * 0.3
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
+                    glowPhases[index] = true
+                }
             }
         }
     }
@@ -334,12 +380,8 @@ private struct FocusCardView: View {
     let swipeActionsProvider: (Entry) -> [CardSwipeAction]
     let onAction: (Entry, EntryAction) -> Void
     let onTap: () -> Void
-    var animationDelay: Double = 0
 
-    @State private var glowIntensity: Double = 0
-    @State private var glowTask: Task<Void, Never>?
-
-    @Environment(\.scenePhase) private var scenePhase
+    @State private var glowIntensity: Double = 1.0
 
     private var accentColor: Color { Theme.categoryColor(entry.category) }
 
@@ -398,22 +440,11 @@ private struct FocusCardView: View {
             .opacity(entry.isDoneForPeriod || entry.isCompletedToday ? 0.5 : 1.0)
             .animation(.easeInOut(duration: 0.2), value: entry.isCompletedToday)
         }
-        .onAppear { playGlow() }
-        .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active { playGlow() }
-        }
-    }
-
-    private func playGlow() {
-        glowTask?.cancel()
-        glowIntensity = 0
-        glowTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(animationDelay))
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 1.1)) { glowIntensity = 1.0 }
-            try? await Task.sleep(for: .seconds(1.1))
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 1.4)) { glowIntensity = 0 }
+        .onAppear {
+            // Start glowing immediately — card arrives with glow, then fades out
+            withAnimation(.easeOut(duration: 1.8)) {
+                glowIntensity = 0
+            }
         }
     }
 }

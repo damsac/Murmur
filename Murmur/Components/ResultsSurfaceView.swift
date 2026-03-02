@@ -9,7 +9,7 @@ struct ResultsSurfaceView: View {
     let entries: [Entry]
     let onDismiss: () -> Void
     let onUndo: (ResultsSurfaceData) -> Void
-    let onConfirm: () -> Void
+    let onConfirm: ([AgentAction]) -> Void
     let onDeny: () -> Void
 
     /// Max fraction of screen height the surface can occupy
@@ -19,6 +19,9 @@ struct ResultsSurfaceView: View {
     private let bottomPad = Theme.Spacing.micButtonSize + 24
 
     @State private var autoDismissTask: Task<Void, Never>?
+
+    /// Per-index action type overrides from user tapping to cycle
+    @State private var actionOverrides: [Int: ProposedActionKind] = [:]
 
     /// Auto-dismiss duration for results mode. Scales with entry count: 3s base + 1s per entry, capped at 8s.
     private var autoDismissDuration: TimeInterval {
@@ -36,22 +39,22 @@ struct ResultsSurfaceView: View {
                         .onTapGesture { onDismiss() }
                 }
 
-                // Dark gradient fade behind content
+                // Solid background behind cards + gradient fade above
                 VStack(spacing: 0) {
                     Spacer()
+                    // Short gradient transition
                     LinearGradient(
                         colors: [
                             Color.clear,
-                            Theme.Colors.bgDeep.opacity(0.6),
-                            Theme.Colors.bgDeep.opacity(0.95),
+                            Theme.Colors.bgDeep.opacity(0.85),
                             Theme.Colors.bgDeep,
                         ],
                         startPoint: .top,
                         endPoint: .bottom
                     )
-                    .frame(
-                        height: screen.size.height * maxHeightFraction + bottomPad + 60
-                    )
+                    .frame(height: 60)
+                    // Solid region under the cards
+                    Theme.Colors.bgDeep
                 }
                 .allowsHitTesting(false)
 
@@ -60,13 +63,14 @@ struct ResultsSurfaceView: View {
                     Spacer(minLength: 0)
 
                     if let confirmation {
-                        confirmationContent(confirmation, maxWidth: screen.size.width)
+                        confirmationContent(confirmation)
                     } else if let results {
-                        resultsContent(results, maxWidth: screen.size.width)
+                        resultsContent(results)
                     }
 
+                    // Extra padding for confirmation so buttons clear the mic
                     Spacer()
-                        .frame(height: bottomPad)
+                        .frame(height: confirmation != nil ? bottomPad + 48 : bottomPad)
                 }
                 .frame(
                     maxHeight: screen.size.height * maxHeightFraction + bottomPad,
@@ -94,7 +98,7 @@ struct ResultsSurfaceView: View {
     // MARK: - Results Mode
 
     @ViewBuilder
-    private func resultsContent(_ data: ResultsSurfaceData, maxWidth: CGFloat) -> some View {
+    private func resultsContent(_ data: ResultsSurfaceData) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             // Summary text
             HStack(spacing: 8) {
@@ -144,26 +148,23 @@ struct ResultsSurfaceView: View {
     // MARK: - Confirmation Mode
 
     @ViewBuilder
-    private func confirmationContent(_ data: ConfirmationData, maxWidth: CGFloat) -> some View {
+    private func confirmationContent(_ data: ConfirmationData) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Message
-            HStack(spacing: 8) {
-                Image(systemName: "questionmark.circle.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Theme.Colors.accentYellow)
-
-                Text(data.message)
-                    .font(Theme.Typography.bodyMedium)
-                    .foregroundStyle(Theme.Colors.textPrimary)
-                    .lineLimit(3)
-            }
-            .padding(.horizontal, Theme.Spacing.screenPadding)
-
             // Proposed action previews
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 8) {
-                    ForEach(Array(data.proposedActions.enumerated()), id: \.offset) { _, action in
-                        ProposedActionRow(action: action, entries: entries)
+                    ForEach(Array(data.proposedActions.enumerated()), id: \.offset) { index, action in
+                        let currentKind = actionOverrides[index] ?? ProposedActionKind.from(action)
+                        ProposedActionRow(
+                            action: action,
+                            entries: entries,
+                            currentKind: currentKind,
+                            onCycle: {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    actionOverrides[index] = currentKind.next
+                                }
+                            }
+                        )
                     }
                 }
                 .padding(.horizontal, Theme.Spacing.screenPadding)
@@ -189,7 +190,8 @@ struct ResultsSurfaceView: View {
                 .buttonStyle(.plain)
 
                 Button {
-                    onConfirm()
+                    let finalActions = buildFinalActions(from: data)
+                    onConfirm(finalActions)
                 } label: {
                     Text("Confirm")
                         .font(.subheadline.weight(.semibold))
@@ -202,6 +204,83 @@ struct ResultsSurfaceView: View {
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, Theme.Spacing.screenPadding)
+        }
+    }
+
+    // MARK: - Build Final Actions
+
+    /// Rebuild the action list applying any user overrides from cycling.
+    private func buildFinalActions(from data: ConfirmationData) -> [AgentAction] {
+        data.proposedActions.enumerated().map { index, action in
+            guard let override = actionOverrides[index] else { return action }
+            return override.applied(to: action)
+        }
+    }
+}
+
+// MARK: - Action Kind Cycling
+
+/// The mutation types a user can cycle through on a proposed action row.
+enum ProposedActionKind {
+    case complete
+    case archive
+    case create
+
+    static func from(_ action: AgentAction) -> ProposedActionKind {
+        switch action {
+        case .complete: return .complete
+        case .archive: return .archive
+        case .create: return .create
+        default: return .complete
+        }
+    }
+
+    /// Cycle: complete ↔ archive. Creates don't cycle.
+    var next: ProposedActionKind {
+        switch self {
+        case .complete: return .archive
+        case .archive: return .complete
+        case .create: return .create
+        }
+    }
+
+    var isCyclable: Bool {
+        self == .complete || self == .archive
+    }
+
+    var label: String {
+        switch self {
+        case .complete: return "Complete"
+        case .archive: return "Archive"
+        case .create: return "Create"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .complete: return "checkmark.circle.fill"
+        case .archive: return "archivebox.fill"
+        case .create: return "plus.circle.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .complete: return Theme.Colors.accentGreen
+        case .archive: return Theme.Colors.accentYellow
+        case .create: return Theme.Colors.accentPurple
+        }
+    }
+
+    /// Convert the original action to this kind, preserving the entry ID.
+    func applied(to original: AgentAction) -> AgentAction {
+        switch (self, original) {
+        case (.archive, .complete(let a)):
+            return .archive(ArchiveAction(id: a.id, reason: a.reason))
+        case (.complete, .archive(let a)):
+            return .complete(CompleteAction(id: a.id, reason: a.reason))
+        default:
+            return original
         }
     }
 }
@@ -259,6 +338,8 @@ private struct ResultEntryRow: View {
 private struct ProposedActionRow: View {
     let action: AgentAction
     let entries: [Entry]
+    let currentKind: ProposedActionKind
+    let onCycle: () -> Void
 
     /// Resolve the entry referenced by this action
     private var resolvedEntry: Entry? {
@@ -268,19 +349,17 @@ private struct ProposedActionRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: actionIcon)
+            Image(systemName: currentKind.icon)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(actionColor)
+                .foregroundStyle(currentKind.color)
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 4) {
-                // Primary: entry title or create summary
                 Text(title)
                     .font(Theme.Typography.bodyMedium)
                     .foregroundStyle(Theme.Colors.textPrimary)
                     .lineLimit(2)
 
-                // Secondary: reason or category for creates
                 if let subtitle {
                     Text(subtitle)
                         .font(Theme.Typography.caption)
@@ -290,24 +369,37 @@ private struct ProposedActionRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(actionTypeName)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(actionColor)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(actionColor.opacity(0.12))
-                .clipShape(Capsule())
+            // Action badge — tappable for cycling
+            if currentKind.isCyclable {
+                Button(action: onCycle) {
+                    Text(currentKind.label)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(currentKind.color)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(currentKind.color.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text(currentKind.label)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(currentKind.color)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(currentKind.color.opacity(0.12))
+                    .clipShape(Capsule())
+            }
         }
         .padding(12)
         .background(Theme.Colors.bgCard)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(actionColor.opacity(0.2), lineWidth: 1)
+                .stroke(currentKind.color.opacity(0.2), lineWidth: 1)
         )
     }
 
-    /// Primary text — entry name for mutations, summary for creates
     private var title: String {
         switch action {
         case .create(let a):
@@ -325,7 +417,6 @@ private struct ProposedActionRow: View {
         }
     }
 
-    /// Secondary text — reason for mutations, category for creates
     private var subtitle: String? {
         switch action {
         case .create(let a):
@@ -347,39 +438,6 @@ private struct ProposedActionRow: View {
         case .complete(let a): return a.id
         case .archive(let a): return a.id
         default: return nil
-        }
-    }
-
-    private var actionIcon: String {
-        switch action {
-        case .create: return "plus.circle.fill"
-        case .update: return "pencil.circle.fill"
-        case .complete: return "checkmark.circle.fill"
-        case .archive: return "archivebox.fill"
-        case .updateMemory: return "brain"
-        case .confirm: return "questionmark.circle"
-        }
-    }
-
-    private var actionColor: Color {
-        switch action {
-        case .create: return Theme.Colors.accentPurple
-        case .update: return Theme.Colors.accentBlue
-        case .complete: return Theme.Colors.accentGreen
-        case .archive: return Theme.Colors.accentYellow
-        case .updateMemory: return Theme.Colors.accentBlue
-        case .confirm: return Theme.Colors.accentYellow
-        }
-    }
-
-    private var actionTypeName: String {
-        switch action {
-        case .create: return "Create"
-        case .update: return "Update"
-        case .complete: return "Complete"
-        case .archive: return "Archive"
-        case .updateMemory: return "Memory"
-        case .confirm: return "Confirm"
         }
     }
 }
