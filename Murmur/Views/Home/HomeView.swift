@@ -119,39 +119,15 @@ struct HomeView: View {
     @ViewBuilder
     private var populatedState: some View {
         VStack(spacing: 0) {
-            // Header
-            HStack(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(greeting)
-                        .font(.title2.weight(.semibold))
-                        .foregroundStyle(Theme.Colors.textPrimary)
-                    Text(formattedDate)
-                        .font(Theme.Typography.body)
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, Theme.Spacing.screenPadding)
-            .padding(.top, 20)
-            .padding(.bottom, 16)
-
-            // Daily brief
-            if !dailyBrief.isEmpty {
-                Text(dailyBrief)
-                    .font(Theme.Typography.caption)
-                    .foregroundStyle(Theme.Colors.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, Theme.Spacing.screenPadding)
-                    .padding(.bottom, 4)
-            }
-
             // Scrollable content: focus strip + category sections
             ScrollView {
                 VStack(spacing: 0) {
-                    // Focus strip (always pinned at top)
-                    FocusStripView(entries: focusEntries, onEntryTap: onEntryTap)
-                        .padding(.top, 12)
-                        .padding(.bottom, 16)
+                    // Focus strip (only shown when there are focus items)
+                    if !focusEntries.isEmpty {
+                        FocusStripView(entries: focusEntries, onEntryTap: onEntryTap)
+                            .padding(.top, 12)
+                            .padding(.bottom, 16)
+                    }
 
                     // Category sections
                     LazyVStack(spacing: 0) {
@@ -170,39 +146,6 @@ struct HomeView: View {
                 }
             }
         }
-    }
-
-    private var greeting: String { Greeting.current }
-
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE, MMMM d"
-        return formatter
-    }()
-
-    private var formattedDate: String {
-        Self.dateFormatter.string(from: Date())
-    }
-
-    private var dailyBrief: String {
-        let now = Date()
-        let calendar = Calendar.current
-
-        let overdue = entries.filter { ($0.dueDate ?? .distantFuture) < now }.count
-        let dueToday = entries.filter { guard let d = $0.dueDate else { return false }; return d >= now && calendar.isDateInToday(d) }.count
-        let endOfWeek = calendar.date(byAdding: .day, value: 7, to: calendar.startOfDay(for: now)) ?? now
-        let dueThisWeek = entries.filter { guard let d = $0.dueDate else { return false }; return d > now && !calendar.isDateInToday(d) && d <= endOfWeek }.count
-
-        var parts: [String] = []
-        if overdue > 0 { parts.append("\(overdue) overdue") }
-        if dueToday > 0 { parts.append("\(dueToday) due today") }
-        if dueThisWeek > 0 { parts.append("\(dueThisWeek) due this week") }
-
-        let total = entries.count
-        if parts.isEmpty {
-            return total == 1 ? "1 entry" : "\(total) entries"
-        }
-        return parts.joined(separator: ", ")
     }
 
     // MARK: - Focus Strip Data
@@ -288,106 +231,94 @@ private struct FocusStripView: View {
     let entries: [Entry]
     let onEntryTap: (Entry) -> Void
 
-    private let maxVisible = 4
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Theme.Colors.accentRed)
-                Text("NEEDS ATTENTION")
-                    .font(Theme.Typography.badge)
-                    .foregroundStyle(Theme.Colors.textTertiary)
+        VStack(spacing: 12) {
+            // Section header
+            VStack(alignment: .leading, spacing: 2) {
+                Text(Greeting.current + ".")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Theme.Colors.textPrimary)
+                Text("Focus on these things today.")
+                    .font(Theme.Typography.body)
+                    .foregroundStyle(Theme.Colors.textSecondary)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            if entries.isEmpty {
-                Text("All clear")
-                    .font(Theme.Typography.badge)
-                    .foregroundStyle(Theme.Colors.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(Array(entries.prefix(maxVisible))) { entry in
-                            FocusChipView(entry: entry) { onEntryTap(entry) }
-                        }
-
-                        if entries.count > maxVisible {
-                            Text("+\(entries.count - maxVisible) more →")
-                                .font(Theme.Typography.badge)
-                                .foregroundStyle(Theme.Colors.textSecondary)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(
-                                    Capsule()
-                                        .fill(Theme.Colors.bgCard)
-                                        .overlay(Capsule().stroke(Theme.Colors.borderSubtle, lineWidth: 1))
-                                )
-                        }
-                    }
-                    .padding(.bottom, 1) // prevents shadow clipping
+            // Focus cards (top 3 only)
+            VStack(spacing: 10) {
+                ForEach(Array(entries.prefix(3).enumerated()), id: \.element.id) { index, entry in
+                    FocusCardView(entry: entry, animationDelay: Double(index) * 0.6) { onEntryTap(entry) }
                 }
             }
         }
-        .padding(14)
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Theme.Colors.bgCard)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Theme.Colors.accentYellow.opacity(0.05))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(entries.isEmpty
-                            ? Theme.Colors.borderSubtle
-                            : Theme.Colors.accentRed.opacity(0.20),
-                            lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(Theme.Colors.accentYellow.opacity(0.18), lineWidth: 1)
                 )
-                .shadow(color: entries.isEmpty
-                    ? Color.clear
-                    : Theme.Colors.accentRed.opacity(0.06),
-                    radius: 12, x: 0, y: 2)
         )
         .padding(.horizontal, Theme.Spacing.screenPadding)
     }
 }
 
-// MARK: - Focus Chip
+// MARK: - Focus Card
 
-private struct FocusChipView: View {
+private struct FocusCardView: View {
     let entry: Entry
     let onTap: () -> Void
+    var animationDelay: Double = 0
 
-    private var color: Color { Theme.categoryColor(entry.category) }
-    private var isOverdue: Bool { entry.dueDate.map { $0 < Date() } ?? false }
+    @State private var isPulsing = false
+
+    private var isOverdue: Bool {
+        entry.dueDate.map { $0 < Date() } ?? false
+    }
+
+    private var reasonLabel: String {
+        if isOverdue { return "Overdue" }
+        if let p = entry.priority, p <= 2 { return "P\(p)" }
+        return ""
+    }
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(color)
-                    .frame(width: 6, height: 6)
-                    .shadow(color: color.opacity(0.5), radius: 3)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 6) {
+                    CategoryBadge(category: entry.category, size: .small)
+                    Spacer()
+                    if !reasonLabel.isEmpty {
+                        HStack(spacing: 3) {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .font(.caption2)
+                            Text(reasonLabel)
+                                .font(Theme.Typography.badge)
+                        }
+                        .foregroundStyle(Theme.Colors.accentRed)
+                    }
+                }
 
                 Text(entry.summary)
-                    .font(Theme.Typography.badge)
+                    .font(Theme.Typography.body)
                     .foregroundStyle(Theme.Colors.textPrimary)
-                    .lineLimit(1)
-                    .frame(maxWidth: 130)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                Capsule()
-                    .fill(isOverdue ? Theme.Colors.accentRed.opacity(0.12) : color.opacity(0.10))
-                    .overlay(
-                        Capsule().stroke(
-                            isOverdue ? Theme.Colors.accentRed.opacity(0.35) : color.opacity(0.25),
-                            lineWidth: 1
-                        )
-                    )
-            )
+            .cardStyle()
         }
         .buttonStyle(.plain)
+        .opacity(isPulsing ? 0.72 : 1.0)
+        .onAppear {
+            withAnimation(
+                .easeInOut(duration: 2.4)
+                .repeatForever(autoreverses: true)
+                .delay(animationDelay)
+            ) {
+                isPulsing = true
+            }
+        }
     }
 }
 
@@ -440,13 +371,6 @@ private struct CategorySectionView: View {
                             .font(Theme.Typography.badge)
                             .foregroundStyle(Theme.Colors.textSecondary)
                             .tracking(0.8)
-                    }
-
-                    if hasOverdue {
-                        Circle()
-                            .fill(Theme.Colors.accentRed)
-                            .frame(width: 5, height: 5)
-                            .padding(.leading, 6)
                     }
 
                     Spacer()
@@ -518,10 +442,6 @@ private struct SmartListRow: View {
         return "Due in \(days)d"
     }
 
-    private var cardAccent: Color? {
-        isOverdue ? Theme.Colors.accentRed : nil
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             // Category + metadata row
@@ -577,7 +497,7 @@ private struct SmartListRow: View {
                 }
             }
         }
-        .cardStyle(accent: cardAccent, intensity: isOverdue ? 1.2 : 1.0)
+        .cardStyle()
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(entry.category.displayName): \(entry.summary)")
     }
