@@ -27,4 +27,7 @@ enum Animations {
 
     // MARK: - Smooth Slide
     static let smoothSlide = Animation.spring(response: 0.4, dampingFraction: 0.8)
+
+    // MARK: - Overlay Dismiss
+    static let overlayDismiss = Animation.easeOut(duration: 0.25)
 }

@@ -13,12 +13,22 @@ struct AgentActionExecutor {
         let source: EntrySource
         let modelContext: ModelContext
         let preferences: NotificationPreferences
+        let memoryStore: AgentMemoryStore?
+    }
+
+    /// Per-action outcome, 1:1 with input actions array.
+    enum ActionOutcome {
+        case applied(entry: Entry)
+        case memorySaved(wordCount: Int)
+        case skipped
+        case failed(reason: String)
     }
 
     struct ExecutionResult {
         let applied: [AppliedAction]
         let failures: [ActionFailure]
         let undo: UndoTransaction
+        let outcomes: [ActionOutcome]
     }
 
     struct AppliedAction {
@@ -36,6 +46,7 @@ struct AgentActionExecutor {
         var applied: [AppliedAction] = []
         var failures: [ActionFailure] = []
         var undoItems: [UndoItem] = []
+        var outcomes: [ActionOutcome] = []
 
         // IDs being completed — skip updates targeting the same entry
         let completedIDs = Set(actions.compactMap { action -> String? in
@@ -49,10 +60,14 @@ struct AgentActionExecutor {
             case .applied(let entry, let undo):
                 applied.append(AppliedAction(action: action, entry: entry))
                 undoItems.append(undo)
+                outcomes.append(.applied(entry: entry))
+            case .memorySaved(let wordCount):
+                outcomes.append(.memorySaved(wordCount: wordCount))
             case .skipped:
-                break
+                outcomes.append(.skipped)
             case .failed(let reason):
                 failures.append(ActionFailure(action: action, reason: reason))
+                outcomes.append(.failed(reason: reason))
             }
         }
 
@@ -60,13 +75,19 @@ struct AgentActionExecutor {
             print("Failed to save after agent actions: \(error.localizedDescription)")
         }
 
-        return ExecutionResult(applied: applied, failures: failures, undo: UndoTransaction(items: undoItems))
+        return ExecutionResult(
+            applied: applied,
+            failures: failures,
+            undo: UndoTransaction(items: undoItems),
+            outcomes: outcomes
+        )
     }
 
     // MARK: - Single Action Dispatch
 
     private enum ActionResult {
         case applied(Entry, UndoItem)
+        case memorySaved(wordCount: Int)
         case skipped
         case failed(String)
     }
@@ -101,6 +122,17 @@ struct AgentActionExecutor {
                 entry.perform(.archive, in: ctx.modelContext, preferences: ctx.preferences)
                 return .archived(entryID: entry.id, previousStatus: prev)
             }
+        case .updateMemory(let a):
+            if let store = ctx.memoryStore {
+                do {
+                    try store.save(a.content)
+                    let wordCount = a.content.split(separator: " ").count
+                    return .memorySaved(wordCount: wordCount)
+                } catch {
+                    return .failed("Memory save failed: \(error.localizedDescription)")
+                }
+            }
+            return .skipped
         }
     }
 

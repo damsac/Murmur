@@ -142,9 +142,22 @@ struct HomeView: View {
                             )
                         }
                     }
-                    .padding(.bottom, 16)
+                    // Extra padding so last card clears the floating mic
+                    .padding(.bottom, 80)
                 }
             }
+            .scrollIndicators(.hidden)
+            .mask(
+                VStack(spacing: 0) {
+                    Color.black
+                    LinearGradient(
+                        colors: [.black, .clear],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 40)
+                }
+            )
         }
     }
 
@@ -575,33 +588,29 @@ struct SwipeableCard<Content: View>: View {
                     .allowsHitTesting(false)
                 )
                 .offset(x: dragOffset)
-                .gesture(TapGesture().onEnded {
+                .onTapGesture {
                     guard Date().timeIntervalSince(lastDragEndTime) > 0.15 else { return }
                     if revealed {
                         snap(reveal: false)
                     } else {
                         onTap()
                     }
-                })
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 10, coordinateSpace: .local)
-                        .onChanged { value in
+                }
+                .overlay(
+                    HorizontalPanGestureView(
+                        onChanged: { dx in
                             guard !actions.isEmpty else { return }
-                            let dx = value.translation.width
-                            let dy = value.translation.height
-                            guard abs(dx) > abs(dy) * 0.6 else { return }
-                            if abs(dx) > 5 { activeSwipeID = entryID }
+                            activeSwipeID = entryID
                             let base: CGFloat = revealed ? -totalWidth : 0
                             dragOffset = min(0, max(-totalWidth, base + dx))
-                        }
-                        .onEnded { value in
+                        },
+                        onEnded: { _ in
                             guard !actions.isEmpty else { return }
-                            let dx = value.translation.width
-                            let dy = value.translation.height
-                            guard abs(dx) > abs(dy) * 0.6 else { return }
                             snap(reveal: -dragOffset > totalWidth * 0.35)
                             lastDragEndTime = Date()
                         }
+                    )
+                    .allowsHitTesting(actions.isEmpty ? false : true)
                 )
         }
         .onChange(of: activeSwipeID) { _, newID in
@@ -616,6 +625,89 @@ struct SwipeableCard<Content: View>: View {
             revealed = reveal
             dragOffset = reveal ? -totalWidth : 0
         }
+    }
+}
+
+// MARK: - Horizontal Pan Gesture (UIKit)
+
+/// A UIKit-based horizontal pan gesture recognizer that coexists with UIScrollView.
+/// Only begins recognition for horizontal drags, letting vertical scrolls pass through.
+private struct HorizontalPanGestureView: UIViewRepresentable {
+    var onChanged: (CGFloat) -> Void
+    var onEnded: (CGFloat) -> Void
+
+    func makeUIView(context: Context) -> UIView {
+        let view = HorizontalPanHostView()
+        view.backgroundColor = .clear
+
+        let pan = DirectionalPanGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handlePan)
+        )
+        pan.delegate = context.coordinator
+        view.addGestureRecognizer(pan)
+
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.onChanged = onChanged
+        context.coordinator.onEnded = onEnded
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onChanged: onChanged, onEnded: onEnded)
+    }
+
+    class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var onChanged: (CGFloat) -> Void
+        var onEnded: (CGFloat) -> Void
+
+        init(onChanged: @escaping (CGFloat) -> Void, onEnded: @escaping (CGFloat) -> Void) {
+            self.onChanged = onChanged
+            self.onEnded = onEnded
+        }
+
+        @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
+            let translation = gesture.translation(in: gesture.view)
+            switch gesture.state {
+            case .changed:
+                onChanged(translation.x)
+            case .ended, .cancelled:
+                onEnded(translation.x)
+            default:
+                break
+            }
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+    }
+}
+
+/// Pan gesture recognizer that only begins for horizontal drags.
+private class DirectionalPanGestureRecognizer: UIPanGestureRecognizer {
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesMoved(touches, with: event)
+
+        // Only decide direction once, at the beginning of the gesture
+        guard state == .began else { return }
+        let velocity = self.velocity(in: view)
+        if abs(velocity.y) > abs(velocity.x) {
+            state = .cancelled
+        }
+    }
+}
+
+/// Host view for horizontal pan gesture overlay.
+private class HorizontalPanHostView: UIView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        return hit == self ? self : hit
     }
 }
 

@@ -6,29 +6,27 @@ What dam is working on right now. Updated with every PR.
 
 ## Current focus
 
-- Resilient action parsing: per-tool-call error isolation, defensive decoding, partial success UX
-- Multi-turn conversation: wired in-memory conversation persistence (no disk, resets on app close)
-- Agent pipeline review: full architecture trace from voice input to final result
+- Agent backend systems shipped: temporal context, agent memory, multi-turn plumbing, tool results
+- Next: wiring agent overlay UX, conversation thread UI, or token budget work
 
 ## Recent decisions
 
 - `cancelRecording()` over `stopRecording()` in agent path (speed over completeness)
 - Per-tool-call error isolation over all-or-nothing (one bad tool call shouldn't nuke the batch)
-- `EntryCategory` falls back to `.note` on unknown values instead of throwing
-- `AgentEntryStatus` stays strict (wrong status transitions are worse than crashes)
-- Priority clamped to 1-5 after decode
 - Multi-turn is in-memory only — app termination resets conversation naturally
-- Defined dam/sac roles: dam = architecture + backend + frontend contributions, sac = frontend + UI/UX
+- Tool results use real outcomes via `ToolResultBuilder` + `conversation.replaceToolResults()` — agent sees actual execution results, not synthetic "accepted"
+- Agent memory: file-based `AgentMemoryStore` in Documents dir, loaded into `llm.agentMemory` on AppState init
+- Temporal context: `SessionSummaryService` provides time-of-day + session history block injected into system prompt
+- `ToolCallGroup` maps tool_call_id → action range for per-call error isolation
+- `transcriptStream` on LLMService protocol for real-time streaming to overlay
 
 ## Open questions
 
 - How should conversation reset work beyond app termination? Timer? Explicit button? After N seconds of silence?
-- When multi-turn is active, should tool results reflect actual execution outcomes instead of synthetic "accepted"?
 - Category simplification (8 categories → fewer) — still unowned on the roadmap
 - Token budget: how many entries in context before we need to truncate?
 
 ## What I need from sac
 
-- Review and agree on CANON.md decisions (roles, branch model, cancelRecording tradeoff)
-- Fill in `meta/sac/PROCESS.md` and `meta/sac/STATE.md`
-- Feedback on focus strip PR (#59) — is it ready to merge?
+- Review agent-systems PR — thinking section covers architectural rationale
+- Coordinate on HomeView changes — sac's visual polish PR (#65) is open

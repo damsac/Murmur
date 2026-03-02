@@ -8,6 +8,9 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
     private let extractionPrompt: LLMPrompt
     private let session: URLSession
 
+    /// Persistent memory content injected into the system prompt.
+    public var agentMemory: String?
+
     private static let endpoint = URL(string: "https://api.ppq.ai/chat/completions")!
 
     public init(
@@ -24,6 +27,9 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         self.session = session
     }
 
+    /// Tracks how many recordings have been processed in this service instance (≈ session).
+    private var sessionRecordingCount = 0
+
     private static let dateTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEEE, MMMM d, yyyy 'at' h:mm a zzz"
@@ -31,11 +37,36 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         return formatter
     }()
 
+    /// Builds a compact temporal context block (~20 tokens) for the system prompt.
+    private func buildTemporalContext(for date: Date = Date()) -> String {
+        let calendar = Calendar.current
+        let hour = calendar.component(.hour, from: date)
+
+        let timeOfDay: String
+        switch hour {
+        case 5..<12: timeOfDay = "morning"
+        case 12..<17: timeOfDay = "afternoon"
+        case 17..<21: timeOfDay = "evening"
+        default: timeOfDay = "night"
+        }
+
+        let isWeekend = calendar.isDateInWeekend(date)
+        let dayType = isWeekend ? "weekend" : "weekday"
+        let dateString = Self.dateTimeFormatter.string(from: date)
+
+        var context = "Current: \(dateString) (\(dayType), \(timeOfDay))"
+        if sessionRecordingCount > 1 {
+            context += "\nThis session: recording #\(sessionRecordingCount)"
+        }
+        return context
+    }
+
     public func process(
         transcript: String,
         existingEntries: [AgentContextEntry],
         conversation: LLMConversation
     ) async throws -> AgentResponse {
+        sessionRecordingCount += 1
         let userContent = buildAgentUserContent(
             transcript: transcript,
             existingEntries: existingEntries
@@ -48,12 +79,17 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         )
 
         let parseResult = parseActions(from: turn.assistantMessage)
-        let summary = parseSummary(from: turn.assistantMessage) ?? summarize(actions: parseResult.actions)
+        let textContent = parseSummary(from: turn.assistantMessage)
+        let summary = textContent ?? summarize(actions: parseResult.actions)
+        // textResponse is only set when the agent responds with text and no actions
+        let textResponse = parseResult.actions.isEmpty ? textContent : nil
         return AgentResponse(
             actions: parseResult.actions,
             summary: summary,
             usage: turn.usage,
-            parseFailures: parseResult.failures
+            parseFailures: parseResult.failures,
+            toolCallGroups: parseResult.groups,
+            textResponse: textResponse
         )
     }
 
@@ -118,8 +154,11 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         conversation: LLMConversation
     ) -> [[String: Any]] {
         if conversation.messages.isEmpty {
-            let currentDateTime = Self.dateTimeFormatter.string(from: Date())
-            let systemContent = "Current date and time: \(currentDateTime)\n\n" + prompt.systemPrompt
+            let temporalContext = buildTemporalContext()
+            var systemContent = temporalContext + "\n\n" + prompt.systemPrompt
+            if let memory = agentMemory, !memory.isEmpty {
+                systemContent += "\n\n## Your Memory\n" + memory
+            }
             return [
                 ["role": "system", "content": systemContent],
                 ["role": "user", "content": userContent],
@@ -190,17 +229,20 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
     private struct ParseActionResult {
         let actions: [AgentAction]
         let failures: [ParseFailure]
+        let groups: [ToolCallGroup]
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func parseActions(from assistantMessage: [String: Any]) -> ParseActionResult {
         guard let toolCalls = assistantMessage["tool_calls"] as? [[String: Any]] else {
             // With toolChoice: .auto, the model may respond with text only (no actions).
             // This is valid — return empty actions and let the caller use parseSummary().
-            return ParseActionResult(actions: [], failures: [])
+            return ParseActionResult(actions: [], failures: [], groups: [])
         }
 
         var actions: [AgentAction] = []
         var failures: [ParseFailure] = []
+        var groups: [ToolCallGroup] = []
 
         for toolCall in toolCalls {
             guard let function = toolCall["function"] as? [String: Any],
@@ -210,6 +252,9 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
             else {
                 continue
             }
+
+            let toolCallID = toolCall["id"] as? String ?? UUID().uuidString
+            let startIndex = actions.count
 
             do {
                 switch name {
@@ -233,19 +278,33 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
                         .archive(ArchiveAction(id: $0.id, reason: $0.normalizedReason))
                     })
 
+                case "update_memory":
+                    let wrapper = try JSONDecoder().decode(UpdateMemoryArguments.self, from: argumentsData)
+                    actions.append(.updateMemory(UpdateMemoryAction(content: wrapper.content)))
+
                 default:
                     continue
+                }
+
+                let endIndex = actions.count
+                if endIndex > startIndex {
+                    groups.append(ToolCallGroup(
+                        toolCallID: toolCallID,
+                        toolName: name,
+                        actionRange: startIndex..<endIndex
+                    ))
                 }
             } catch {
                 failures.append(ParseFailure(
                     toolName: name,
                     rawArguments: argumentsString,
-                    errorDescription: error.localizedDescription
+                    errorDescription: error.localizedDescription,
+                    toolCallID: toolCallID
                 ))
             }
         }
 
-        return ParseActionResult(actions: actions, failures: failures)
+        return ParseActionResult(actions: actions, failures: failures, groups: groups)
     }
 
     private func parseSummary(from assistantMessage: [String: Any]) -> String? {
@@ -542,6 +601,10 @@ private struct RawUpdateFields: Decodable {
 
 private struct EntryMutationArguments: Decodable {
     let entries: [RawEntryMutation]
+}
+
+private struct UpdateMemoryArguments: Decodable {
+    let content: String
 }
 
 private struct RawEntryMutation: Decodable {

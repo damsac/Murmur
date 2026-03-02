@@ -15,6 +15,9 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
     private var _isStarting = false
     private var _currentTranscript = ""
 
+    /// Callback for live transcript updates — set by transcriptStream consumers.
+    var onTranscriptUpdate: ((String) -> Void)?
+
     public override init() {
         // Use device locale or fallback to US English
         self.speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")) ?? SFSpeechRecognizer(locale: Locale.current)!
@@ -111,6 +114,7 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
             if let result = result {
                 Task { @MainActor in
                     self._currentTranscript = result.bestTranscription.formattedString
+                    self.onTranscriptUpdate?(self._currentTranscript)
                 }
             }
 
@@ -146,6 +150,23 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
         cleanupRecordingState(endAudio: false)
         _isRecording = false
         _currentTranscript = ""
+    }
+
+    // MARK: - Transcript Stream
+
+    /// AsyncStream of live transcript updates during recording.
+    /// Yields each time the speech recognizer produces a new partial result.
+    public var transcriptStream: AsyncStream<String> {
+        AsyncStream { continuation in
+            self.onTranscriptUpdate = { text in
+                continuation.yield(text)
+            }
+            continuation.onTermination = { _ in
+                Task { @MainActor in
+                    self.onTranscriptUpdate = nil
+                }
+            }
+        }
     }
 
     // MARK: - Permissions

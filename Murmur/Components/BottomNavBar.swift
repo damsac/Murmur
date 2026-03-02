@@ -1,89 +1,162 @@
 import SwiftUI
 
 struct BottomNavBar: View {
-    @Binding var selectedTab: Tab
     var isRecording: Bool = false
+    var isProcessing: Bool = false
+    var showTextInput: Bool = false
+    @Binding var inputText: String
     var onMicTap: (() -> Void)?
     var onKeyboardTap: (() -> Void)?
+    var onTextSubmit: (() -> Void)?
+    var onDismissTextInput: (() -> Void)?
 
-    enum Tab: String, CaseIterable {
-        case home = "Home"
-        case settings = "Settings"
-
-        var icon: String {
-            switch self {
-            case .home: return "house.fill"
-            case .settings: return "gearshape.fill"
-            }
-        }
-    }
+    @FocusState private var isTextFieldFocused: Bool
+    @Namespace private var navBarNamespace
 
     private let micSize = Theme.Spacing.micButtonSize
-    private let barHeight = Theme.Spacing.bottomNavHeight
-    private let notchDepth = Theme.Spacing.notchDepth
     private let kbSize: CGFloat = 40
 
     var body: some View {
-        let totalHeight = barHeight + notchDepth
-
-        ZStack(alignment: .top) {
-            // Notched shape background
-            NotchedTabBarShape(
-                notchRadius: Theme.Spacing.notchRadius,
-                notchDepth: notchDepth,
-                curveOffset: Theme.Spacing.notchCurveOffset
-            )
-            .fill(Theme.Colors.bgBody.opacity(0.95))
-            .frame(height: totalHeight)
-
-            // Tab items: Home (left), Settings (right)
-            HStack(spacing: 0) {
-                NavBarItem(tab: .home, isSelected: selectedTab == .home) {
-                    withAnimation(.easeInOut(duration: 0.2)) { selectedTab = .home }
-                }
-
-                // Center space for mic + keyboard
-                Color.clear
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 1)
-
-                NavBarItem(tab: .settings, isSelected: selectedTab == .settings) {
-                    withAnimation(.easeInOut(duration: 0.2)) { selectedTab = .settings }
-                }
+        ZStack {
+            if showTextInput {
+                textInputMode
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 0.9, anchor: .trailing)),
+                        removal: .opacity.combined(with: .scale(scale: 0.9, anchor: .trailing))
+                    ))
+            } else {
+                normalMode
+                    .transition(.opacity)
             }
-            .padding(.top, notchDepth + 4)
+        }
+        .frame(height: micSize)
+        .padding(.bottom, 0)
+        .animation(Animations.smoothSlide, value: showTextInput)
+        .animation(Animations.smoothSlide, value: isRecording)
+    }
 
-            // Mic button — centered, protruding above the bar
+    // MARK: - Normal Mode (Idle / Recording)
+
+    @ViewBuilder
+    private var normalMode: some View {
+        ZStack {
+            // Mic button — centered, staggered higher
             MicButton(
                 size: .large,
                 isRecording: isRecording,
+                isProcessing: isProcessing,
+                showStop: isRecording && !isProcessing,
                 action: { onMicTap?() }
             )
-            .accessibilityLabel("Record voice note")
-            .offset(y: notchDepth - micSize / 2)
+            .offset(y: -12)
+            .accessibilityLabel(isRecording ? "Stop recording" : "Record voice note")
 
-            // Keyboard button — to the right of mic, at bar level
-            if let onKeyboardTap {
+            // Keyboard button — to the right of mic, lower
+            if !isRecording && !isProcessing, let onKeyboardTap {
                 Button(action: onKeyboardTap) {
                     Image(systemName: "keyboard")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(Theme.Colors.textSecondary)
                         .frame(width: kbSize, height: kbSize)
-                        .background(
-                            Circle()
-                                .fill(Theme.Colors.bgCard)
-                                .overlay(
-                                    Circle()
-                                        .stroke(Theme.Colors.borderSubtle, lineWidth: 1)
-                                )
-                        )
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Type a note")
-                .offset(x: micSize / 2 + kbSize / 2 + 6, y: notchDepth + (barHeight - kbSize) / 2)
+                .offset(x: micSize / 2 + kbSize / 2 + 6)
+                .transition(.scale.combined(with: .opacity))
             }
         }
-        .frame(height: totalHeight)
+    }
+
+    // MARK: - Text Input Mode
+
+    @ViewBuilder
+    private var textInputMode: some View {
+        HStack(spacing: 10) {
+            // Dismiss button
+            Button {
+                onDismissTextInput?()
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.plain)
+
+            // Text field pill
+            HStack(spacing: 8) {
+                TextField("Type something...", text: $inputText, axis: .vertical)
+                    .font(Theme.Typography.body)
+                    .foregroundStyle(Theme.Colors.textPrimary)
+                    .lineLimit(1...3)
+                    .focused($isTextFieldFocused)
+                    .submitLabel(.send)
+                    .onSubmit {
+                        if !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            onTextSubmit?()
+                        }
+                    }
+                    .tint(Theme.Colors.accentPurple)
+
+                if !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            inputText = ""
+                        }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(Theme.Colors.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                Capsule()
+                    .fill(Theme.Colors.bgCard)
+                    .overlay(
+                        Capsule()
+                            .stroke(
+                                isTextFieldFocused
+                                    ? Theme.Colors.accentPurple.opacity(0.4)
+                                    : Theme.Colors.borderSubtle,
+                                lineWidth: 1
+                            )
+                    )
+            )
+
+            // Send / mic button on the right
+            if !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button {
+                    onTextSubmit?()
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 36))
+                        .foregroundStyle(Theme.Colors.accentPurple)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Send")
+                .transition(.scale.combined(with: .opacity))
+            } else {
+                MicButton(
+                    size: .small,
+                    isRecording: false,
+                    action: {
+                        onDismissTextInput?()
+                        onMicTap?()
+                    }
+                )
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .padding(.horizontal, Theme.Spacing.screenPadding)
+        .animation(.easeInOut(duration: 0.15), value: inputText.isEmpty)
+        .onAppear {
+            isTextFieldFocused = true
+        }
     }
 }
 
@@ -99,15 +172,11 @@ struct NotchedTabBarShape: Shape {
 
         let midX = rect.midX
 
-        // Single arc that hugs the mic — no bezier transition curves.
-        // Arc center sits notchDepth below the bar's top edge.
-        // Calculate where the arc intersects the top edge (y = 0).
         let alpha = asin(notchDepth / notchRadius)
         let halfGap = sqrt(notchRadius * notchRadius - notchDepth * notchDepth)
         let startAngle = Angle.radians(.pi + alpha)
         let endAngle = Angle.radians(2 * .pi - alpha)
 
-        // Top-left → flat top → arc → flat top → top-right → bottom
         path.move(to: CGPoint(x: rect.minX, y: rect.minY))
         path.addLine(to: CGPoint(x: midX - halfGap, y: rect.minY))
 
@@ -128,48 +197,15 @@ struct NotchedTabBarShape: Shape {
     }
 }
 
-// MARK: - Nav Bar Item
-
-private struct NavBarItem: View {
-    let tab: BottomNavBar.Tab
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: tab.icon)
-                    .font(.title3.weight(.medium))
-                    .foregroundStyle(
-                        isSelected
-                            ? Theme.Colors.accentPurple
-                            : Theme.Colors.textTertiary
-                    )
-                    .frame(height: 24)
-
-                Text(tab.rawValue)
-                    .font(Theme.Typography.navLabel)
-                    .foregroundStyle(
-                        isSelected
-                            ? Theme.Colors.accentPurple
-                            : Theme.Colors.textTertiary
-                    )
-            }
-            .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
 // MARK: - Previews
 
-#Preview("Nav Bar") {
+#Preview("Nav Bar - Idle") {
+    @Previewable @State var text = ""
     VStack {
         Spacer()
         BottomNavBar(
-            selectedTab: .constant(.home),
             isRecording: false,
+            inputText: $text,
             onMicTap: { print("Mic") },
             onKeyboardTap: { print("Keyboard") }
         )
@@ -177,26 +213,28 @@ private struct NavBarItem: View {
     .background(Theme.Colors.bgDeep)
 }
 
-#Preview("Recording State") {
+#Preview("Nav Bar - Recording") {
+    @Previewable @State var text = ""
     VStack {
         Spacer()
         BottomNavBar(
-            selectedTab: .constant(.home),
             isRecording: true,
-            onMicTap: { print("Mic") },
-            onKeyboardTap: { print("Keyboard") }
+            inputText: $text,
+            onMicTap: { print("Stop") }
         )
     }
     .background(Theme.Colors.bgDeep)
 }
 
-#Preview("Settings Selected") {
+#Preview("Nav Bar - Text Input") {
+    @Previewable @State var text = "Hello world"
     VStack {
         Spacer()
         BottomNavBar(
-            selectedTab: .constant(.settings),
-            onMicTap: { print("Mic") },
-            onKeyboardTap: { print("Keyboard") }
+            showTextInput: true,
+            inputText: $text,
+            onTextSubmit: { print("Submit:", text) },
+            onDismissTextInput: { print("Dismiss") }
         )
     }
     .background(Theme.Colors.bgDeep)

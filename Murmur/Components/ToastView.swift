@@ -149,6 +149,7 @@ private extension AgentAction {
         case .update: return "pencil.circle.fill"
         case .complete: return "checkmark.circle.fill"
         case .archive: return "archivebox.fill"
+        case .updateMemory: return "brain"
         }
     }
 
@@ -158,6 +159,7 @@ private extension AgentAction {
         case .update: return Theme.Colors.accentBlue
         case .complete: return Theme.Colors.accentGreen
         case .archive: return Theme.Colors.accentYellow
+        case .updateMemory: return Theme.Colors.accentBlue
         }
     }
 
@@ -167,6 +169,7 @@ private extension AgentAction {
         case .update(let a): return "Updated — \(a.reason)"
         case .complete(let a): return "Completed — \(a.reason)"
         case .archive(let a): return "Archived — \(a.reason)"
+        case .updateMemory: return "Memory updated"
         }
     }
 }

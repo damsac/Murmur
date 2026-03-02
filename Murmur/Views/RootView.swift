@@ -1,23 +1,19 @@
 import SwiftUI
 import SwiftData
-import AVFAudio
-import UIKit
 import MurmurCore
 
-// swiftlint:disable:next type_body_length
 struct RootView: View {
     @Environment(AppState.self) private var appState
     @Environment(NotificationPreferences.self) private var notifPrefs
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \Entry.createdAt, order: .reverse) private var entries: [Entry]
-    @State private var selectedTab: BottomNavBar.Tab = .home
     @State private var selectedEntry: Entry?
     @State private var inputText = ""
-    @State private var transcript = ""
     @State private var toastConfig: ToastContainer.ToastConfig?
     @State private var showDevMode = false
-    @State private var showTextInput = false
+    @State private var showTextInputBar = false
+    @State private var showSettings = false
     @State private var showTopUp = false
     @State private var isPurchasingTopUp = false
     @State private var isLoadingTopUpProducts = false
@@ -79,9 +75,24 @@ struct RootView: View {
                 .zIndex(100)
             }
 
-            // Recording state overlays
+            // Conversation overlays
             if !appState.showOnboarding {
-                recordingOverlays
+                let conversation = appState.conversation
+                if conversation.isRecording {
+                    ListeningGlowView()
+                        .zIndex(20)
+                }
+                if conversation.isRecording || conversation.isProcessing || conversation.agentStreamText != nil {
+                    let transcript = conversation.displayTranscript ?? ""
+                    AgentStreamOverlay(
+                        transcript: transcript,
+                        responseText: conversation.agentStreamText,
+                        isRecording: conversation.isRecording,
+                        onDismiss: { conversation.agentStreamText = nil }
+                    )
+                    .transition(.opacity)
+                    .zIndex(30)
+                }
             }
 
         }
@@ -103,11 +114,6 @@ struct RootView: View {
             )
             .environment(appState)
             .environment(notifPrefs)
-        }
-        .sheet(isPresented: $showTextInput) {
-            TextInputView(text: $inputText, onSubmit: handleTextSubmit)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showTopUp) {
             TopUpView(
@@ -172,236 +178,95 @@ struct RootView: View {
 
     @ViewBuilder
     private var mainContent: some View {
-        Group {
-            switch selectedTab {
-            case .home:
-                homeContent
-
-            case .settings:
-                settingsContent
+        homeContent
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.Colors.bgDeep)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                let conversation = appState.conversation
+                BottomNavBar(
+                    isRecording: conversation.isRecording,
+                    isProcessing: conversation.isProcessing,
+                    showTextInput: showTextInputBar,
+                    inputText: $inputText,
+                    onMicTap: {
+                        if conversation.isRecording {
+                            conversation.stopRecording(
+                                entries: entries,
+                                modelContext: modelContext,
+                                preferences: notifPrefs
+                            )
+                        } else {
+                            conversation.startRecording()
+                        }
+                    },
+                    onKeyboardTap: { showTextInputBar = true },
+                    onTextSubmit: {
+                        conversation.inputText = inputText
+                        inputText = ""
+                        showTextInputBar = false
+                        conversation.submitText(
+                            entries: entries,
+                            modelContext: modelContext,
+                            preferences: notifPrefs
+                        )
+                    },
+                    onDismissTextInput: {
+                        showTextInputBar = false
+                        inputText = ""
+                    }
+                )
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.Colors.bgDeep)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            BottomNavBar(
-                selectedTab: $selectedTab,
-                isRecording: appState.recordingState == .recording,
-                onMicTap: handleMicTap,
-                onKeyboardTap: { showTextInput = true }
-            )
-            .background(
-                Theme.Colors.bgBody.opacity(0.95),
-                ignoresSafeAreaEdges: .bottom
-            )
-        }
-        .ignoresSafeArea(.keyboard)
+            .ignoresSafeArea(.keyboard)
+            .sheet(isPresented: $showSettings) {
+                SettingsFullView(
+                    onBack: { showSettings = false },
+                    onTopUp: {
+                        openTopUp()
+                        showTopUp = true
+                    }
+                )
+            }
     }
 
     // MARK: - Home Content
 
     @ViewBuilder
     private var homeContent: some View {
+        let conversation = appState.conversation
         HomeView(
             inputText: $inputText,
             entries: activeEntries,
-            onMicTap: handleMicTap,
-            onSubmit: handleTextSubmit,
+            onMicTap: {
+                if conversation.isRecording {
+                    conversation.stopRecording(
+                        entries: entries,
+                        modelContext: modelContext,
+                        preferences: notifPrefs
+                    )
+                } else {
+                    conversation.startRecording()
+                }
+            },
+            onSubmit: {
+                conversation.inputText = inputText
+                inputText = ""
+                conversation.submitText(
+                    entries: entries,
+                    modelContext: modelContext,
+                    preferences: notifPrefs
+                )
+            },
             onEntryTap: { entry in selectedEntry = entry },
-            onSettingsTap: { selectedTab = .settings },
+            onSettingsTap: { showSettings = true },
             onAction: { entry, action in
                 handleEntryAction(entry, action)
             }
         )
     }
 
-    // MARK: - Settings Content
+    // MARK: - Actions
 
-    @ViewBuilder
-    private var settingsContent: some View {
-        SettingsFullView(
-            onBack: { selectedTab = .home },
-            onTopUp: {
-                openTopUp()
-                showTopUp = true
-            }
-        )
-    }
-
-    // MARK: - Recording Overlays
-
-    @ViewBuilder
-    private var recordingOverlays: some View {
-        switch appState.recordingState {
-        case .recording:
-            RecordingView(
-                transcript: $transcript,
-                onStop: {
-                    handleStopRecording()
-                }
-            )
-            .transition(.opacity)
-            .zIndex(30)
-
-        case .processing:
-            ProcessingView(
-                transcript: transcript.isEmpty ? nil : transcript
-            )
-            .transition(.opacity)
-            .zIndex(30)
-
-        case .idle:
-            EmptyView()
-        }
-    }
-
-}
-
-// MARK: - Actions
-
-private extension RootView {
-
-    func handleMicTap() {
-        guard let pipeline = appState.pipeline else {
-            showToast("Pipeline not configured — check API key", type: .error)
-            return
-        }
-
-        Task { @MainActor in
-            // Request mic permission if not yet determined
-            let recordPermission = AVAudioApplication.shared.recordPermission
-            if recordPermission == .undetermined {
-                let granted = await AVAudioApplication.requestRecordPermission()
-                if !granted {
-                    showToast("Microphone access is required for recording", type: .error)
-                    return
-                }
-            } else if recordPermission == .denied {
-                showToast("Microphone access denied — enable in Settings", type: .error)
-                return
-            }
-
-            do {
-                try await pipeline.startRecording()
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                    appState.recordingState = .recording
-                }
-            } catch {
-                print("Failed to start recording: \(error.localizedDescription)")
-                showToast("Recording failed: \(error.localizedDescription)", type: .error)
-            }
-        }
-    }
-
-    func handleStopRecording() {
-        guard let pipeline = appState.pipeline else {
-            showToast("Pipeline not configured — check API key", type: .error)
-            return
-        }
-        guard appState.recordingState == .recording else { return }
-
-        Task { @MainActor in
-            // Yield to let any pending recognition callbacks update currentTranscript
-            await Task.yield()
-
-            // Instant check: if nothing was said, bail immediately
-            let liveText = await pipeline.currentTranscript
-            if liveText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                await pipeline.cancelRecording()
-                withAnimation {
-                    appState.recordingState = .idle
-                }
-                transcript = ""
-                return
-            }
-
-            // Content detected — cancel recording instantly and process with agent
-            await pipeline.cancelRecording()
-            withAnimation {
-                appState.recordingState = .processing
-            }
-
-            do {
-                let agentContext = activeAndSnoozedEntries.map { $0.toAgentContext() }
-                let result = try await pipeline.processWithAgent(
-                    transcript: liveText,
-                    existingEntries: agentContext,
-                    conversation: pipeline.currentConversation
-                )
-                transcript = liveText
-                await appState.refreshCreditBalance()
-
-                let execResult = executeAgentActions(
-                    result.response.actions,
-                    transcript: liveText,
-                    source: .voice
-                )
-
-                withAnimation {
-                    appState.recordingState = .idle
-                    transcript = ""
-                }
-
-                showAgentToast(response: result.response, execResult: execResult)
-            } catch {
-                print("Processing failed: \(error.localizedDescription)")
-                withAnimation {
-                    appState.recordingState = .idle
-                }
-                handlePipelineError(error, fallbackPrefix: "Processing failed")
-            }
-        }
-    }
-
-    func handleTextSubmit() {
-        guard !inputText.isEmpty else { return }
-
-        let text = inputText
-        transcript = text
-        inputText = ""
-
-        guard let pipeline = appState.pipeline else {
-            showToast("Pipeline not configured — check API key", type: .error)
-            return
-        }
-
-        withAnimation {
-            appState.recordingState = .processing
-        }
-
-        Task { @MainActor in
-            do {
-                let agentContext = activeAndSnoozedEntries.map { $0.toAgentContext() }
-                let result = try await pipeline.processWithAgent(
-                    transcript: text,
-                    existingEntries: agentContext,
-                    conversation: pipeline.currentConversation
-                )
-                await appState.refreshCreditBalance()
-
-                let execResult = executeAgentActions(
-                    result.response.actions,
-                    transcript: text,
-                    source: .text
-                )
-
-                withAnimation {
-                    appState.recordingState = .idle
-                    transcript = ""
-                }
-
-                showAgentToast(response: result.response, execResult: execResult)
-            } catch {
-                print("Text processing failed: \(error.localizedDescription)")
-                withAnimation {
-                    appState.recordingState = .idle
-                }
-                handlePipelineError(error, fallbackPrefix: "Processing failed")
-            }
-        }
-    }
-
-    func handleTopUpPurchase(_ pack: CreditPack) {
+    private func handleTopUpPurchase(_ pack: CreditPack) {
         guard !isPurchasingTopUp else { return }
 
         isPurchasingTopUp = true
@@ -433,57 +298,12 @@ private extension RootView {
         }
     }
 
-    func handlePipelineError(_ error: Error, fallbackPrefix: String) {
-        if case PipelineError.insufficientCredits = error {
-            openTopUp()
-            showTopUp = true
-            showToast("Out of credits. Top up to continue.", type: .warning)
-            return
-        }
-        showToast("\(fallbackPrefix): \(error.localizedDescription)", type: .error)
-    }
-
-    func executeAgentActions(
-        _ actions: [AgentAction],
-        transcript: String,
-        source: EntrySource
-    ) -> AgentActionExecutor.ExecutionResult {
-        let ctx = AgentActionExecutor.ExecutionContext(
-            entries: entries,
-            transcript: transcript,
-            source: source,
-            modelContext: modelContext,
-            preferences: notifPrefs
-        )
-        return AgentActionExecutor.execute(actions: actions, context: ctx)
-    }
-
-    func showAgentToast(
-        response: AgentResponse,
-        execResult: AgentActionExecutor.ExecutionResult
-    ) {
-        if !execResult.applied.isEmpty {
-            var summary = response.summary
-            if !response.parseFailures.isEmpty {
-                summary += " (\(response.parseFailures.count) couldn't be processed)"
-            }
-            toastConfig = .agent(
-                summary: summary,
-                actions: response.actions,
-                undo: execResult.undo,
-                duration: 5.0
-            )
-        } else if !response.summary.isEmpty {
-            showToast(response.summary, type: .info)
-        }
-    }
-
-    func handleUndo(_ undo: UndoTransaction) {
+    private func handleUndo(_ undo: UndoTransaction) {
         undo.execute(entries: entries, context: modelContext, preferences: notifPrefs)
         showToast("Undone", type: .info)
     }
 
-    func handleEntryAction(_ entry: Entry, _ action: EntryAction) {
+    private func handleEntryAction(_ entry: Entry, _ action: EntryAction) {
         switch action {
         case .complete:
             UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -530,7 +350,7 @@ private extension RootView {
         }
     }
 
-    func showToast(
+    private func showToast(
         _ message: String,
         type: ToastView.ToastType = .success,
         actionLabel: String? = nil,
@@ -554,10 +374,6 @@ private extension RootView {
         entries.filter {
             $0.status == .active && $0.persistentModelID != pendingDeleteEntry?.persistentModelID
         }
-    }
-
-    var activeAndSnoozedEntries: [Entry] {
-        entries.filter { $0.status == .active || $0.status == .snoozed }
     }
 
     func performSnooze(_ component: Calendar.Component, value: Int) {
@@ -647,8 +463,6 @@ private extension RootView {
 
 #Preview("Recording State") {
     @Previewable @State var appState = AppState()
-
-    appState.recordingState = .recording
 
     return RootView()
         .environment(appState)

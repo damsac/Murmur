@@ -4,7 +4,7 @@ import Foundation
 /// Stateless with respect to persistence: the caller owns all storage.
 @MainActor
 public final class Pipeline {
-    private let transcriber: any Transcriber
+    public let transcriber: any Transcriber
     private let llm: any LLMService
     private let creditGate: (any CreditGate)?
     private let llmPricing: ServicePricing

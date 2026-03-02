@@ -26,11 +26,8 @@ struct MurmurApp: App {
         .modelContainer(modelContainer)
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
-                if appState.recordingState == .recording {
-                    Task {
-                        await appState.pipeline?.cancelRecording()
-                        appState.recordingState = .idle
-                    }
+                if appState.conversation.isRecording {
+                    appState.conversation.cancelRecording()
                 }
             }
         }

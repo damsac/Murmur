@@ -21,6 +21,19 @@ final class AppState {
     var pipelineError: String?
     var creditGate: LocalCreditGate?
     var creditBalance: Int64 = 0
+    private(set) var llmService: PPQLLMService?
+    var memoryStore: AgentMemoryStore?
+
+    // Lazy conversation state — only allocated on first access
+    private var _conversation: ConversationState?
+    var conversation: ConversationState {
+        if _conversation == nil {
+            let state = ConversationState()
+            state.appState = self
+            _conversation = state
+        }
+        return _conversation!
+    }
 
     var hasCompletedOnboarding: Bool {
         get { UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") }
@@ -53,6 +66,11 @@ final class AppState {
             llmPricing: pricing
         )
         creditGate = gate
+        llmService = llm
+
+        let store = AgentMemoryStore()
+        memoryStore = store
+        llm.agentMemory = store.load()
 
         Task { @MainActor in
             await refreshCreditBalance()
