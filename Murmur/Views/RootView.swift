@@ -19,6 +19,7 @@ struct RootView: View {
     @State private var isLoadingTopUpProducts = false
     @State private var topUpPacks: [CreditPack] = []
     @State private var topUpProductIDByCredits: [Int64: String] = [:]
+    @State private var showCardHints = false
     @State private var pendingDeleteEntry: Entry?
     @State private var pendingDeleteTask: Task<Void, Never>?
     @State private var snoozeEntry: Entry?
@@ -69,6 +70,12 @@ struct RootView: View {
                         withAnimation {
                             appState.showOnboarding = false
                         }
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(0.6))
+                            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                                showCardHints = true
+                            }
+                        }
                     }
                 )
                 .transition(.opacity)
@@ -103,6 +110,38 @@ struct RootView: View {
                     .transition(.opacity)
                     .zIndex(30)
                 }
+            }
+
+            // Post-onboarding card hints
+            if showCardHints {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 20) {
+                        Label("Swipe to act", systemImage: "arrow.left.and.right")
+                        Text("·")
+                            .foregroundStyle(Theme.Colors.textMuted)
+                        Label("Tap to edit", systemImage: "hand.tap")
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 14)
+                    .background(
+                        Capsule()
+                            .fill(Theme.Colors.bgCard)
+                            .overlay(Capsule().stroke(Theme.Colors.borderSubtle, lineWidth: 1))
+                    )
+                    .padding(.bottom, Theme.Spacing.micButtonSize + 20)
+                    .onTapGesture {
+                        withAnimation(.easeOut(duration: 0.3)) { showCardHints = false }
+                    }
+                    .task {
+                        try? await Task.sleep(for: .seconds(4))
+                        withAnimation(.easeOut(duration: 0.5)) { showCardHints = false }
+                    }
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(55)
             }
 
             // Bottom nav bar — always above overlays

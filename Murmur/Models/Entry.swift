@@ -228,6 +228,25 @@ extension Entry {
 // MARK: - Habit Period Tracking
 
 extension Entry {
+    /// True if this habit was checked off today (regardless of cadence).
+    public var isCompletedToday: Bool {
+        guard let lastCompleted = lastHabitCompletionDate else { return false }
+        return Calendar.current.isDateInToday(lastCompleted)
+    }
+
+    /// True if this habit's cadence applies on today's day of week.
+    /// e.g. weekday-only habits return false on Saturday/Sunday.
+    public var appliesToday: Bool {
+        guard category == .habit else { return true }
+        switch cadence ?? .daily {
+        case .daily, .weekly, .monthly:
+            return true
+        case .weekdays:
+            let weekday = Calendar.current.component(.weekday, from: Date())
+            return weekday != 1 && weekday != 7
+        }
+    }
+
     /// True if this habit has been checked off for the current cadence period.
     public var isDoneForPeriod: Bool {
         guard category == .habit, let lastCompleted = lastHabitCompletionDate else { return false }
@@ -296,7 +315,7 @@ extension Entry {
             save(in: context)
 
         case .checkOffHabit:
-            lastHabitCompletionDate = isDoneForPeriod ? nil : Date()
+            lastHabitCompletionDate = isCompletedToday ? nil : Date()
             updatedAt = Date()
             save(in: context)
         }
