@@ -18,6 +18,9 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
     /// Callback for live transcript updates — set by transcriptStream consumers.
     var onTranscriptUpdate: ((String) -> Void)?
 
+    /// Callback for audio level updates — set by audioLevelStream consumers.
+    var onAudioLevelUpdate: ((Float) -> Void)?
+
     public override init() {
         // Use device locale or fallback to US English
         self.speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")) ?? SFSpeechRecognizer(locale: Locale.current)!
@@ -93,6 +96,10 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
 
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
             self?.recognitionRequest?.append(buffer)
+            let level = Self.extractAudioLevel(from: buffer)
+            Task { @MainActor in
+                self?.onAudioLevelUpdate?(level)
+            }
         }
         tapInstalled = true
 
@@ -167,6 +174,42 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
                 }
             }
         }
+    }
+
+    // MARK: - Audio Level Stream
+
+    /// AsyncStream of normalized audio levels (0.0–1.0) during recording.
+    /// Yields at the rate of the audio engine's buffer callbacks (~40-50 Hz).
+    public var audioLevelStream: AsyncStream<Float> {
+        AsyncStream { continuation in
+            self.onAudioLevelUpdate = { level in
+                continuation.yield(level)
+            }
+            continuation.onTermination = { _ in
+                Task { @MainActor in
+                    self.onAudioLevelUpdate = nil
+                }
+            }
+        }
+    }
+
+    // MARK: - Audio Level Extraction
+
+    /// Extract normalized audio level (0.0–1.0) from a PCM buffer using dB scale.
+    private static func extractAudioLevel(from buffer: AVAudioPCMBuffer) -> Float {
+        guard let channelData = buffer.floatChannelData else { return 0 }
+        let frames = Int(buffer.frameLength)
+        guard frames > 0 else { return 0 }
+        let samples = channelData[0]
+        var sum: Float = 0
+        for i in 0..<frames {
+            sum += samples[i] * samples[i]
+        }
+        let rms = sqrtf(sum / Float(frames))
+        // Convert to dB, then normalize: -50dB→0, -10dB→1
+        let dB = 20 * log10(max(rms, 1e-6))
+        let normalized = max(0, min(1, (dB + 50) / 40))
+        return powf(normalized, 0.6) // compress dynamics so quiet sounds still show
     }
 
     // MARK: - Permissions

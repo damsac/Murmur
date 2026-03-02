@@ -78,21 +78,72 @@ struct RootView: View {
             // Conversation overlays
             if !appState.showOnboarding {
                 let conversation = appState.conversation
+                // Recording state: waveform + floating transcript
                 if conversation.isRecording {
-                    ListeningGlowView()
-                        .zIndex(20)
+                    let transcript: String = {
+                        if case .recording(let t) = conversation.inputState { return t }
+                        return ""
+                    }()
+                    RecordingStateView(
+                        transcript: transcript,
+                        audioLevels: conversation.audioLevels
+                    )
+                    .transition(.opacity.animation(.easeInOut(duration: 0.35)))
+                    .zIndex(20)
                 }
-                if conversation.isRecording || conversation.isProcessing || conversation.agentStreamText != nil {
+                // Processing / response overlay (not shown during recording)
+                if !conversation.isRecording && (conversation.isProcessing || conversation.agentStreamText != nil) {
                     let transcript = conversation.displayTranscript ?? ""
                     AgentStreamOverlay(
                         transcript: transcript,
                         responseText: conversation.agentStreamText,
-                        isRecording: conversation.isRecording,
+                        isRecording: false,
                         onDismiss: { conversation.agentStreamText = nil }
                     )
                     .transition(.opacity)
                     .zIndex(30)
                 }
+            }
+
+            // Bottom nav bar — always above overlays
+            if !appState.showOnboarding {
+                VStack {
+                    Spacer()
+                    let conversation = appState.conversation
+                    BottomNavBar(
+                        isRecording: conversation.isRecording,
+                        isProcessing: conversation.isProcessing,
+                        showTextInput: showTextInputBar,
+                        inputText: $inputText,
+                        onMicTap: {
+                            if conversation.isRecording {
+                                conversation.stopRecording(
+                                    entries: entries,
+                                    modelContext: modelContext,
+                                    preferences: notifPrefs
+                                )
+                            } else {
+                                conversation.startRecording()
+                            }
+                        },
+                        onKeyboardTap: { showTextInputBar = true },
+                        onTextSubmit: {
+                            conversation.inputText = inputText
+                            inputText = ""
+                            showTextInputBar = false
+                            conversation.submitText(
+                                entries: entries,
+                                modelContext: modelContext,
+                                preferences: notifPrefs
+                            )
+                        },
+                        onDismissTextInput: {
+                            showTextInputBar = false
+                            inputText = ""
+                        }
+                    )
+                }
+                .zIndex(50)
             }
 
         }
@@ -182,39 +233,8 @@ struct RootView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Theme.Colors.bgDeep)
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                let conversation = appState.conversation
-                BottomNavBar(
-                    isRecording: conversation.isRecording,
-                    isProcessing: conversation.isProcessing,
-                    showTextInput: showTextInputBar,
-                    inputText: $inputText,
-                    onMicTap: {
-                        if conversation.isRecording {
-                            conversation.stopRecording(
-                                entries: entries,
-                                modelContext: modelContext,
-                                preferences: notifPrefs
-                            )
-                        } else {
-                            conversation.startRecording()
-                        }
-                    },
-                    onKeyboardTap: { showTextInputBar = true },
-                    onTextSubmit: {
-                        conversation.inputText = inputText
-                        inputText = ""
-                        showTextInputBar = false
-                        conversation.submitText(
-                            entries: entries,
-                            modelContext: modelContext,
-                            preferences: notifPrefs
-                        )
-                    },
-                    onDismissTextInput: {
-                        showTextInputBar = false
-                        inputText = ""
-                    }
-                )
+                // Spacer matching BottomNavBar height so content scrolls above it
+                Color.clear.frame(height: Theme.Spacing.micButtonSize)
             }
             .ignoresSafeArea(.keyboard)
             .sheet(isPresented: $showSettings) {
