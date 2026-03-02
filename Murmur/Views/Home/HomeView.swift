@@ -124,7 +124,13 @@ struct HomeView: View {
                 VStack(spacing: 0) {
                     // Focus strip (only shown when there are focus items)
                     if !focusEntries.isEmpty {
-                        FocusStripView(entries: focusEntries, onEntryTap: onEntryTap)
+                        FocusStripView(
+                            entries: focusEntries,
+                            activeSwipeEntryID: $activeSwipeEntryID,
+                            onEntryTap: onEntryTap,
+                            swipeActionsProvider: swipeActions(for:),
+                            onAction: onAction
+                        )
                             .padding(.top, 12)
                             .padding(.bottom, 16)
                     }
@@ -164,13 +170,16 @@ struct HomeView: View {
     // MARK: - Focus Strip Data
 
     /// Entries qualifying for the focus strip: overdue (dueDate < now) or P1/P2.
+    /// Habits already checked off for the current period are excluded.
     private var focusEntries: [Entry] {
         let now = Date()
         return entries
             .filter { entry in
                 let isOverdue = entry.dueDate.map { $0 < now } ?? false
                 let isHighPriority = (entry.priority ?? Int.max) <= 2
-                return isOverdue || isHighPriority
+                guard isOverdue || isHighPriority else { return false }
+                if entry.category == .habit && entry.isDoneForPeriod { return false }
+                return true
             }
             .sorted { lhs, rhs in
                 let now = Date()
@@ -242,7 +251,10 @@ struct HomeView: View {
 
 private struct FocusStripView: View {
     let entries: [Entry]
+    @Binding var activeSwipeEntryID: UUID?
     let onEntryTap: (Entry) -> Void
+    let swipeActionsProvider: (Entry) -> [CardSwipeAction]
+    let onAction: (Entry, EntryAction) -> Void
 
     var body: some View {
         VStack(spacing: 12) {
@@ -260,19 +272,18 @@ private struct FocusStripView: View {
             // Focus cards (top 3 only)
             VStack(spacing: 10) {
                 ForEach(Array(entries.prefix(3).enumerated()), id: \.element.id) { index, entry in
-                    FocusCardView(entry: entry, animationDelay: Double(index) * 0.6) { onEntryTap(entry) }
+                    FocusCardView(
+                        entry: entry,
+                        activeSwipeEntryID: $activeSwipeEntryID,
+                        swipeActionsProvider: swipeActionsProvider,
+                        onAction: onAction,
+                        onTap: { onEntryTap(entry) },
+                        animationDelay: Double(index) * 0.6
+                    )
                 }
             }
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Theme.Colors.accentYellow.opacity(0.05))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(Theme.Colors.accentYellow.opacity(0.18), lineWidth: 1)
-                )
-        )
+        .padding(.vertical, 8)
         .padding(.horizontal, Theme.Spacing.screenPadding)
     }
 }
@@ -281,10 +292,18 @@ private struct FocusStripView: View {
 
 private struct FocusCardView: View {
     let entry: Entry
+    @Binding var activeSwipeEntryID: UUID?
+    let swipeActionsProvider: (Entry) -> [CardSwipeAction]
+    let onAction: (Entry, EntryAction) -> Void
     let onTap: () -> Void
     var animationDelay: Double = 0
 
-    @State private var isPulsing = false
+    @State private var glowIntensity: Double = 0
+    @State private var glowTask: Task<Void, Never>?
+
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var accentColor: Color { Theme.categoryColor(entry.category) }
 
     private var isOverdue: Bool {
         entry.dueDate.map { $0 < Date() } ?? false
@@ -297,7 +316,12 @@ private struct FocusCardView: View {
     }
 
     var body: some View {
-        Button(action: onTap) {
+        SwipeableCard(
+            actions: swipeActionsProvider(entry),
+            activeSwipeID: $activeSwipeEntryID,
+            entryID: entry.id,
+            onTap: onTap
+        ) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 6) {
                     CategoryBadge(category: entry.category, size: .small)
@@ -313,24 +337,53 @@ private struct FocusCardView: View {
                     }
                 }
 
-                Text(entry.summary)
-                    .font(Theme.Typography.body)
-                    .foregroundStyle(Theme.Colors.textPrimary)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(alignment: .center, spacing: 12) {
+                    Text(entry.summary)
+                        .font(Theme.Typography.body)
+                        .foregroundStyle(entry.isDoneForPeriod ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if entry.category == .habit {
+                        Button {
+                            onAction(entry, .checkOffHabit)
+                        } label: {
+                            Image(systemName: entry.isDoneForPeriod ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 24))
+                                .foregroundStyle(
+                                    entry.isDoneForPeriod
+                                        ? Theme.categoryColor(entry.category)
+                                        : Theme.Colors.textTertiary
+                                )
+                                .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isDoneForPeriod)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
             .cardStyle()
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius)
+                    .stroke(accentColor.opacity(0.55 * glowIntensity), lineWidth: 1.5)
+            )
+            .shadow(color: accentColor.opacity(0.30 * glowIntensity), radius: 18, y: 0)
         }
-        .buttonStyle(.plain)
-        .opacity(isPulsing ? 0.72 : 1.0)
-        .onAppear {
-            withAnimation(
-                .easeInOut(duration: 2.4)
-                .repeatForever(autoreverses: true)
-                .delay(animationDelay)
-            ) {
-                isPulsing = true
-            }
+        .onAppear { playGlow() }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active { playGlow() }
+        }
+    }
+
+    private func playGlow() {
+        glowTask?.cancel()
+        glowIntensity = 0
+        glowTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(animationDelay))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 1.1)) { glowIntensity = 1.0 }
+            try? await Task.sleep(for: .seconds(1.1))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 1.4)) { glowIntensity = 0 }
         }
     }
 }
