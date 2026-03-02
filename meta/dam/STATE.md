@@ -6,27 +6,26 @@ What dam is working on right now. Updated with every PR.
 
 ## Current focus
 
-- Agent backend systems shipped: temporal context, agent memory, multi-turn plumbing, tool results
-- Next: wiring agent overlay UX, conversation thread UI, or token budget work
+- **Recording UI** — minimal wave line with real audio input
+- **LLM-curated daily focus** — compose_focus tool, DailyFocusStore, shimmer loading state wired in
+- **Category consolidation** — removed `thought` category (8 → 7), existing data falls back to `.note`
 
 ## Recent decisions
 
-- `cancelRecording()` over `stopRecording()` in agent path (speed over completeness)
-- Per-tool-call error isolation over all-or-nothing (one bad tool call shouldn't nuke the batch)
-- Multi-turn is in-memory only — app termination resets conversation naturally
-- Tool results use real outcomes via `ToolResultBuilder` + `conversation.replaceToolResults()` — agent sees actual execution results, not synthetic "accepted"
-- Agent memory: file-based `AgentMemoryStore` in Documents dir, loaded into `llm.agentMemory` on AppState init
-- Temporal context: `SessionSummaryService` provides time-of-day + session history block injected into system prompt
-- `ToolCallGroup` maps tool_call_id → action range for per-call error isolation
-- `transcriptStream` on LLMService protocol for real-time streaming to overlay
+- Removed `thought` category — no distinct behavior, no future behavior path. Existing `"thought"` values in DB silently degrade to `.note` via defensive initializer.
+- 7 categories remain: todo, reminder, habit, idea, list, note, question. Each has (or will have) distinct agent behavior.
+- Daily focus: LLM generates both the entry selection and the briefing message via `compose_focus` tool
+- Recording UI direction: minimal audio-reactive wave line
+- Agent backend systems merged (PR #66)
+- Sac's PRs merged: home visual polish (#65), onboarding redesign (#67)
 
 ## Open questions
 
-- How should conversation reset work beyond app termination? Timer? Explicit button? After N seconds of silence?
-- Category simplification (8 categories → fewer) — still unowned on the roadmap
-- Token budget: how many entries in context before we need to truncate?
+- Conversation reset: timer, explicit button, or N seconds of silence?
+- Token budget for context window
+- Daily focus refresh frequency: on app open only, or periodic?
 
 ## What I need from sac
 
-- Review agent-systems PR — thinking section covers architectural rationale
-- Coordinate on HomeView changes — sac's visual polish PR (#65) is open
+- Continue iterating on focus section UI — dam has wired LLM curation behind it
+- Coordinate on remaining conversation UI PR
