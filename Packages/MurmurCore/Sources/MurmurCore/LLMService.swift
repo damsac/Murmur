@@ -102,7 +102,7 @@ public struct LLMPrompt: @unchecked Sendable {
               This message appears as a notification to the user — be concise and specific.
             - Call multiple tools when needed.
             - Act decisively on clear inputs — never ask for confirmation on straightforward requests.
-            - When genuinely ambiguous (e.g., multiple entries match, or intent unclear), ask a brief clarifying question instead of guessing wrong.
+            - When genuinely ambiguous (e.g., multiple entries match, or intent unclear), use confirm_actions to propose what you'd do — the user sees a preview and confirms or declines.
 
             Memory rules:
             - You have persistent memory across sessions via update_memory.
@@ -116,6 +116,7 @@ public struct LLMPrompt: @unchecked Sendable {
             completeEntriesToolSchema(),
             archiveEntriesToolSchema(),
             updateMemoryToolSchema(),
+            confirmActionsToolSchema(),
         ],
         toolChoice: .auto
     )
@@ -343,6 +344,17 @@ public struct UpdateMemoryAction: Sendable {
     }
 }
 
+/// Proposed actions awaiting user confirmation.
+public struct ConfirmationRequest: Sendable {
+    public let message: String
+    public let proposedActions: [AgentAction]
+
+    public init(message: String, proposedActions: [AgentAction]) {
+        self.message = message
+        self.proposedActions = proposedActions
+    }
+}
+
 /// Typed actions produced by the agent.
 public enum AgentAction: Sendable {
     case create(CreateAction)
@@ -350,6 +362,7 @@ public enum AgentAction: Sendable {
     case complete(CompleteAction)
     case archive(ArchiveAction)
     case updateMemory(UpdateMemoryAction)
+    case confirm(ConfirmationRequest)
 }
 
 public extension AgentAction {
@@ -367,6 +380,11 @@ public extension AgentAction {
             dueDateDescription: action.dueDateDescription,
             cadence: action.cadence
         )
+    }
+
+    var isConfirmation: Bool {
+        if case .confirm = self { return true }
+        return false
     }
 }
 
@@ -738,6 +756,45 @@ private extension LLMPrompt {
                         ],
                     ],
                     "required": ["content"],
+                ] as [String: Any],
+            ] as [String: Any],
+        ]
+    }
+
+    static func confirmActionsToolSchema() -> [String: Any] {
+        [
+            "type": "function",
+            "function": [
+                "name": "confirm_actions",
+                "description": "Propose actions for user confirmation when intent is ambiguous. The user sees a preview and confirms or declines.",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "message": [
+                            "type": "string",
+                            "description": "Brief explanation of the ambiguity, under 20 words",
+                        ],
+                        "actions": [
+                            "type": "array",
+                            "description": "Proposed actions to preview",
+                            "items": [
+                                "type": "object",
+                                "properties": [
+                                    "tool": [
+                                        "type": "string",
+                                        "enum": ["create_entries", "update_entries", "complete_entries", "archive_entries"],
+                                        "description": "Which tool to call if confirmed",
+                                    ],
+                                    "arguments": [
+                                        "type": "object",
+                                        "description": "Arguments in the same format as the respective tool",
+                                    ],
+                                ] as [String: Any],
+                                "required": ["tool", "arguments"],
+                            ] as [String: Any],
+                        ] as [String: Any],
+                    ] as [String: Any],
+                    "required": ["message", "actions"],
                 ] as [String: Any],
             ] as [String: Any],
         ]

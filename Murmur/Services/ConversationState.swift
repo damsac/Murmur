@@ -10,6 +10,7 @@ import UIKit
 /// Lazy-initialized from AppState on first conversation open.
 @Observable
 @MainActor
+// swiftlint:disable:next type_body_length
 final class ConversationState {
     // MARK: - Thread
 
@@ -22,9 +23,11 @@ final class ConversationState {
     /// Latest agent response text for the stream overlay. Cleared after animation.
     var agentStreamText: String?
 
-    /// Pending toast data to be picked up by RootView and shown via the toast system.
-    /// Set when processing completes with results; cleared by RootView after consumption.
-    var pendingToast: PendingToastData?
+    /// Results surface data to show completed actions. Cleared on dismiss.
+    var pendingResults: ResultsSurfaceData?
+
+    /// Pending confirmation awaiting user confirm/deny. Cleared on confirm or deny.
+    var pendingConfirmation: ConfirmationData?
 
     /// Transcript saved when recording stops, shown in overlay during processing.
     var displayTranscript: String?
@@ -39,6 +42,7 @@ final class ConversationState {
     private var processingTask: Task<Void, Never>?
     private var recordingTask: Task<Void, Never>?
     private var conversation: LLMConversation = LLMConversation()
+    private let denialLogStore = DenialLogStore()
 
     /// Stable ID for the ephemeral status indicator (replaced in-place, not appended)
     private let statusItemID = UUID()
@@ -278,6 +282,21 @@ final class ConversationState {
 
                 await appState.refreshCreditBalance()
 
+                // Check for confirmation request first
+                if let confirmAction = result.response.actions.first(where: \.isConfirmation),
+                   case .confirm(let request) = confirmAction {
+                    // Don't execute — show confirmation UI
+                    removeStatusItem()
+                    self.pendingConfirmation = ConfirmationData(
+                        message: request.message,
+                        proposedActions: request.proposedActions,
+                        transcript: text
+                    )
+                    self.displayTranscript = nil
+                    inputState = .idle
+                    return
+                }
+
                 // Execute actions
                 let ctx = AgentActionExecutor.ExecutionContext(
                     entries: entries,
@@ -317,11 +336,12 @@ final class ConversationState {
                     handleActionResult(execResult: execResult, generation: gen)
                 } else if let textResponse = result.response.textResponse,
                           !textResponse.isEmpty {
-                    // Text-only response (clarification/summary) — show as simple toast
-                    self.pendingToast = PendingToastData(
+                    // Text-only response — show in results surface
+                    self.pendingResults = ResultsSurfaceData(
                         summary: textResponse,
-                        actions: [],
-                        undo: UndoTransaction(items: [])
+                        applied: [],
+                        undo: UndoTransaction(items: []),
+                        generation: gen
                     )
                 }
 
@@ -380,17 +400,95 @@ final class ConversationState {
         )
         threadItems.append(.actionResult(result: resultData))
 
-        // Use LLM text response as toast summary if available, otherwise use action summary
-        let toastSummary = self.agentStreamText ?? resultData.summary
+        // Use LLM text response as summary if available, otherwise use action summary
+        let resultsSummary = self.agentStreamText ?? resultData.summary
 
-        // Emit pending toast for RootView to pick up
-        self.pendingToast = PendingToastData(
-            summary: toastSummary,
-            actions: execResult.applied.map(\.action),
-            undo: execResult.undo
+        // Emit results surface for RootView
+        self.pendingResults = ResultsSurfaceData(
+            summary: resultsSummary,
+            applied: appliedInfos,
+            undo: execResult.undo,
+            generation: gen
+        )
+
+        // Clear transcript overlay
+        self.displayTranscript = nil
+
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    // MARK: - Results Surface
+
+    /// Whether the results surface should be shown (either results or confirmation).
+    var showResultsSurface: Bool {
+        pendingResults != nil || pendingConfirmation != nil
+    }
+
+    func dismissResults() {
+        pendingResults = nil
+        agentStreamText = nil
+        displayTranscript = nil
+    }
+
+    // MARK: - Confirmation
+
+    func confirmPendingActions(
+        entries: [Entry],
+        modelContext: ModelContext,
+        preferences: NotificationPreferences
+    ) {
+        guard let confirmation = pendingConfirmation else { return }
+        pendingConfirmation = nil
+
+        let gen = nextGeneration()
+        let ctx = AgentActionExecutor.ExecutionContext(
+            entries: entries,
+            transcript: confirmation.transcript,
+            source: .text,
+            modelContext: modelContext,
+            preferences: preferences,
+            memoryStore: appState?.memoryStore
+        )
+        let execResult = AgentActionExecutor.execute(
+            actions: confirmation.proposedActions,
+            context: ctx
+        )
+
+        let appliedInfos = execResult.applied.map { applied -> AppliedActionInfo in
+            let actionType = AppliedActionInfo.ActionType.from(applied.action)
+            return AppliedActionInfo(id: applied.entry.id, entry: applied.entry, actionType: actionType)
+        }
+
+        let summary = buildActionSummary(applied: execResult.applied, failures: execResult.failures)
+        let resultData = ActionResultData(
+            summary: summary,
+            applied: appliedInfos,
+            failures: execResult.failures.map { $0.reason },
+            undo: execResult.undo,
+            generation: gen
+        )
+        threadItems.append(.actionResult(result: resultData))
+
+        self.pendingResults = ResultsSurfaceData(
+            summary: summary,
+            applied: appliedInfos,
+            undo: execResult.undo,
+            generation: gen
         )
 
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    func denyPendingActions() {
+        guard let confirmation = pendingConfirmation else { return }
+        pendingConfirmation = nil
+
+        // Log the denial for future learning
+        denialLogStore.log(
+            transcript: confirmation.transcript,
+            proposedActions: confirmation.proposedActions,
+            message: confirmation.message
+        )
     }
 
     // MARK: - Retry
@@ -428,7 +526,8 @@ final class ConversationState {
         generationCounter = 0
         conversation = LLMConversation()
         agentStreamText = nil
-        pendingToast = nil
+        pendingResults = nil
+        pendingConfirmation = nil
         displayTranscript = nil
         audioLevels = []
 

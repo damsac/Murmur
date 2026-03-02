@@ -104,7 +104,46 @@ struct RootView: View {
                         .transition(.opacity)
                         .zIndex(15)
                 }
-                // (Agent response now shown via toast system — see .onChange below)
+                // Results surface — shows after agent completes actions or requests confirmation
+                if conversation.showResultsSurface {
+                    ResultsSurfaceView(
+                        results: conversation.pendingResults,
+                        confirmation: conversation.pendingConfirmation,
+                        entries: entries,
+                        onDismiss: {
+                            withAnimation(Animations.overlayDismiss) {
+                                conversation.dismissResults()
+                            }
+                        },
+                        onUndo: { data in
+                            data.undo.execute(
+                                entries: entries,
+                                context: modelContext,
+                                preferences: notifPrefs
+                            )
+                            withAnimation(Animations.overlayDismiss) {
+                                conversation.dismissResults()
+                            }
+                            showToast("Undone", type: .info)
+                        },
+                        onConfirm: {
+                            withAnimation(Animations.overlayDismiss) {
+                                conversation.confirmPendingActions(
+                                    entries: entries,
+                                    modelContext: modelContext,
+                                    preferences: notifPrefs
+                                )
+                            }
+                        },
+                        onDeny: {
+                            withAnimation(Animations.overlayDismiss) {
+                                conversation.denyPendingActions()
+                            }
+                        }
+                    )
+                    .transition(.opacity.animation(.easeInOut(duration: 0.3)))
+                    .zIndex(25)
+                }
             }
 
             // Post-onboarding card hints
@@ -181,9 +220,15 @@ struct RootView: View {
             }
 
         }
-        .toast($toastConfig, onUndo: handleUndo)
+        .toast($toastConfig)
         #if DEBUG
-        .sheet(isPresented: $showDevMode) {
+        .sheet(isPresented: $showDevMode, onDismiss: {
+            if appState.dailyFocus == nil && !appState.isFocusLoading {
+                Task { @MainActor in
+                    await appState.requestDailyFocus(entries: activeEntries)
+                }
+            }
+        }) {
             DevModeView()
         }
         #endif
@@ -252,20 +297,6 @@ struct RootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { wakeUpSnoozedEntries() }
-        }
-        .onChange(of: appState.conversation.pendingToast?.id) { _, newID in
-            guard newID != nil,
-                  let toast = appState.conversation.pendingToast else { return }
-            // Consume the pending toast and show it via the toast system
-            appState.conversation.pendingToast = nil
-            appState.conversation.agentStreamText = nil
-            appState.conversation.displayTranscript = nil
-            toastConfig = .agent(
-                summary: toast.summary,
-                actions: toast.actions,
-                undo: toast.undo,
-                duration: 0 // Agent toasts don't auto-dismiss
-            )
         }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
             wakeUpSnoozedEntries()
@@ -367,11 +398,6 @@ struct RootView: View {
                 showToast("Top-up failed: \(error.localizedDescription)", type: .error)
             }
         }
-    }
-
-    private func handleUndo(_ undo: UndoTransaction) {
-        undo.execute(entries: entries, context: modelContext, preferences: notifPrefs)
-        showToast("Undone", type: .info)
     }
 
     private func handleEntryAction(_ entry: Entry, _ action: EntryAction) {

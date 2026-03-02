@@ -46,12 +46,21 @@ struct ActionResultData {
     var isEmpty: Bool { applied.isEmpty && failures.isEmpty }
 }
 
-/// Data for a pending agent toast, emitted by ConversationState and consumed by RootView.
-struct PendingToastData: Identifiable {
+/// Data for the results surface shown after agent actions complete.
+struct ResultsSurfaceData: Identifiable {
     let id = UUID()
     let summary: String
-    let actions: [AgentAction]
+    let applied: [AppliedActionInfo]
     let undo: UndoTransaction
+    let generation: Int
+}
+
+/// Data for a pending confirmation (agent proposed actions, awaiting user confirm/deny).
+struct ConfirmationData: Identifiable {
+    let id = UUID()
+    let message: String
+    let proposedActions: [AgentAction]
+    let transcript: String
 }
 
 /// Info about a single applied action for display in the thread.
@@ -73,6 +82,7 @@ struct AppliedActionInfo: Identifiable {
             case .complete: return .completed
             case .archive: return .archived
             case .updateMemory: return .updated
+            case .confirm: return .updated
             }
         }
     }

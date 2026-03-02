@@ -96,6 +96,12 @@ final class AppState {
         creditBalance = await creditGate.balance
     }
 
+    func invalidateDailyFocus() {
+        dailyFocus = nil
+        isFocusLoading = false
+        dailyFocusStore?.clear()
+    }
+
     func requestDailyFocus(entries: [Entry]) async {
         // Check cache first
         if let cached = dailyFocusStore?.load(), cached.isFromToday {

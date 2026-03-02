@@ -92,6 +92,7 @@ struct AgentActionExecutor {
         case failed(String)
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private static func executeOne(
         _ action: AgentAction,
         context ctx: ExecutionContext,
@@ -132,6 +133,8 @@ struct AgentActionExecutor {
                     return .failed("Memory save failed: \(error.localizedDescription)")
                 }
             }
+            return .skipped
+        case .confirm:
             return .skipped
         }
     }

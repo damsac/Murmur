@@ -23,4 +23,8 @@ final class DailyFocusStore {
         let data = try JSONEncoder().encode(focus)
         try data.write(to: fileURL, options: .atomic)
     }
+
+    func clear() {
+        try? FileManager.default.removeItem(at: fileURL)
+    }
 }
