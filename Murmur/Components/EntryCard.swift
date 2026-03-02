@@ -36,17 +36,6 @@ struct EntryCard: View {
         return dueDate >= Date() && !isCompleted
     }
 
-    private var cardAccent: Color? {
-        if isCompleted || isIdea { return nil }
-        if isOverdue { return Theme.Colors.accentRed }
-        if hasActiveDue { return Theme.Colors.accentYellow }
-        return nil
-    }
-
-    private var cardIntensity: Double {
-        isOverdue ? 1.2 : 1.0
-    }
-
     private var cardOpacity: Double {
         if isCompleted { return 0.55 }
         if isIdea { return 0.88 }
@@ -143,7 +132,7 @@ struct EntryCard: View {
                 }
             }
         }
-        .cardStyle(accent: cardAccent, intensity: cardIntensity)
+        .cardStyle()
         .opacity(cardOpacity)
     }
 }
