@@ -1,4 +1,7 @@
 import Foundation
+import os.log
+
+private let sseLog = Logger(subsystem: "com.murmur.app", category: "SSE")
 
 /// Stateful accumulator fed SSE JSON chunk dictionaries.
 /// Emits `AgentStreamEvent` values as tool calls complete and text arrives.
@@ -29,17 +32,20 @@ public final class StreamingResponseAccumulator {
         guard let choices = chunk["choices"] as? [[String: Any]],
               let delta = choices.first?["delta"] as? [String: Any]
         else {
+            sseLog.debug("[SSE] Accumulator.feed — chunk has no choices/delta")
             return events
         }
 
         // Text content delta
         if let content = delta["content"] as? String, !content.isEmpty {
             textContent += content
+            sseLog.debug("[SSE] Accumulator.feed — textDelta: \(content.prefix(50))... (total: \(self.textContent.count) chars)")
             events.append(.textDelta(content))
         }
 
         // Tool call deltas
         if let toolCallDeltas = delta["tool_calls"] as? [[String: Any]] {
+            sseLog.debug("[SSE] Accumulator.feed — \(toolCallDeltas.count) tool call delta(s)")
             for toolCallDelta in toolCallDeltas {
                 events.append(contentsOf: processToolCallDelta(toolCallDelta))
             }
@@ -51,10 +57,12 @@ public final class StreamingResponseAccumulator {
     /// Flush any remaining in-progress tool calls. Call after the stream ends.
     public func finish() -> [AgentStreamEvent] {
         let pendingIndices = toolCalls.keys.sorted().filter { !completedToolCallIndices.contains($0) }
+        sseLog.info("[SSE] Accumulator.finish — \(pendingIndices.count) pending tool calls to flush")
         var events: [AgentStreamEvent] = []
         for index in pendingIndices {
             events.append(contentsOf: completeToolCall(at: index))
         }
+        sseLog.info("[SSE] Accumulator.finish — stream complete, total text: \(self.textContent.count) chars, total actions: \(self.allActions.count)")
         return events
     }
 
@@ -179,6 +187,7 @@ public final class StreamingResponseAccumulator {
             return []
         }
         completedToolCallIndices.insert(index)
+        sseLog.info("[SSE] Accumulator.completeToolCall — index=\(index), name=\(tc.name), id=\(tc.id), args=\(tc.arguments.count) chars")
 
         let parsed = ToolCallParser.parse(
             name: tc.name,

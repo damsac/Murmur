@@ -5,6 +5,9 @@ import SwiftData
 import MurmurCore
 import AVFAudio
 import UIKit
+import os.log
+
+private let sseLog = Logger(subsystem: "com.murmur.app", category: "SSE")
 
 /// Manages conversation thread state, input lifecycle, and agent pipeline interaction.
 /// Lazy-initialized from AppState on first conversation open.
@@ -270,6 +273,7 @@ final class ConversationState {
             }
 
             do {
+                sseLog.info("[SSE] ConversationState.submitDirect — starting NON-STREAMING agent call, gen=\(gen)")
                 appState.llmService?.agentMemory = appState.memoryStore?.load() ?? ""
                 let agentContext = entries.filter { $0.status == .active || $0.status == .snoozed }
                     .map { $0.toAgentContext() }
@@ -283,6 +287,7 @@ final class ConversationState {
                     conversation: conversation
                 )
                 guard !Task.isCancelled else { return }
+                sseLog.info("[SSE] ConversationState — agent returned \(result.response.actions.count) actions, textResponse=\(result.response.textResponse != nil)")
 
                 await appState.refreshCreditBalance()
 
@@ -317,17 +322,20 @@ final class ConversationState {
                 // Add agent text response if present
                 if let textResponse = result.response.textResponse,
                    !textResponse.isEmpty {
+                    sseLog.info("[SSE] ConversationState — setting agentStreamText (full response, no streaming): \(textResponse.prefix(80))")
                     threadItems.append(.agentText(text: textResponse))
                     self.agentStreamText = textResponse
                 }
 
                 // Add action result to thread
+                sseLog.info("[SSE] ConversationState — recording action result, applied=\(execResult.applied.count), failures=\(execResult.failures.count)")
                 recordActionResult(execResult: execResult, generation: gen)
 
                 inputState = .idle
             } catch {
                 guard !Task.isCancelled else { return }
                 removeStatusItem()
+                sseLog.error("[SSE] ConversationState — agent call failed: \(error.localizedDescription)")
 
                 let errorMessage = sanitizeError(error)
                 let retryText = text

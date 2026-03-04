@@ -1,4 +1,7 @@
 import Foundation
+import os.log
+
+private let sseLog = Logger(subsystem: "com.murmur.app", category: "SSE")
 
 /// Orchestrates recording, transcription, and extraction — returns ExtractedEntry values.
 /// Stateless with respect to persistence: the caller owns all storage.
@@ -170,6 +173,7 @@ public final class Pipeline {
         existingEntries: [AgentContextEntry],
         conversation: LLMConversation? = nil
     ) async throws -> AgentResult {
+        sseLog.info("[SSE] Pipeline.processWithAgent — NON-STREAMING path, transcript: \(transcript.prefix(50))..., entries: \(existingEntries.count)")
         guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw PipelineError.emptyTranscript
         }
@@ -203,6 +207,7 @@ public final class Pipeline {
         }
 
         currentConversation = conv
+        sseLog.info("[SSE] Pipeline.processWithAgent — LLM returned \(response.actions.count) actions, summary: \(response.summary.prefix(50))")
 
         var receipt: CreditReceipt?
         if let creditGate, let authorization {

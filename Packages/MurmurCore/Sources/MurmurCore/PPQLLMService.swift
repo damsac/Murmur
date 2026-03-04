@@ -1,4 +1,7 @@
 import Foundation
+import os.log
+
+private let sseLog = Logger(subsystem: "com.murmur.app", category: "SSE")
 
 // swiftlint:disable type_body_length
 /// LLMService implementation using PPQ.ai's OpenAI-compatible API with tool calling.
@@ -67,6 +70,7 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         existingEntries: [AgentContextEntry],
         conversation: LLMConversation
     ) async throws -> AgentResponse {
+        sseLog.info("[SSE] process() called — NON-STREAMING path (runTurn)")
         sessionRecordingCount += 1
         let userContent = buildAgentUserContent(
             transcript: transcript,
@@ -84,6 +88,7 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         let summary = textContent ?? summarize(actions: parseResult.actions)
         // textResponse is only set when the agent responds with text and no actions
         let textResponse = parseResult.actions.isEmpty ? textContent : nil
+        sseLog.info("[SSE] process() complete — \(parseResult.actions.count) actions, textResponse=\(textResponse != nil)")
         return AgentResponse(
             actions: parseResult.actions,
             summary: summary,
@@ -112,6 +117,7 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
     /// One-shot LLM call to compose the daily focus briefing.
     /// Uses a separate conversation (not the ongoing agent conversation).
     public func composeDailyFocus(entries: [AgentContextEntry]) async throws -> DailyFocus {
+        sseLog.info("[SSE] composeDailyFocus() called — NON-STREAMING path (runTurn), \(entries.count) entries")
         let userContent = buildBriefingUserContent(entries: entries)
         let conversation = LLMConversation()
 
@@ -121,7 +127,9 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
             conversation: conversation
         )
 
-        return try parseDailyFocus(from: turn.assistantMessage)
+        let focus = try parseDailyFocus(from: turn.assistantMessage)
+        sseLog.info("[SSE] composeDailyFocus() complete — \(focus.items.count) items, message=\(focus.message)")
+        return focus
     }
 
     private func buildBriefingUserContent(entries: [AgentContextEntry]) -> String {
@@ -173,6 +181,7 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         prompt: LLMPrompt,
         conversation: LLMConversation
     ) async throws -> TurnResult {
+        sseLog.info("[SSE] runTurn — building request (non-streaming, no stream:true in body)")
         let requestMessages = buildRequestMessages(
             userContent: userContent,
             prompt: prompt,
@@ -180,18 +189,24 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         )
 
         let request = try buildRequest(messages: requestMessages, prompt: prompt)
+        sseLog.info("[SSE] runTurn — sending HTTP request to \(Self.endpoint.absoluteString)")
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
+            sseLog.error("[SSE] runTurn — invalid response (not HTTPURLResponse)")
             throw PPQError.invalidResponse
         }
 
+        sseLog.info("[SSE] runTurn — HTTP \(http.statusCode), body size: \(data.count) bytes")
+
         guard http.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? "<no body>"
+            sseLog.error("[SSE] runTurn — HTTP error \(http.statusCode)")
             throw PPQError.httpError(statusCode: http.statusCode, body: body)
         }
 
         let assistantMessage = try parseAssistantMessage(from: data)
         let usage = parseUsage(from: data)
+        sseLog.info("[SSE] runTurn — parsed response, usage: in=\(usage.inputTokens) out=\(usage.outputTokens)")
         updateConversation(
             conversation,
             requestMessages: requestMessages,
