@@ -6,7 +6,7 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-AI briefing message surfaced above focus strip (#74).
+Focus strip layout: natural height + smooth category slide transitions.
 
 ## Recent decisions
 
@@ -23,6 +23,8 @@ AI briefing message surfaced above focus strip (#74).
 - **Post-onboarding card hints** — "Swipe to act · Tap to edit" tooltip appears at bottom after onboarding completes. Auto-dismisses after 4s, tappable to dismiss early.
 - **Briefing message always surfaces** — `FocusStripView` previously hid the entire section when items were empty. Now the greeting+message always renders when `dailyFocus != nil`; focus cards are conditional inside it.
 - **Greeting not doubled** — deterministic fallback was prepending `Greeting.current` to the message string, which the view also renders as a bold header. Removed from the fallback message so the LLM and deterministic paths are consistent.
+- **Focus strip natural height** — removed `shimmerHeight`/`ZStack`/`GeometryReader` fixed-height hack from `FocusContainerView`. Section now sizes naturally; shimmer and strip are a simple `if/else if`.
+- **Categories slide smoothly** — swapped `LazyVStack` → `VStack` for category sections (max 7, safe); added `.animation(Animations.smoothSlide, ...)` keyed on focus loading state and item count. Categories animate up/down as focus cards appear or are completed.
 
 ## Open questions
 
