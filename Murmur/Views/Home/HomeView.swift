@@ -134,7 +134,7 @@ struct HomeView: View {
                     )
 
                     // Category sections
-                    LazyVStack(spacing: 0) {
+                    VStack(spacing: 0) {
                         ForEach(entriesByCategory, id: \.category) { group in
                             CategorySectionView(
                                 category: group.category,
@@ -149,6 +149,8 @@ struct HomeView: View {
                     // Extra padding so last card clears the floating mic
                     .padding(.bottom, 80)
                 }
+                .animation(Animations.smoothSlide, value: appState.isFocusLoading)
+                .animation(Animations.smoothSlide, value: appState.dailyFocus?.items.count ?? 0)
             }
             .scrollIndicators(.hidden)
             .mask(
@@ -230,41 +232,24 @@ private struct FocusContainerView: View {
     let swipeActionsProvider: (Entry) -> [CardSwipeAction]
     let onAction: (Entry, EntryAction) -> Void
 
-    @State private var shimmerHeight: CGFloat = 0
-
     private var showShimmer: Bool {
         isLoading && dailyFocus == nil
     }
 
-    private var showStrip: Bool {
-        dailyFocus != nil
-    }
-
     var body: some View {
-        if showShimmer || showStrip {
-            ZStack(alignment: .top) {
-                // Shimmer: visible when loading, invisible spacer during card stagger
-                FocusShimmerView()
-                    .opacity(showShimmer ? 1 : 0)
-                    .overlay(
-                        GeometryReader { geo in
-                            Color.clear.onAppear { shimmerHeight = geo.size.height }
-                        }
-                    )
-
-                // Cards: overlay on top, same space
-                if let focus = dailyFocus {
-                    FocusStripView(
-                        dailyFocus: focus,
-                        allEntries: allEntries,
-                        activeSwipeEntryID: $activeSwipeEntryID,
-                        onEntryTap: onEntryTap,
-                        swipeActionsProvider: swipeActionsProvider,
-                        onAction: onAction
-                    )
-                }
-            }
-            .frame(minHeight: shimmerHeight > 0 ? shimmerHeight : nil)
+        if showShimmer {
+            FocusShimmerView()
+                .padding(.top, 12)
+                .padding(.bottom, 16)
+        } else if let focus = dailyFocus {
+            FocusStripView(
+                dailyFocus: focus,
+                allEntries: allEntries,
+                activeSwipeEntryID: $activeSwipeEntryID,
+                onEntryTap: onEntryTap,
+                swipeActionsProvider: swipeActionsProvider,
+                onAction: onAction
+            )
             .padding(.top, 12)
             .padding(.bottom, 16)
         }
