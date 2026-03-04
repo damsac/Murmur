@@ -286,13 +286,7 @@ final class ConversationState {
 
                 await appState.refreshCreditBalance()
 
-                // Filter out .confirm actions — execute everything else immediately
-                let executableActions = result.response.actions.filter {
-                    if case .confirm = $0 { return false }
-                    return true
-                }
-
-                // Execute actions
+                // Execute actions (executor handles .confirm as .skipped)
                 let ctx = AgentActionExecutor.ExecutionContext(
                     entries: entries,
                     transcript: text,
@@ -302,7 +296,7 @@ final class ConversationState {
                     memoryStore: appState.memoryStore
                 )
                 let execResult = AgentActionExecutor.execute(
-                    actions: executableActions,
+                    actions: result.response.actions,
                     context: ctx
                 )
                 guard !Task.isCancelled else { return }
