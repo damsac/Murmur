@@ -6,7 +6,7 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-Confirmation flow cleanup (#28): removed dead transcript UI, added tap-to-edit on proposed create actions, fixed duplicate action dedup in the LLM parser.
+Confirmation flow cleanup: removed transcript UI, added tap-to-edit on create cards, deduped conflicting proposed actions, added header hint explaining pill-tap-to-cycle interaction.
 
 ## Recent decisions
 
@@ -26,6 +26,7 @@ Confirmation flow cleanup (#28): removed dead transcript UI, added tap-to-edit o
 - **Post-onboarding card hints** — "Swipe to act · Tap to edit" tooltip appears at bottom after onboarding completes. Auto-dismisses after 4s, tappable to dismiss early.
 - **Briefing message always surfaces** — `FocusStripView` previously hid the entire section when items were empty. Now the greeting+message always renders when `dailyFocus != nil`; focus cards are conditional inside it.
 - **Greeting not doubled** — deterministic fallback was prepending `Greeting.current` to the message string, which the view also renders as a bold header. Removed from the fallback message so the LLM and deterministic paths are consistent.
+- **FocusContainerView height no longer locked** — replaced ZStack/shimmerHeight approach with simple `if/else if`. The ZStack captured shimmer height in state and used `minHeight` to prevent collapse during card stagger; this left a gap after cards were archived. Since shimmer and strip are mutually exclusive, `if/else if` is correct and height is always natural.
 
 ## Open questions
 
@@ -38,3 +39,4 @@ Confirmation flow cleanup (#28): removed dead transcript UI, added tap-to-edit o
 - Thoughts on 3 demo entries vs 1 — is the variety valuable or overwhelming?
 - Category color remapping — sign off that the new palette works with the overall design direction.
 - Is the dedup-by-first approach right for `parseProposedActions`? Alternative would be to prefer the action type that matches the user's intent (e.g. parse "archive and complete" as archive only). Current approach just drops the second occurrence.
+- Review PR #84 — confirmation flow cleanup + header hint "Tap action to change".
