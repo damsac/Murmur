@@ -230,41 +230,24 @@ private struct FocusContainerView: View {
     let swipeActionsProvider: (Entry) -> [CardSwipeAction]
     let onAction: (Entry, EntryAction) -> Void
 
-    @State private var shimmerHeight: CGFloat = 0
-
     private var showShimmer: Bool {
         isLoading && dailyFocus == nil
     }
 
-    private var showStrip: Bool {
-        dailyFocus != nil
-    }
-
     var body: some View {
-        if showShimmer || showStrip {
-            ZStack(alignment: .top) {
-                // Shimmer: visible when loading, invisible spacer during card stagger
-                FocusShimmerView()
-                    .opacity(showShimmer ? 1 : 0)
-                    .overlay(
-                        GeometryReader { geo in
-                            Color.clear.onAppear { shimmerHeight = geo.size.height }
-                        }
-                    )
-
-                // Cards: overlay on top, same space
-                if let focus = dailyFocus {
-                    FocusStripView(
-                        dailyFocus: focus,
-                        allEntries: allEntries,
-                        activeSwipeEntryID: $activeSwipeEntryID,
-                        onEntryTap: onEntryTap,
-                        swipeActionsProvider: swipeActionsProvider,
-                        onAction: onAction
-                    )
-                }
-            }
-            .frame(minHeight: shimmerHeight > 0 ? shimmerHeight : nil)
+        if showShimmer {
+            FocusShimmerView()
+                .padding(.top, 12)
+                .padding(.bottom, 16)
+        } else if let focus = dailyFocus {
+            FocusStripView(
+                dailyFocus: focus,
+                allEntries: allEntries,
+                activeSwipeEntryID: $activeSwipeEntryID,
+                onEntryTap: onEntryTap,
+                swipeActionsProvider: swipeActionsProvider,
+                onAction: onAction
+            )
             .padding(.top, 12)
             .padding(.bottom, 16)
         }
