@@ -437,8 +437,11 @@ struct RootView: View {
 
 private extension RootView {
     var activeEntries: [Entry] {
-        entries.filter {
-            $0.status == .active && $0.persistentModelID != pendingDeleteEntry?.persistentModelID
+        let pendingReveal = appState.conversation.pendingRevealEntryIDs
+        return entries.filter {
+            $0.status == .active
+                && $0.persistentModelID != pendingDeleteEntry?.persistentModelID
+                && !pendingReveal.contains($0.id)
         }
     }
 

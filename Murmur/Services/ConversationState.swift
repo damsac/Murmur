@@ -7,7 +7,7 @@ import AVFAudio
 import UIKit
 import os.log
 
-private let sseLog = Logger(subsystem: "com.murmur.app", category: "SSE")
+private let sseLog = Logger(subsystem: "com.gudnuf.murmur", category: "SSE")
 
 /// Manages conversation thread state, input lifecycle, and agent pipeline interaction.
 /// Lazy-initialized from AppState on first conversation open.
@@ -28,6 +28,10 @@ final class ConversationState {
     /// Entry IDs created or updated in the current agent response.
     /// Views use this to apply arrival glow animation.
     var arrivedEntryIDs: Set<UUID> = []
+
+    /// Entry IDs waiting to be revealed with stagger animation.
+    /// Entries exist in SwiftData but are filtered from the view until revealed.
+    var pendingRevealEntryIDs: Set<UUID> = []
 
     /// Transcript saved when recording stops, shown in overlay during processing.
     var displayTranscript: String?
@@ -97,6 +101,7 @@ final class ConversationState {
         guard let pipeline = appState?.pipeline else { return }
 
         arrivedEntryIDs.removeAll()
+        pendingRevealEntryIDs.removeAll()
 
         withAnimation(.easeInOut(duration: 0.35)) {
             inputState = .recording(transcript: "")
@@ -264,6 +269,7 @@ final class ConversationState {
     ) {
         processingTask?.cancel()
         arrivedEntryIDs.removeAll()
+        pendingRevealEntryIDs.removeAll()
 
         processingTask = Task { @MainActor in
             guard let appState, let pipeline = appState.pipeline else {
@@ -418,6 +424,7 @@ final class ConversationState {
         conversation = LLMConversation()
         agentStreamText = nil
         arrivedEntryIDs.removeAll()
+        pendingRevealEntryIDs.removeAll()
         displayTranscript = nil
         audioLevels = []
 
@@ -434,22 +441,40 @@ final class ConversationState {
     func cancelProcessing() {
         processingTask?.cancel()
         processingTask = nil
+        pendingRevealEntryIDs.removeAll()
         removeStatusItem()
         inputState = .idle
     }
 
     // MARK: - Private Helpers
 
-    /// Track which entries just arrived for UI glow animation, with 5s safety TTL.
+    /// Track which entries just arrived and stagger their reveal.
+    /// First entry appears immediately; rest appear with 150ms delays.
     private func trackArrivedEntries(_ applied: [AgentActionExecutor.AppliedAction]) {
-        for item in applied {
-            arrivedEntryIDs.insert(item.entry.id)
+        let entries = applied.map { $0.entry }
+        guard !entries.isEmpty else { return }
+
+        // Hide all entries initially
+        for entry in entries {
+            pendingRevealEntryIDs.insert(entry.id)
         }
-        guard !arrivedEntryIDs.isEmpty else { return }
-        let ids = arrivedEntryIDs
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(5))
-            for id in ids { arrivedEntryIDs.remove(id) }
+
+        // Stagger reveals: first immediately, rest with 150ms gaps
+        for (index, entry) in entries.enumerated() {
+            let delay = Double(index) * 0.15
+            Task { @MainActor in
+                if delay > 0 {
+                    try? await Task.sleep(for: .seconds(delay))
+                }
+                guard !Task.isCancelled else { return }
+                withAnimation(Animations.cardAppear) {
+                    pendingRevealEntryIDs.remove(entry.id)
+                    arrivedEntryIDs.insert(entry.id)
+                }
+                // Safety TTL: clear glow after 5s per entry
+                try? await Task.sleep(for: .seconds(5))
+                arrivedEntryIDs.remove(entry.id)
+            }
         }
     }
 
@@ -493,37 +518,39 @@ final class ConversationState {
         }
     }
 
-    private func buildActionSummary(
-        applied: [AgentActionExecutor.AppliedAction],
-        failures: [AgentActionExecutor.ActionFailure]
-    ) -> String {
-        let labels: [(String, (AgentAction) -> Bool)] = [
-            ("Created", { if case .create = $0 { return true }; return false }),
-            ("Updated", { if case .update = $0 { return true }; return false }),
-            ("Completed", { if case .complete = $0 { return true }; return false }),
-            ("Archived", { if case .archive = $0 { return true }; return false }),
-        ]
-        let parts = labels.compactMap { label, pred -> String? in
-            let n = applied.filter { pred($0.action) }.count
-            return n > 0 ? "\(label) \(n) \(n == 1 ? "entry" : "entries")" : nil
-        }
-        if parts.isEmpty {
-            return applied.count == 1 ? "1 change" : "\(applied.count) changes"
-        }
-        return parts.joined(separator: ", ")
-    }
-
-    private func sanitizeError(_ error: Error) -> String {
-        switch error {
-        case PipelineError.insufficientCredits: return "Out of credits."
-        case PipelineError.emptyTranscript: return "Nothing to process."
-        case PipelineError.noEntriesExtracted: return "No entries found in your input."
-        case PipelineError.extractionFailed: return "Couldn't process — network error."
-        default: return "Couldn't process — try again."
-        }
-    }
-
     private func truncateConversationHistory() {
         conversation.truncate(keepingLast: 20)
+    }
+}
+
+// MARK: - Helpers (outside class body for swiftlint type_body_length)
+
+private func buildActionSummary(
+    applied: [AgentActionExecutor.AppliedAction],
+    failures: [AgentActionExecutor.ActionFailure]
+) -> String {
+    let labels: [(String, (AgentAction) -> Bool)] = [
+        ("Created", { if case .create = $0 { return true }; return false }),
+        ("Updated", { if case .update = $0 { return true }; return false }),
+        ("Completed", { if case .complete = $0 { return true }; return false }),
+        ("Archived", { if case .archive = $0 { return true }; return false }),
+    ]
+    let parts = labels.compactMap { label, pred -> String? in
+        let n = applied.filter { pred($0.action) }.count
+        return n > 0 ? "\(label) \(n) \(n == 1 ? "entry" : "entries")" : nil
+    }
+    if parts.isEmpty {
+        return applied.count == 1 ? "1 change" : "\(applied.count) changes"
+    }
+    return parts.joined(separator: ", ")
+}
+
+private func sanitizeError(_ error: Error) -> String {
+    switch error {
+    case PipelineError.insufficientCredits: return "Out of credits."
+    case PipelineError.emptyTranscript: return "Nothing to process."
+    case PipelineError.noEntriesExtracted: return "No entries found in your input."
+    case PipelineError.extractionFailed: return "Couldn't process — network error."
+    default: return "Couldn't process — try again."
     }
 }

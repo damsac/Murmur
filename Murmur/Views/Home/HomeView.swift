@@ -133,6 +133,12 @@ struct HomeView: View {
                         onAction: onAction
                     )
 
+                    // Processing indicator
+                    if appState.conversation.isProcessing {
+                        ProcessingDotsView()
+                            .transition(.opacity)
+                    }
+
                     // Category sections
                     VStack(spacing: 0) {
                         ForEach(entriesByCategory, id: \.category) { group in
@@ -823,6 +829,35 @@ private struct SmartListRow: View {
         .animation(.easeInOut(duration: 0.2), value: entry.isCompletedToday)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(entry.category.displayName): \(entry.summary)")
+    }
+}
+
+// MARK: - Processing Dots (inline streaming indicator)
+
+private struct ProcessingDotsView: View {
+    @State private var phase: Int = 0
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .fill(Theme.Colors.accentPurple)
+                    .frame(width: 5, height: 5)
+                    .scaleEffect(phase == i ? 1.4 : 0.8)
+                    .opacity(phase == i ? 1.0 : 0.3)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
+        .accessibilityLabel("Processing")
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(400))
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    phase = (phase + 1) % 3
+                }
+            }
+        }
     }
 }
 
