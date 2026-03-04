@@ -168,7 +168,7 @@ final class AppState {
         let items = focusEntries.prefix(3).map { FocusItem(id: $0.entry.shortID, reason: $0.reason) }
         let message = items.isEmpty
             ? "All clear — nothing pressing today."
-            : "\(Greeting.current). Focus on these things today."
+            : "Focus on these things today."
         return DailyFocus(items: items, message: message)
     }
 

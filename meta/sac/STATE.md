@@ -6,7 +6,7 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-Habit check-off UX fixes + home screen polish.
+AI briefing message surfaced above focus strip (#74).
 
 ## Recent decisions
 
@@ -21,6 +21,8 @@ Habit check-off UX fixes + home screen polish.
 - **appliesToday gates focus strip and circle button** — weekday habits are now excluded from the focus strip on weekends and the check-off circle is hidden. Semantically correct: no point surfacing a habit you can't check off today.
 - **Category color remapping** — differentiated colors per category (todo=purple, reminder=yellow, idea=orange, habit=green, note=slate, thought=blue, question=fuchsia, list=teal). Previous mapping had duplicates (reminder=yellow, idea=yellow; thought=blue, habit=blue).
 - **Post-onboarding card hints** — "Swipe to act · Tap to edit" tooltip appears at bottom after onboarding completes. Auto-dismisses after 4s, tappable to dismiss early.
+- **Briefing message always surfaces** — `FocusStripView` previously hid the entire section when items were empty. Now the greeting+message always renders when `dailyFocus != nil`; focus cards are conditional inside it.
+- **Greeting not doubled** — deterministic fallback was prepending `Greeting.current` to the message string, which the view also renders as a bold header. Removed from the fallback message so the LLM and deterministic paths are consistent.
 
 ## Open questions
 
