@@ -307,10 +307,7 @@ final class ConversationState {
                 )
                 guard !Task.isCancelled else { return }
 
-                // Track arrived entries for UI animation
-                for applied in execResult.applied {
-                    arrivedEntryIDs.insert(applied.entry.id)
-                }
+                trackArrivedEntries(execResult.applied)
 
                 // Build and replace tool results
                 let toolResults = ToolResultBuilder.build(
@@ -331,28 +328,7 @@ final class ConversationState {
                 }
 
                 // Add action result to thread
-                let hasActions = !execResult.applied.isEmpty || !execResult.failures.isEmpty
-                if hasActions {
-                    let appliedInfos = execResult.applied.map { applied -> AppliedActionInfo in
-                        let actionType = AppliedActionInfo.ActionType.from(applied.action)
-                        return AppliedActionInfo(id: applied.entry.id, entry: applied.entry, actionType: actionType)
-                    }
-
-                    let summary = buildActionSummary(applied: execResult.applied, failures: execResult.failures)
-                    let resultData = ActionResultData(
-                        summary: summary,
-                        applied: appliedInfos,
-                        failures: execResult.failures.map { $0.reason },
-                        undo: execResult.undo,
-                        generation: gen
-                    )
-                    threadItems.append(.actionResult(result: resultData))
-
-                    // Clear transcript overlay
-                    self.displayTranscript = nil
-
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
-                }
+                recordActionResult(execResult: execResult, generation: gen)
 
                 inputState = .idle
             } catch {
@@ -445,6 +421,44 @@ final class ConversationState {
     }
 
     // MARK: - Private Helpers
+
+    /// Track which entries just arrived for UI glow animation, with 5s safety TTL.
+    private func trackArrivedEntries(_ applied: [AgentActionExecutor.AppliedAction]) {
+        for item in applied {
+            arrivedEntryIDs.insert(item.entry.id)
+        }
+        guard !arrivedEntryIDs.isEmpty else { return }
+        let ids = arrivedEntryIDs
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(5))
+            for id in ids { arrivedEntryIDs.remove(id) }
+        }
+    }
+
+    /// Record completed actions to the thread and fire haptic.
+    private func recordActionResult(
+        execResult: AgentActionExecutor.ExecutionResult,
+        generation gen: Int
+    ) {
+        guard !execResult.applied.isEmpty || !execResult.failures.isEmpty else { return }
+
+        let appliedInfos = execResult.applied.map { applied -> AppliedActionInfo in
+            let actionType = AppliedActionInfo.ActionType.from(applied.action)
+            return AppliedActionInfo(id: applied.entry.id, entry: applied.entry, actionType: actionType)
+        }
+
+        let summary = buildActionSummary(applied: execResult.applied, failures: execResult.failures)
+        let resultData = ActionResultData(
+            summary: summary,
+            applied: appliedInfos,
+            failures: execResult.failures.map { $0.reason },
+            undo: execResult.undo,
+            generation: gen
+        )
+        threadItems.append(.actionResult(result: resultData))
+        displayTranscript = nil
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
 
     private func nextGeneration() -> Int {
         generationCounter += 1

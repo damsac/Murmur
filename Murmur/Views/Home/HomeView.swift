@@ -705,6 +705,7 @@ private struct GlowingEntryRow: View {
     let onGlowComplete: () -> Void
 
     @State private var glowIntensity: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         SmartListRow(
@@ -714,27 +715,25 @@ private struct GlowingEntryRow: View {
             glowIntensity: glowIntensity
         )
         .onChange(of: isArrived) { _, newValue in
-            if newValue {
-                glowIntensity = 1.0
-                withAnimation(.easeOut(duration: 2.0)) {
-                    glowIntensity = 0
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                    onGlowComplete()
-                }
-            }
+            if newValue { triggerGlow() }
         }
         .onAppear {
-            // Handle case where entry appears already in arrivedEntryIDs
-            if isArrived && glowIntensity == 0 {
-                glowIntensity = 1.0
-                withAnimation(.easeOut(duration: 2.0)) {
-                    glowIntensity = 0
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                    onGlowComplete()
-                }
-            }
+            if isArrived && glowIntensity == 0 { triggerGlow() }
+        }
+    }
+
+    private func triggerGlow() {
+        if reduceMotion {
+            // Skip animation, just clear tracking
+            onGlowComplete()
+            return
+        }
+        glowIntensity = 1.0
+        withAnimation(.easeOut(duration: 2.0)) {
+            glowIntensity = 0
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            onGlowComplete()
         }
     }
 }
