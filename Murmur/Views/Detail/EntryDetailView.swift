@@ -7,7 +7,6 @@ struct EntryDetailView: View {
     @Environment(NotificationPreferences.self) private var notifPrefs
     let entry: Entry
     let onBack: () -> Void
-    let onViewTranscript: () -> Void
     let onAction: (EntryAction) -> Void
 
     @State private var showNotesSheet = false
@@ -146,18 +145,6 @@ struct EntryDetailView: View {
                             }
                         }
 
-                        // View transcript link
-                        Button(action: onViewTranscript) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "doc.text")
-                                    .font(.subheadline.weight(.medium))
-                                Text("View transcript")
-                                    .font(Theme.Typography.caption)
-                            }
-                            .foregroundStyle(Theme.Colors.textTertiary)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.top, 16)
                     }
                     .padding(.horizontal, Theme.Spacing.screenPadding)
                     .padding(.top, 20)
@@ -632,7 +619,6 @@ private extension Date {
             summary: "An app that scans your grocery receipt and suggests meals based on what you actually bought."
         ),
         onBack: { print("Back") },
-        onViewTranscript: { print("View transcript") },
         onAction: { action in print("Action: \(action)") }
     )
     .environment(appState)
@@ -653,7 +639,6 @@ private extension Date {
             priority: 1
         ),
         onBack: { print("Back") },
-        onViewTranscript: { print("View transcript") },
         onAction: { action in print("Action: \(action)") }
     )
     .environment(appState)
@@ -673,7 +658,6 @@ private extension Date {
             summary: "The best interfaces are invisible - they get out of the way and let users focus on their task without distraction."
         ),
         onBack: { print("Back") },
-        onViewTranscript: { print("View transcript") },
         onAction: { action in print("Action: \(action)") }
     )
     .environment(appState)

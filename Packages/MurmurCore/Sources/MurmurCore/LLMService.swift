@@ -386,6 +386,16 @@ public extension AgentAction {
         if case .confirm = self { return true }
         return false
     }
+
+    /// The entry ID targeted by a mutation action (update/complete/archive), or nil for creates/other.
+    var mutationEntryID: String? {
+        switch self {
+        case .update(let a): return a.id
+        case .complete(let a): return a.id
+        case .archive(let a): return a.id
+        default: return nil
+        }
+    }
 }
 
 /// A tool call that failed to decode.
