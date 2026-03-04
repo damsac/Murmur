@@ -555,11 +555,11 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
 
 // MARK: - Response Decoding Types
 
-private struct CreateEntriesArguments: Decodable {
+struct CreateEntriesArguments: Decodable {
     let entries: [RawCreateAction]
 }
 
-private struct RawCreateAction: Decodable {
+struct RawCreateAction: Decodable {
     let content: String
     let category: EntryCategory
     let sourceText: String?
@@ -622,11 +622,11 @@ private struct RawCreateAction: Decodable {
     }
 }
 
-private struct UpdateEntriesArguments: Decodable {
+struct UpdateEntriesArguments: Decodable {
     let updates: [RawUpdateAction]
 }
 
-private struct RawUpdateAction: Decodable {
+struct RawUpdateAction: Decodable {
     let id: String
     let fields: RawUpdateFields
     let reason: String?
@@ -647,7 +647,7 @@ private struct RawUpdateAction: Decodable {
     }
 }
 
-private struct RawUpdateFields: Decodable {
+struct RawUpdateFields: Decodable {
     let content: String?
     let summary: String?
     let category: EntryCategory?
@@ -709,15 +709,15 @@ private struct RawFocusItem: Decodable {
     let reason: String
 }
 
-private struct EntryMutationArguments: Decodable {
+struct EntryMutationArguments: Decodable {
     let entries: [RawEntryMutation]
 }
 
-private struct UpdateMemoryArguments: Decodable {
+struct UpdateMemoryArguments: Decodable {
     let content: String
 }
 
-private struct RawEntryMutation: Decodable {
+struct RawEntryMutation: Decodable {
     let id: String
     let reason: String?
 
@@ -730,12 +730,12 @@ private struct RawEntryMutation: Decodable {
     }
 }
 
-private struct ConfirmActionsArguments: Decodable {
+struct ConfirmActionsArguments: Decodable {
     let message: String
     let actions: [RawProposedAction]
 }
 
-private struct RawProposedAction: Decodable {
+struct RawProposedAction: Decodable {
     let tool: String
     let arguments: AnyCodable
 
@@ -746,7 +746,7 @@ private struct RawProposedAction: Decodable {
 }
 
 /// Wrapper to decode arbitrary JSON objects from the arguments field.
-private struct AnyCodable: Decodable {
+struct AnyCodable: Decodable {
     let value: Any
 
     init(from decoder: Decoder) throws {

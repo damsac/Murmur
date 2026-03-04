@@ -104,47 +104,6 @@ struct RootView: View {
                         .transition(.opacity)
                         .zIndex(15)
                 }
-                // Results surface — shows after agent completes actions or requests confirmation
-                if conversation.showResultsSurface {
-                    ResultsSurfaceView(
-                        results: conversation.pendingResults,
-                        confirmation: conversation.pendingConfirmation,
-                        entries: entries,
-                        onDismiss: {
-                            withAnimation(Animations.overlayDismiss) {
-                                conversation.dismissResults()
-                            }
-                        },
-                        onUndo: { data in
-                            data.undo.execute(
-                                entries: entries,
-                                context: modelContext,
-                                preferences: notifPrefs
-                            )
-                            withAnimation(Animations.overlayDismiss) {
-                                conversation.dismissResults()
-                            }
-                            showToast("Undone", type: .info)
-                        },
-                        onConfirm: { actions in
-                            withAnimation(Animations.overlayDismiss) {
-                                conversation.confirmPendingActions(
-                                    actions: actions,
-                                    entries: entries,
-                                    modelContext: modelContext,
-                                    preferences: notifPrefs
-                                )
-                            }
-                        },
-                        onDeny: {
-                            withAnimation(Animations.overlayDismiss) {
-                                conversation.denyPendingActions()
-                            }
-                        }
-                    )
-                    .transition(.opacity.animation(.easeInOut(duration: 0.3)))
-                    .zIndex(25)
-                }
             }
 
             // Post-onboarding card hints
