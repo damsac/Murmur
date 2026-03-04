@@ -139,10 +139,14 @@ struct HomeView: View {
                             CategorySectionView(
                                 category: group.category,
                                 entries: group.entries,
+                                arrivedEntryIDs: appState.conversation.arrivedEntryIDs,
                                 activeSwipeEntryID: $activeSwipeEntryID,
                                 onEntryTap: onEntryTap,
                                 swipeActionsProvider: swipeActions(for:),
-                                onAction: onAction
+                                onAction: onAction,
+                                onGlowComplete: { id in
+                                    appState.conversation.arrivedEntryIDs.remove(id)
+                                }
                             )
                         }
                     }
@@ -493,32 +497,37 @@ private struct FocusCardView: View {
 private struct CategorySectionView: View {
     let category: EntryCategory
     let entries: [Entry]
+    let arrivedEntryIDs: Set<UUID>
     @Binding var activeSwipeEntryID: UUID?
     let onEntryTap: (Entry) -> Void
     let swipeActionsProvider: (Entry) -> [CardSwipeAction]
     let onAction: (Entry, EntryAction) -> Void
+    let onGlowComplete: (UUID) -> Void
 
     @AppStorage private var isCollapsed: Bool
 
     init(
         category: EntryCategory,
         entries: [Entry],
+        arrivedEntryIDs: Set<UUID>,
         activeSwipeEntryID: Binding<UUID?>,
         onEntryTap: @escaping (Entry) -> Void,
         swipeActionsProvider: @escaping (Entry) -> [CardSwipeAction],
-        onAction: @escaping (Entry, EntryAction) -> Void
+        onAction: @escaping (Entry, EntryAction) -> Void,
+        onGlowComplete: @escaping (UUID) -> Void
     ) {
         self.category = category
         self.entries = entries
+        self.arrivedEntryIDs = arrivedEntryIDs
         self._activeSwipeEntryID = activeSwipeEntryID
         self.onEntryTap = onEntryTap
         self.swipeActionsProvider = swipeActionsProvider
         self.onAction = onAction
+        self.onGlowComplete = onGlowComplete
         self._isCollapsed = AppStorage(wrappedValue: false, "section_\(category.rawValue)_collapsed")
     }
 
     private var color: Color { Theme.categoryColor(category) }
-    private var hasOverdue: Bool { entries.contains { $0.dueDate.map { $0 < Date() } ?? false } }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -576,12 +585,67 @@ private struct CategorySectionView: View {
                             entryID: entry.id,
                             onTap: { onEntryTap(entry) }
                         ) {
-                            SmartListRow(entry: entry, onAction: onAction)
+                            GlowingEntryRow(
+                                entry: entry,
+                                isArrived: arrivedEntryIDs.contains(entry.id),
+                                category: category,
+                                onAction: onAction,
+                                onGlowComplete: { onGlowComplete(entry.id) }
+                            )
                         }
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .scale(scale: 0.97)).combined(with: .offset(y: 8)),
+                            removal: .opacity.combined(with: .scale(scale: 0.95))
+                        ))
                     }
                 }
                 .padding(.horizontal, Theme.Spacing.screenPadding)
                 .transition(.opacity.combined(with: .move(edge: .top)))
+                .animation(Animations.cardAppear, value: entries.map(\.id))
+            }
+        }
+    }
+}
+
+// MARK: - Glowing Entry Row
+
+private struct GlowingEntryRow: View {
+    let entry: Entry
+    let isArrived: Bool
+    let category: EntryCategory
+    let onAction: (Entry, EntryAction) -> Void
+    let onGlowComplete: () -> Void
+
+    @State private var glowIntensity: Double = 0
+
+    var body: some View {
+        SmartListRow(
+            entry: entry,
+            onAction: onAction,
+            glowAccent: glowIntensity > 0 ? Theme.categoryColor(category) : nil,
+            glowIntensity: glowIntensity
+        )
+        .onChange(of: isArrived) { _, newValue in
+            if newValue {
+                glowIntensity = 1.0
+                withAnimation(.easeOut(duration: 2.0)) {
+                    glowIntensity = 0
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    onGlowComplete()
+                }
+            }
+        }
+        .onAppear {
+            // Handle case where entry appears already in arrivedEntryIDs
+            if isArrived && glowIntensity == 0 {
+                glowIntensity = 1.0
+                withAnimation(.easeOut(duration: 2.0)) {
+                    glowIntensity = 0
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    onGlowComplete()
+                }
             }
         }
     }
@@ -592,6 +656,8 @@ private struct CategorySectionView: View {
 private struct SmartListRow: View {
     let entry: Entry
     let onAction: (Entry, EntryAction) -> Void
+    var glowAccent: Color?
+    var glowIntensity: Double = 0
 
     private var isOverdue: Bool {
         guard let dueDate = entry.dueDate else { return false }
@@ -665,7 +731,7 @@ private struct SmartListRow: View {
                 }
             }
         }
-        .cardStyle()
+        .cardStyle(accent: glowAccent, intensity: glowIntensity)
         .opacity(entry.isDoneForPeriod || entry.isCompletedToday ? 0.5 : 1.0)
         .animation(.easeInOut(duration: 0.2), value: entry.isCompletedToday)
         .accessibilityElement(children: .combine)
