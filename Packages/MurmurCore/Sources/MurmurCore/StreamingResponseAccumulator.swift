@@ -1,7 +1,7 @@
 import Foundation
 import os.log
 
-private let sseLog = Logger(subsystem: "com.murmur.app", category: "SSE")
+private let sseLog = Logger(subsystem: "com.gudnuf.murmur", category: "SSE")
 
 /// Stateful accumulator fed SSE JSON chunk dictionaries.
 /// Emits `AgentStreamEvent` values as tool calls complete and text arrives.

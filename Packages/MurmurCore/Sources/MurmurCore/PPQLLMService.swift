@@ -1,7 +1,7 @@
 import Foundation
 import os.log
 
-private let sseLog = Logger(subsystem: "com.murmur.app", category: "SSE")
+private let sseLog = Logger(subsystem: "com.gudnuf.murmur", category: "SSE")
 
 // swiftlint:disable type_body_length
 /// LLMService implementation using PPQ.ai's OpenAI-compatible API with tool calling.
