@@ -158,9 +158,31 @@ struct ResultsSurfaceView: View {
 
     // MARK: - Confirmation Mode
 
+    private var confirmationHeader: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+            Image(systemName: "sparkles")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.Colors.accentPurple)
+                .padding(.trailing, 6)
+
+            Text("Murmur wants to…")
+                .font(Theme.Typography.bodyMedium)
+                .foregroundStyle(Theme.Colors.textPrimary)
+
+            Spacer()
+
+            Text("Tap action to change")
+                .font(Theme.Typography.caption)
+                .foregroundStyle(Theme.Colors.textTertiary)
+        }
+        .padding(.horizontal, Theme.Spacing.screenPadding)
+    }
+
     @ViewBuilder
     private func confirmationContent(_ data: ConfirmationData) -> some View {
         VStack(alignment: .leading, spacing: 12) {
+            confirmationHeader
+
             // Proposed action previews
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 8) {
