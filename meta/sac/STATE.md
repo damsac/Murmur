@@ -6,10 +6,13 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-AI briefing message surfaced above focus strip (#74).
+Confirmation flow cleanup (#28): removed dead transcript UI, added tap-to-edit on proposed create actions, fixed duplicate action dedup in the LLM parser.
 
 ## Recent decisions
 
+- **Removed transcript UI from EntryDetailView** — `onViewTranscript` callback and "View transcript" button deleted. The raw transcript is internal data, not a useful user-facing view. Removed from DevScreen and RootView as well.
+- **Tap-to-edit on proposed create cards** — In confirmation mode, create action rows now show a pencil icon and open `EntryEditSheet` when tapped. User can edit summary, category, and priority before confirming. Edits stored in `createOverrides[Int: CreateAction]` and applied in `buildFinalActions`. Cycling (complete↔archive) and editing are mutually exclusive by action type.
+- **Dedup conflicting proposed actions by entry ID** — `parseProposedActions` in `PPQLLMService` now filters out duplicate actions referencing the same entry ID, keeping only the first. Prevents the LLM from proposing both "complete" and "archive" for the same entry in a single confirmation surface.
 - **Onboarding now 3 moments** — welcome → demo → result. Previously dropped straight into the transcript demo with no hook. Added `OnboardingWelcomeView` (hook + CTA) and `OnboardingResultView` (payoff — see what was captured).
 - **Multiple demo entries** — changed from single-entry demo to 3 entries (reminder + todo + idea) to show the full breadth of what Murmur captures in one voice note.
 - **Skip on welcome screen** — added skip button top-right. Calls `skipAndComplete()` without saving any entries. The demo is ~5s but some users will reject all onboarding.
@@ -34,3 +37,4 @@ AI briefing message surfaced above focus strip (#74).
 - Confirm onboarding demo transcript still feels like a real use case. Current: "Gotta call mom before the weekend. We're out of milk and eggs too. Oh — what if you could share entries with other people?"
 - Thoughts on 3 demo entries vs 1 — is the variety valuable or overwhelming?
 - Category color remapping — sign off that the new palette works with the overall design direction.
+- Is the dedup-by-first approach right for `parseProposedActions`? Alternative would be to prefer the action type that matches the user's intent (e.g. parse "archive and complete" as archive only). Current approach just drops the second occurrence.

@@ -483,7 +483,16 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
                 // Skip individual proposal parse failures silently
             }
         }
-        return result
+        return deduplicateByEntryID(result)
+    }
+
+    /// If the LLM proposes conflicting actions on the same entry, keep only the first.
+    private func deduplicateByEntryID(_ actions: [AgentAction]) -> [AgentAction] {
+        var seenIDs = Set<String>()
+        return actions.filter { action in
+            guard let id = action.mutationEntryID else { return true }
+            return seenIDs.insert(id).inserted
+        }
     }
 
     // MARK: - Context Formatting

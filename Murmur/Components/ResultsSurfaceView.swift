@@ -23,6 +23,17 @@ struct ResultsSurfaceView: View {
     /// Per-index action type overrides from user tapping to cycle
     @State private var actionOverrides: [Int: ProposedActionKind] = [:]
 
+    /// Per-index create action edits from user tapping a create row
+    @State private var createOverrides: [Int: CreateAction] = [:]
+
+    /// Index of the create action currently being edited (nil = no sheet)
+    @State private var editingIndex: Int?
+
+    /// Draft state for the create-action edit sheet
+    @State private var draftSummary: String = ""
+    @State private var draftCategory: EntryCategory = .note
+    @State private var draftPriority: Int?
+
     /// Auto-dismiss duration for results mode. Scales with entry count: 3s base + 1s per entry, capped at 8s.
     private var autoDismissDuration: TimeInterval {
         let count = results?.applied.count ?? 0
@@ -155,19 +166,67 @@ struct ResultsSurfaceView: View {
                 VStack(spacing: 8) {
                     ForEach(Array(data.proposedActions.enumerated()), id: \.offset) { index, action in
                         let currentKind = actionOverrides[index] ?? ProposedActionKind.from(action)
+                        let isCreate = if case .create = action { true } else { false }
+                        // Use edited version of create actions for display
+                        let displayAction: AgentAction = {
+                            if case .create = action, let override = createOverrides[index] {
+                                return .create(override)
+                            }
+                            return action
+                        }()
                         ProposedActionRow(
-                            action: action,
+                            action: displayAction,
                             entries: entries,
                             currentKind: currentKind,
                             onCycle: {
                                 withAnimation(.easeInOut(duration: 0.15)) {
                                     actionOverrides[index] = currentKind.next
                                 }
-                            }
+                            },
+                            onEdit: isCreate ? {
+                                let base: CreateAction
+                                if let override = createOverrides[index] {
+                                    base = override
+                                } else if case .create(let a) = action {
+                                    base = a
+                                } else { return }
+                                draftSummary = base.summary
+                                draftCategory = base.category
+                                draftPriority = base.priority
+                                editingIndex = index
+                            } : nil
                         )
                     }
                 }
                 .padding(.horizontal, Theme.Spacing.screenPadding)
+            }
+            .sheet(isPresented: Binding(
+                get: { editingIndex != nil },
+                set: { if !$0 { editingIndex = nil } }
+            )) {
+                if let idx = editingIndex {
+                    EntryEditSheet(
+                        summary: $draftSummary,
+                        category: $draftCategory,
+                        priority: $draftPriority,
+                        onSave: {
+                            if let original = data.proposedActions.enumerated().first(where: { $0.offset == idx }),
+                               case .create(let a) = original.element {
+                                createOverrides[idx] = CreateAction(
+                                    content: a.content,
+                                    category: draftCategory,
+                                    sourceText: a.sourceText,
+                                    summary: draftSummary,
+                                    priority: draftPriority,
+                                    dueDateDescription: a.dueDateDescription,
+                                    cadence: a.cadence
+                                )
+                            }
+                            editingIndex = nil
+                        },
+                        onDismiss: { editingIndex = nil }
+                    )
+                }
             }
 
             // Confirm / Deny buttons
@@ -209,11 +268,16 @@ struct ResultsSurfaceView: View {
 
     // MARK: - Build Final Actions
 
-    /// Rebuild the action list applying any user overrides from cycling.
+    /// Rebuild the action list applying any user overrides from cycling or editing.
     private func buildFinalActions(from data: ConfirmationData) -> [AgentAction] {
         data.proposedActions.enumerated().map { index, action in
-            guard let override = actionOverrides[index] else { return action }
-            return override.applied(to: action)
+            if let kindOverride = actionOverrides[index] {
+                return kindOverride.applied(to: action)
+            }
+            if case .create = action, let createOverride = createOverrides[index] {
+                return .create(createOverride)
+            }
+            return action
         }
     }
 }
@@ -340,6 +404,7 @@ private struct ProposedActionRow: View {
     let entries: [Entry]
     let currentKind: ProposedActionKind
     let onCycle: () -> Void
+    var onEdit: (() -> Void)?
 
     /// Resolve the entry referenced by this action
     private var resolvedEntry: Entry? {
@@ -369,7 +434,7 @@ private struct ProposedActionRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Action badge — tappable for cycling
+            // Action badge — tappable for cycling; pencil for editable creates
             if currentKind.isCyclable {
                 Button(action: onCycle) {
                     Text(currentKind.label)
@@ -381,6 +446,13 @@ private struct ProposedActionRow: View {
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+            } else if onEdit != nil {
+                Image(systemName: "pencil")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(currentKind.color)
+                    .padding(7)
+                    .background(currentKind.color.opacity(0.12))
+                    .clipShape(Circle())
             } else {
                 Text(currentKind.label)
                     .font(.caption2.weight(.semibold))
@@ -398,6 +470,8 @@ private struct ProposedActionRow: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(currentKind.color.opacity(0.2), lineWidth: 1)
         )
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .onTapGesture { onEdit?() }
     }
 
     private var title: String {

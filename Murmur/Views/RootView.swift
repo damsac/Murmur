@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 import MurmurCore
 
+// swiftlint:disable type_body_length
 struct RootView: View {
     @Environment(AppState.self) private var appState
     @Environment(NotificationPreferences.self) private var notifPrefs
@@ -237,7 +238,6 @@ struct RootView: View {
             EntryDetailView(
                 entry: entry,
                 onBack: { selectedEntry = nil },
-                onViewTranscript: {},
                 onAction: { action in
                     selectedEntry = nil
                     handleEntryAction(entry, action)
@@ -558,6 +558,7 @@ private extension RootView {
     return RootView()
         .environment(appState)
 }
+// swiftlint:enable type_body_length
 
 #Preview("Recording State") {
     @Previewable @State var appState = AppState()

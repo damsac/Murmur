@@ -184,11 +184,7 @@ final class ConversationState {
 
         Task { @MainActor in
             let liveText = await pipeline.currentTranscript
-            // Fall back to the last stream transcript if the pipeline transcript is empty
-            let finalText = liveText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? currentTranscript
-                : liveText
-            if finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if liveText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 await pipeline.cancelRecording()
                 inputState = .idle
                 displayTranscript = nil
@@ -196,16 +192,16 @@ final class ConversationState {
                 return
             }
             // Update with final transcript
-            displayTranscript = finalText
+            displayTranscript = liveText
 
             await pipeline.cancelRecording()
 
             // Replace processing status with user input, then submit
             removeStatusItem()
-            threadItems.append(.userInput(text: finalText, isCollapsed: true))
+            threadItems.append(.userInput(text: liveText, isCollapsed: true))
 
             submitDirect(
-                text: finalText,
+                text: liveText,
                 generation: gen,
                 entries: entries,
                 modelContext: modelContext,
