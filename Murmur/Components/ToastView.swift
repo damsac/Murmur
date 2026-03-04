@@ -75,8 +75,8 @@ private func toastBackground(color: Color) -> some View {
 
 private var toastTransition: AnyTransition {
     .asymmetric(
-        insertion: .move(edge: .top).combined(with: .opacity),
-        removal: .move(edge: .top).combined(with: .opacity)
+        insertion: .move(edge: .bottom).combined(with: .opacity),
+        removal: .move(edge: .bottom).combined(with: .opacity)
     )
 }
 
@@ -104,7 +104,7 @@ struct ToastContainer: ViewModifier {
     @State private var dismissTask: Task<Void, Never>?
 
     func body(content: Content) -> some View {
-        ZStack(alignment: .top) {
+        ZStack(alignment: .bottom) {
             content
 
             if let config = toast {
@@ -115,7 +115,7 @@ struct ToastContainer: ViewModifier {
                     action: config.action.map { act in { dismiss(); act() } }
                 )
                 .onTapGesture { dismiss() }
-                .padding(.top, 60)
+                .padding(.bottom, Theme.Spacing.micButtonSize + 32)
                 .zIndex(999)
                 .onAppear {
                     if config.duration > 0 {

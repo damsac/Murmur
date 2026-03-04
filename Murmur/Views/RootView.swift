@@ -265,6 +265,15 @@ struct RootView: View {
             guard let uuid = notification.userInfo?["entryID"] as? UUID else { return }
             selectedEntry = entries.first { $0.id == uuid }
         }
+        .onChange(of: appState.conversation.agentStreamText) { _, text in
+            guard let text, !text.isEmpty else { return }
+            // Text-only response (no actions) → show as bottom toast
+            if appState.conversation.arrivedEntryIDs.isEmpty {
+                showToast(text, type: .info)
+            }
+            // Clear after showing
+            appState.conversation.agentStreamText = nil
+        }
     }
 
     // MARK: - Main Content
