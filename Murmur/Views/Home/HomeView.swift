@@ -237,8 +237,7 @@ private struct FocusContainerView: View {
     }
 
     private var showStrip: Bool {
-        if let focus = dailyFocus, !focus.items.isEmpty { return true }
-        return false
+        dailyFocus != nil
     }
 
     var body: some View {
@@ -254,7 +253,7 @@ private struct FocusContainerView: View {
                     )
 
                 // Cards: overlay on top, same space
-                if let focus = dailyFocus, !focus.items.isEmpty {
+                if let focus = dailyFocus {
                     FocusStripView(
                         dailyFocus: focus,
                         allEntries: allEntries,
@@ -294,23 +293,23 @@ private struct FocusStripView: View {
 
     var body: some View {
         let items = resolvedItems
-        if !items.isEmpty {
-            VStack(spacing: 12) {
-                // Greeting + briefing
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(Greeting.current + ".")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(Theme.Colors.textPrimary)
+        VStack(spacing: 12) {
+            // Greeting + briefing — always shown when focus is available
+            VStack(alignment: .leading, spacing: 4) {
+                Text(Greeting.current + ".")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Theme.Colors.textPrimary)
 
-                    Text(dailyFocus.message)
-                        .font(Theme.Typography.caption)
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .opacity(messageVisible ? 1 : 0)
-                .offset(y: messageVisible ? 0 : 6)
+                Text(dailyFocus.message)
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .opacity(messageVisible ? 1 : 0)
+            .offset(y: messageVisible ? 0 : 6)
 
-                // Focus cards — stagger in one at a time
+            // Focus cards — stagger in one at a time, only when there are items
+            if !items.isEmpty {
                 VStack(spacing: 10) {
                     ForEach(Array(items.enumerated()), id: \.element.entry.id) { index, item in
                         if index < visibleCardCount {
@@ -334,10 +333,10 @@ private struct FocusStripView: View {
                     }
                 }
             }
-            .padding(.vertical, 8)
-            .padding(.horizontal, Theme.Spacing.screenPadding)
-            .onAppear { staggerIn(count: items.count) }
         }
+        .padding(.vertical, 8)
+        .padding(.horizontal, Theme.Spacing.screenPadding)
+        .onAppear { staggerIn(count: items.count) }
     }
 
     private func staggerIn(count: Int) {
