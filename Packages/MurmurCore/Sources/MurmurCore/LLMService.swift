@@ -454,6 +454,15 @@ public protocol MurmurAgent: Sendable {
     ) async throws -> AgentResponse
 }
 
+/// Agent that supports SSE streaming responses.
+public protocol StreamingMurmurAgent: MurmurAgent {
+    func processStreaming(
+        transcript: String,
+        existingEntries: [AgentContextEntry],
+        conversation: LLMConversation
+    ) -> AsyncThrowingStream<AgentStreamEvent, Error>
+}
+
 /// LLM-backed implementation contract.
 /// Keeps extractEntries for current UI compatibility.
 public protocol LLMService: MurmurAgent {

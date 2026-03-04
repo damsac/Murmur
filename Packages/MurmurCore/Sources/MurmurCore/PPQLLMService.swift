@@ -5,7 +5,7 @@ private let sseLog = Logger(subsystem: "com.murmur.app", category: "SSE")
 
 // swiftlint:disable type_body_length
 /// LLMService implementation using PPQ.ai's OpenAI-compatible API with tool calling.
-public final class PPQLLMService: LLMService, @unchecked Sendable {
+public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked Sendable {
     private let apiKey: String
     private let model: String
     private let prompt: LLMPrompt
@@ -216,6 +216,90 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         return TurnResult(assistantMessage: assistantMessage, usage: usage)
     }
 
+    // MARK: - Streaming
+
+    /// Stream agent response via SSE, yielding events as text and tool calls arrive.
+    public func processStreaming(
+        transcript: String,
+        existingEntries: [AgentContextEntry],
+        conversation: LLMConversation
+    ) -> AsyncThrowingStream<AgentStreamEvent, Error> {
+        sessionRecordingCount += 1
+        let userContent = buildAgentUserContent(
+            transcript: transcript,
+            existingEntries: existingEntries
+        )
+        let requestMessages = buildRequestMessages(
+            userContent: userContent,
+            prompt: prompt,
+            conversation: conversation
+        )
+
+        return AsyncThrowingStream { continuation in
+            let task = Task { [self] in
+                do {
+                    sseLog.info("[SSE] processStreaming — starting SSE request")
+                    let request = try self.buildStreamingRequest(
+                        messages: requestMessages,
+                        prompt: self.prompt
+                    )
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let http = response as? HTTPURLResponse else {
+                        throw PPQError.invalidResponse
+                    }
+                    guard http.statusCode == 200 else {
+                        throw PPQError.httpError(
+                            statusCode: http.statusCode,
+                            body: "streaming request failed"
+                        )
+                    }
+
+                    sseLog.info("[SSE] processStreaming — HTTP \(http.statusCode), consuming SSE stream")
+                    let accumulator = StreamingResponseAccumulator()
+
+                    for try await line in bytes.lines {
+                        guard !Task.isCancelled else { break }
+
+                        guard let event = SSELineParser.parse(line: line) else { continue }
+
+                        switch event {
+                        case .data(let chunk):
+                            for streamEvent in accumulator.feed(chunk: chunk) {
+                                continuation.yield(streamEvent)
+                            }
+                        case .done:
+                            sseLog.info("[SSE] processStreaming — received [DONE]")
+                            for streamEvent in accumulator.finish() {
+                                continuation.yield(streamEvent)
+                            }
+
+                            let assistantMessage = accumulator.assembledMessage()
+                            self.updateConversation(
+                                conversation,
+                                requestMessages: requestMessages,
+                                assistantMessage: assistantMessage
+                            )
+
+                            let finalResponse = accumulator.buildFinalResponse()
+                            sseLog.info("[SSE] processStreaming — complete, \(finalResponse.actions.count) actions")
+                            continuation.yield(.completed(finalResponse))
+                        }
+                    }
+
+                    continuation.finish()
+                } catch {
+                    sseLog.error("[SSE] processStreaming — error: \(error.localizedDescription)")
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
     // MARK: - Request Building
 
     private func buildRequestMessages(
@@ -251,6 +335,25 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
             "messages": messages,
             "tools": prompt.tools,
             "tool_choice": prompt.toolChoice.requestBodyValue,
+        ]
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    private func buildStreamingRequest(messages: [[String: Any]], prompt: LLMPrompt) throws -> URLRequest {
+        var request = URLRequest(url: Self.endpoint)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = [
+            "model": model,
+            "messages": messages,
+            "tools": prompt.tools,
+            "tool_choice": prompt.toolChoice.requestBodyValue,
+            "stream": true,
+            "stream_options": ["include_usage": true],
         ]
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
