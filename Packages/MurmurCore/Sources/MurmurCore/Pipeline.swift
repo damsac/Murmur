@@ -1,7 +1,7 @@
 import Foundation
 import os.log
 
-private let sseLog = Logger(subsystem: "com.gudnuf.murmur", category: "SSE")
+private let sseLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "SSE")
 
 /// Orchestrates recording, transcription, and extraction — returns ExtractedEntry values.
 /// Stateless with respect to persistence: the caller owns all storage.
