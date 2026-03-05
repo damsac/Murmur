@@ -248,9 +248,10 @@ private struct FocusContainerView: View {
 
     var body: some View {
         if showShimmer {
-            FocusShimmerView()
+            FocusLoadingView()
                 .padding(.top, 12)
                 .padding(.bottom, 16)
+                .transition(.opacity)
         } else if let focus = dailyFocus {
             FocusStripView(
                 dailyFocus: focus,
@@ -262,6 +263,7 @@ private struct FocusContainerView: View {
             )
             .padding(.top, 12)
             .padding(.bottom, 16)
+            .transition(.opacity.combined(with: .offset(y: 4)))
         }
     }
 }
@@ -351,70 +353,27 @@ private struct FocusStripView: View {
     }
 }
 
-// MARK: - Focus Shimmer (Loading State)
+// MARK: - Focus Loading State
 
-private struct FocusShimmerView: View {
-    @State private var glowPhases: [Bool] = [false, false, false]
+private struct FocusLoadingView: View {
+    @State private var isPulsing = false
 
     var body: some View {
-        VStack(spacing: 12) {
-            // Greeting + briefing placeholder
-            VStack(alignment: .leading, spacing: 4) {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Theme.Colors.bgCard)
-                    .frame(width: 160, height: 20)
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Theme.Colors.bgCard)
-                    .frame(width: 220, height: 14)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .opacity(glowPhases[0] ? 0.45 : 0.8)
-
-            // 3 placeholder cards with staggered breathing
-            VStack(spacing: 10) {
-                ForEach(0..<3, id: \.self) { index in
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(Theme.Colors.bgCard)
-                                .frame(width: 50, height: 14)
-                            Spacer()
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(Theme.Colors.bgCard)
-                                .frame(width: 40, height: 14)
-                        }
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Theme.Colors.bgCard)
-                            .frame(height: 16)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .cardStyle()
-                    .opacity(glowPhases[index] ? 0.45 : 1.0)
-                    .shadow(
-                        color: Theme.Colors.textTertiary.opacity(glowPhases[index] ? 0.15 : 0),
-                        radius: 12, y: 0
-                    )
-                }
-            }
-
-            Text("Thinking about your day...")
+        VStack(alignment: .leading, spacing: 4) {
+            Text(Greeting.current + ".")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Theme.Colors.textPrimary.opacity(0.35))
+            Text("Murmur is selecting your focus…")
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.Colors.textTertiary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .opacity(glowPhases[2] ? 0.4 : 0.7)
+                .opacity(isPulsing ? 0.45 : 0.85)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)
         .padding(.horizontal, Theme.Spacing.screenPadding)
-        .onAppear { startRipple() }
-    }
-
-    private func startRipple() {
-        for index in 0..<3 {
-            let delay = Double(index) * 0.3
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
-                    glowPhases[index] = true
-                }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
+                isPulsing = true
             }
         }
     }
