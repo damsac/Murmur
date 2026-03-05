@@ -35,6 +35,21 @@ struct DamHomeView: View {
     private var composedContent: some View {
         ScrollView {
             VStack(spacing: 0) {
+                // Settings gear
+                HStack {
+                    Spacer()
+                    Button(action: onSettingsTap) {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .frame(width: 36, height: 36)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, Theme.Spacing.screenPadding)
+                .padding(.top, 4)
+
                 // Recent inserts — entries/messages created since last composition
                 if !appState.recentInserts.isEmpty {
                     VStack(spacing: 8) {
@@ -92,6 +107,20 @@ struct DamHomeView: View {
     @ViewBuilder
     private var emptyState: some View {
         VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Button(action: onSettingsTap) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, Theme.Spacing.screenPadding)
+            .padding(.top, 4)
+
             Spacer()
 
             VStack(spacing: 40) {
@@ -252,21 +281,43 @@ private struct ComposedSectionView: View {
                         .padding(.bottom, 4)
                 }
 
-                VStack(spacing: itemSpacing) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { _, item in
-                        switch item {
-                        case .entry(let entry, let composed):
-                            ComposedEntryView(
-                                entry: entry,
-                                emphasis: composed.emphasis,
-                                badge: composed.badge,
-                                activeSwipeEntryID: $activeSwipeEntryID,
-                                swipeActionsProvider: swipeActionsProvider,
-                                onTap: { onEntryTap(entry) },
-                                onAction: { onAction(entry, $0) }
-                            )
-                        case .message(let text):
-                            ComposedMessageView(text: text)
+                if section.density == .compact {
+                    FlowLayout(spacing: 6) {
+                        ForEach(Array(items.enumerated()), id: \.element.id) { _, item in
+                            switch item {
+                            case .entry(let entry, let composed):
+                                ComposedEntryView(
+                                    entry: entry,
+                                    emphasis: .compact,
+                                    badge: composed.badge,
+                                    activeSwipeEntryID: $activeSwipeEntryID,
+                                    swipeActionsProvider: swipeActionsProvider,
+                                    onTap: { onEntryTap(entry) },
+                                    onAction: { onAction(entry, $0) }
+                                )
+                            case .message(let text):
+                                ComposedMessageView(text: text)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, Theme.Spacing.screenPadding)
+                } else {
+                    VStack(alignment: .leading, spacing: itemSpacing) {
+                        ForEach(Array(items.enumerated()), id: \.element.id) { _, item in
+                            switch item {
+                            case .entry(let entry, let composed):
+                                ComposedEntryView(
+                                    entry: entry,
+                                    emphasis: composed.emphasis,
+                                    badge: composed.badge,
+                                    activeSwipeEntryID: $activeSwipeEntryID,
+                                    swipeActionsProvider: swipeActionsProvider,
+                                    onTap: { onEntryTap(entry) },
+                                    onAction: { onAction(entry, $0) }
+                                )
+                            case .message(let text):
+                                ComposedMessageView(text: text)
+                            }
                         }
                     }
                 }
@@ -301,6 +352,7 @@ private struct ComposedEntryView: View {
     let onAction: (EntryAction) -> Void
 
     private var categoryColor: Color { Theme.categoryColor(entry.category) }
+    private var isDone: Bool { entry.isDoneForPeriod || entry.isCompletedToday }
 
     var body: some View {
         switch emphasis {
@@ -313,7 +365,7 @@ private struct ComposedEntryView: View {
         }
     }
 
-    // MARK: - Hero Emphasis
+    // MARK: - Hero Emphasis (thin card, no border/glow)
 
     @ViewBuilder
     private var heroView: some View {
@@ -323,109 +375,103 @@ private struct ComposedEntryView: View {
             entryID: entry.id,
             onTap: onTap
         ) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 6) {
-                    CategoryBadge(category: entry.category, size: .medium)
-                    Spacer()
-                    badgeLabel
-                }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .center, spacing: 8) {
+                    Circle()
+                        .fill(categoryColor)
+                        .frame(width: 6, height: 6)
 
-                HStack(alignment: .center, spacing: 12) {
                     Text(entry.summary)
                         .font(Theme.Typography.body)
-                        .foregroundStyle(
-                            entry.isDoneForPeriod || entry.isCompletedToday
-                                ? Theme.Colors.textTertiary
-                                : Theme.Colors.textPrimary
-                        )
+                        .foregroundStyle(isDone ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
                         .lineLimit(3)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     habitCheckOff
                 }
+
+                if badge != nil {
+                    badgeLabel
+                        .padding(.leading, 14)
+                }
             }
-            .cardStyle()
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius)
-                    .stroke(categoryColor.opacity(0.55), lineWidth: 1.5)
-            )
-            .shadow(color: categoryColor.opacity(0.3), radius: 18, y: 0)
-            .opacity(entry.isDoneForPeriod || entry.isCompletedToday ? 0.5 : 1.0)
+            .padding(12)
+            .background(Theme.Colors.bgCard)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .opacity(isDone ? 0.5 : 1.0)
             .animation(.easeInOut(duration: 0.2), value: entry.isCompletedToday)
         }
         .padding(.horizontal, Theme.Spacing.screenPadding)
     }
 
-    // MARK: - Standard Emphasis
+    // MARK: - Standard Emphasis (borderless row + hairline separator)
 
     @ViewBuilder
     private var standardView: some View {
-        SwipeableCard(
-            actions: swipeActionsProvider(entry),
-            activeSwipeID: $activeSwipeEntryID,
-            entryID: entry.id,
-            onTap: onTap
-        ) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 6) {
-                    CategoryBadge(category: entry.category, size: .small)
-                    Spacer()
-                    priorityBadge
-                    badgeLabel
-                }
+        VStack(spacing: 0) {
+            SwipeableCard(
+                actions: swipeActionsProvider(entry),
+                activeSwipeID: $activeSwipeEntryID,
+                entryID: entry.id,
+                onTap: onTap
+            ) {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(categoryColor)
+                        .frame(width: 6, height: 6)
 
-                HStack(alignment: .center, spacing: 12) {
                     Text(entry.summary)
                         .font(Theme.Typography.body)
-                        .foregroundStyle(
-                            entry.isDoneForPeriod || entry.isCompletedToday
-                                ? Theme.Colors.textTertiary
-                                : Theme.Colors.textPrimary
-                        )
-                        .lineLimit(2)
+                        .foregroundStyle(isDone ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
+                        .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     habitCheckOff
+
+                    if let priority = entry.priority, priority <= 2 {
+                        Text("P\(priority)")
+                            .font(Theme.Typography.badge)
+                            .foregroundStyle(Theme.Colors.accentRed)
+                    }
+
+                    badgeLabel
                 }
+                .padding(.vertical, 10)
+                .padding(.horizontal, Theme.Spacing.screenPadding)
+                .background(Theme.Colors.bgDeep)
             }
-            .cardStyle()
-            .opacity(entry.isDoneForPeriod || entry.isCompletedToday ? 0.5 : 1.0)
-            .animation(.easeInOut(duration: 0.2), value: entry.isCompletedToday)
+
+            Rectangle()
+                .fill(Theme.Colors.borderSubtle)
+                .frame(height: 0.5)
+                .padding(.leading, Theme.Spacing.screenPadding + 14)
         }
-        .padding(.horizontal, Theme.Spacing.screenPadding)
+        .opacity(isDone ? 0.5 : 1.0)
+        .animation(.easeInOut(duration: 0.2), value: entry.isCompletedToday)
     }
 
-    // MARK: - Compact Emphasis
+    // MARK: - Compact Emphasis (flow chip)
 
     @ViewBuilder
     private var compactView: some View {
         Button(action: onTap) {
-            HStack(spacing: 8) {
+            HStack(spacing: 4) {
                 Circle()
                     .fill(categoryColor)
-                    .frame(width: 6, height: 6)
+                    .frame(width: 5, height: 5)
 
                 Text(entry.summary)
-                    .font(Theme.Typography.body)
-                    .foregroundStyle(
-                        entry.isDoneForPeriod || entry.isCompletedToday
-                            ? Theme.Colors.textTertiary
-                            : Theme.Colors.textPrimary
-                    )
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(isDone ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
                     .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                if let badge {
-                    Text(badge)
-                        .font(Theme.Typography.badge)
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                }
             }
-            .padding(.vertical, 8)
-            .padding(.horizontal, Theme.Spacing.screenPadding)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Theme.Colors.bgCard.opacity(0.6))
+            .clipShape(Capsule())
         }
         .buttonStyle(.plain)
-        .opacity(entry.isDoneForPeriod || entry.isCompletedToday ? 0.5 : 1.0)
+        .opacity(isDone ? 0.5 : 1.0)
     }
 
     // MARK: - Shared Subviews
@@ -433,26 +479,9 @@ private struct ComposedEntryView: View {
     @ViewBuilder
     private var badgeLabel: some View {
         if let badge {
-            HStack(spacing: 3) {
-                Image(systemName: badgeIcon)
-                    .font(.caption2)
-                Text(badge)
-                    .font(Theme.Typography.badge)
-            }
-            .foregroundStyle(badgeColor)
-        }
-    }
-
-    @ViewBuilder
-    private var priorityBadge: some View {
-        if let priority = entry.priority, priority <= 2 {
-            HStack(spacing: 3) {
-                Image(systemName: "exclamationmark.circle.fill")
-                    .font(.caption2)
-                Text("P\(priority)")
-                    .font(Theme.Typography.badge)
-            }
-            .foregroundStyle(Theme.Colors.accentRed)
+            Text(badge)
+                .font(Theme.Typography.badge)
+                .foregroundStyle(badgeColor)
         }
     }
 
@@ -463,28 +492,18 @@ private struct ComposedEntryView: View {
                 onAction(.checkOffHabit)
             } label: {
                 Image(systemName: entry.isCompletedToday ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 24))
+                    .font(.system(size: 16))
                     .foregroundStyle(
                         entry.isCompletedToday
                             ? Theme.categoryColor(entry.category)
                             : Theme.Colors.textTertiary
                     )
                     .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 32, height: 32)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
-    }
-
-    private var badgeIcon: String {
-        guard let badge else { return "tag" }
-        let lower = badge.lowercased()
-        if lower == "overdue" { return "exclamationmark.circle.fill" }
-        if lower == "today" { return "calendar" }
-        if lower == "stale" { return "clock.arrow.circlepath" }
-        if lower == "new" { return "sparkles" }
-        return "tag"
     }
 
     private var badgeColor: Color {
@@ -510,6 +529,48 @@ private struct ComposedMessageView: View {
             .foregroundStyle(Theme.Colors.textSecondary)
             .padding(.horizontal, Theme.Spacing.screenPadding)
             .padding(.vertical, 8)
+    }
+}
+
+// MARK: - Flow Layout (for compact chip wrapping)
+
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = arrange(subviews: subviews, in: proposal.width ?? 0)
+        return CGSize(width: proposal.width ?? 0, height: result.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = arrange(subviews: subviews, in: bounds.width)
+        for (index, position) in result.positions.enumerated() {
+            subviews[index].place(
+                at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y),
+                proposal: .unspecified
+            )
+        }
+    }
+
+    private func arrange(subviews: Subviews, in width: CGFloat) -> (positions: [CGPoint], height: CGFloat) {
+        var positions: [CGPoint] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > width && x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            positions.append(CGPoint(x: x, y: y))
+            rowHeight = max(rowHeight, size.height)
+            x += size.width + spacing
+        }
+
+        return (positions, positions.isEmpty ? 0 : y + rowHeight)
     }
 }
 
