@@ -1,7 +1,7 @@
 import SwiftUI
 import MurmurCore
 
-struct HomeView: View {
+struct SacHomeView: View {
     @Environment(AppState.self) private var appState
     @Binding var inputText: String
     let entries: [Entry]
@@ -824,7 +824,7 @@ private struct ProcessingDotsView: View {
     @Previewable @State var appState = AppState()
     @Previewable @State var inputText = ""
 
-    HomeView(
+    SacHomeView(
         inputText: $inputText,
         entries: [
             Entry(

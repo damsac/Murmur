@@ -8,6 +8,18 @@ enum RecordingState {
     case processing
 }
 
+enum RecentInsert: Identifiable {
+    case entry(UUID)
+    case message(String, UUID)
+
+    var id: String {
+        switch self {
+        case .entry(let uuid): return "recent-entry-\(uuid.uuidString)"
+        case .message(_, let uuid): return "recent-msg-\(uuid.uuidString)"
+        }
+    }
+}
+
 @Observable
 @MainActor
 final class AppState {
@@ -32,6 +44,14 @@ final class AppState {
     var dailyFocus: DailyFocus?
     var isFocusLoading: Bool = false
     var dailyFocusStore: DailyFocusStore?
+
+    // Home composition
+    var homeComposition: HomeComposition?
+    var isHomeCompositionLoading: Bool = false
+    private var homeCompositionStore: HomeCompositionStore?
+
+    // Recent inserts — entries/messages created since last composition (ephemeral, in-memory only)
+    var recentInserts: [RecentInsert] = []
 
     // Lazy conversation state — only allocated on first access
     private var _conversation: ConversationState?
@@ -82,6 +102,7 @@ final class AppState {
         llm.agentMemory = store.load()
 
         dailyFocusStore = DailyFocusStore()
+        homeCompositionStore = HomeCompositionStore()
 
         Task { @MainActor in
             await refreshCreditBalance()
@@ -170,6 +191,130 @@ final class AppState {
             ? "All clear — nothing pressing today."
             : "Focus on these things today."
         return DailyFocus(items: items, message: message)
+    }
+
+    func invalidateHomeComposition() {
+        homeComposition = nil
+        isHomeCompositionLoading = false
+        homeCompositionStore?.clear()
+        recentInserts.removeAll()
+    }
+
+    func addRecentEntry(_ id: UUID) {
+        recentInserts.insert(.entry(id), at: 0)
+    }
+
+    func addRecentMessage(_ text: String) {
+        recentInserts.insert(.message(text, UUID()), at: 0)
+    }
+
+    func requestHomeComposition(entries: [Entry]) async {
+        // Check cache first
+        if let cached = homeCompositionStore?.load(), cached.isFromToday {
+            homeComposition = cached
+            return
+        }
+
+        guard let llmService, let creditGate else {
+            homeComposition = buildDeterministicComposition(entries: entries)
+            return
+        }
+
+        isHomeCompositionLoading = true
+        defer { isHomeCompositionLoading = false }
+
+        do {
+            let authorization = try await creditGate.authorize()
+            let agentEntries = entries.map { $0.toAgentContext() }
+            let composition = try await llmService.composeHomeView(entries: agentEntries)
+
+            let pricing = ServicePricing(
+                inputUSDPer1MMicros: 1_000_000,
+                outputUSDPer1MMicros: 5_000_000,
+                minimumChargeCredits: 1
+            )
+            _ = try await creditGate.charge(
+                authorization,
+                usage: TokenUsage(inputTokens: 200, outputTokens: 100),
+                pricing: pricing
+            )
+            await refreshCreditBalance()
+
+            try? homeCompositionStore?.save(composition)
+            homeComposition = composition
+        } catch {
+            homeComposition = buildDeterministicComposition(entries: entries)
+        }
+    }
+
+    private func buildDeterministicComposition(entries: [Entry]) -> HomeComposition {
+        let now = Date()
+        var sections: [ComposedSection] = []
+
+        // Section 1: "Needs attention" — overdue, P1/P2, due today
+        var attentionItems: [ComposedItem] = []
+        for entry in entries {
+            let isOverdue = entry.dueDate.map { $0 < now } ?? false
+            let isHighPriority = (entry.priority ?? Int.max) <= 2
+            let isDueToday = entry.dueDate.map { Calendar.current.isDateInToday($0) } ?? false
+
+            if isOverdue {
+                attentionItems.append(.entry(ComposedEntry(
+                    id: entry.shortID,
+                    emphasis: .hero,
+                    badge: "Overdue"
+                )))
+            } else if isHighPriority {
+                attentionItems.append(.entry(ComposedEntry(
+                    id: entry.shortID,
+                    emphasis: .standard,
+                    badge: "P\(entry.priority ?? 1)"
+                )))
+            } else if isDueToday {
+                attentionItems.append(.entry(ComposedEntry(
+                    id: entry.shortID,
+                    emphasis: .standard,
+                    badge: "Today"
+                )))
+            }
+        }
+        if !attentionItems.isEmpty {
+            sections.append(ComposedSection(
+                title: "Needs attention",
+                density: .relaxed,
+                items: attentionItems
+            ))
+        }
+
+        // Section 2: "Recent" — last 5 created entries as compact
+        let recentEntries = entries
+            .sorted { $0.createdAt > $1.createdAt }
+            .prefix(5)
+        var recentItems: [ComposedItem] = []
+        for entry in recentEntries {
+            // Skip entries already shown in attention section
+            let alreadyShown = attentionItems.contains { item in
+                if case .entry(let composed) = item {
+                    return composed.id == entry.shortID
+                }
+                return false
+            }
+            if !alreadyShown {
+                recentItems.append(.entry(ComposedEntry(
+                    id: entry.shortID,
+                    emphasis: .compact
+                )))
+            }
+        }
+        if !recentItems.isEmpty {
+            sections.append(ComposedSection(
+                title: "Recent",
+                density: .compact,
+                items: recentItems
+            ))
+        }
+
+        return HomeComposition(sections: sections, composedAt: now)
     }
 
     func applyTopUp(credits: Int64) async throws {
