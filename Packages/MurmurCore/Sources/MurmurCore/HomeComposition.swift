@@ -4,9 +4,10 @@ import Foundation
 
 /// AI-composed home screen layout. Contains sections of entries and messages
 /// arranged by the LLM based on urgency, context, and time of day.
+/// Mutable — supports incremental layout updates via `apply(operations:)`.
 public struct HomeComposition: Codable, Sendable {
-    public let sections: [ComposedSection]
-    public let composedAt: Date
+    public var sections: [ComposedSection]
+    public var composedAt: Date
 
     public var isFromToday: Bool {
         Calendar.current.isDateInToday(composedAt)
@@ -16,15 +17,127 @@ public struct HomeComposition: Codable, Sendable {
         self.sections = sections
         self.composedAt = composedAt
     }
+
+    /// Apply a batch of layout operations in order. Returns a diff for animation.
+    public mutating func apply(operations: [LayoutOperation]) -> LayoutDiff {
+        var diff = LayoutDiff()
+        for op in operations {
+            applyOne(op, diff: &diff)
+        }
+        composedAt = Date()
+        return diff
+    }
+
+    // MARK: - Private Diff Engine
+
+    // swiftlint:disable:next cyclomatic_complexity
+    private mutating func applyOne(_ op: LayoutOperation, diff: inout LayoutDiff) {
+        switch op {
+        case .addSection(let title, let density, let position):
+            let section = ComposedSection(title: title, density: density, items: [])
+            let idx = position.map { min($0, sections.count) } ?? sections.count
+            sections.insert(section, at: idx)
+            diff.addedSections.append(title)
+
+        case .removeSection(let title):
+            if let idx = findSection(title: title) {
+                for item in sections[idx].items {
+                    if case .entry(let e) = item { diff.removedEntries.append(e.id) }
+                }
+                sections.remove(at: idx)
+                diff.removedSections.append(title)
+            }
+
+        case .updateSection(let title, let density, let newTitle):
+            if let idx = findSection(title: title) {
+                if let density { sections[idx].density = density }
+                if let newTitle { sections[idx].title = newTitle }
+                diff.updatedSections.append(newTitle ?? title)
+            }
+
+        case .insertEntry(let entryID, let section, let position, let emphasis, let badge):
+            if let idx = findSection(title: section) {
+                let entry = ComposedEntry(id: entryID, emphasis: emphasis, badge: badge)
+                let item = ComposedItem.entry(entry)
+                let pos = position.map { min($0, sections[idx].items.count) }
+                    ?? sections[idx].items.count
+                sections[idx].items.insert(item, at: pos)
+                diff.insertedEntries.append((id: entryID, section: section))
+            }
+
+        case .removeEntry(let entryID):
+            for sIdx in sections.indices {
+                if let iIdx = sections[sIdx].items.firstIndex(where: {
+                    if case .entry(let e) = $0 { return e.id == entryID }
+                    return false
+                }) {
+                    sections[sIdx].items.remove(at: iIdx)
+                    diff.removedEntries.append(entryID)
+                    break
+                }
+            }
+
+        case .moveEntry(let entryID, let toSection, let toPosition):
+            // Guard target exists before removing from source — prevents data loss
+            guard let targetIdx = findSection(title: toSection) else { return }
+
+            var movedItem: ComposedItem?
+            var fromSectionTitle: String?
+            for sIdx in sections.indices {
+                if let iIdx = sections[sIdx].items.firstIndex(where: {
+                    if case .entry(let e) = $0 { return e.id == entryID }
+                    return false
+                }) {
+                    movedItem = sections[sIdx].items.remove(at: iIdx)
+                    fromSectionTitle = sections[sIdx].title ?? ""
+                    break
+                }
+            }
+            if let item = movedItem {
+                let pos = toPosition.map { min($0, sections[targetIdx].items.count) }
+                    ?? sections[targetIdx].items.count
+                sections[targetIdx].items.insert(item, at: pos)
+                diff.movedEntries.append((
+                    id: entryID,
+                    fromSection: fromSectionTitle ?? "",
+                    toSection: toSection
+                ))
+            }
+
+        case .updateEntry(let entryID, let emphasis, let badge):
+            for sIdx in sections.indices {
+                if let iIdx = sections[sIdx].items.firstIndex(where: {
+                    if case .entry(let e) = $0 { return e.id == entryID }
+                    return false
+                }) {
+                    if case .entry(let existing) = sections[sIdx].items[iIdx] {
+                        let newEntry = ComposedEntry(
+                            id: existing.id,
+                            emphasis: emphasis ?? existing.emphasis,
+                            badge: badge ?? existing.badge
+                        )
+                        sections[sIdx].items[iIdx] = .entry(newEntry)
+                        diff.updatedEntries.append(entryID)
+                    }
+                    break
+                }
+            }
+        }
+    }
+
+    private func findSection(title: String) -> Int? {
+        let target = title.lowercased()
+        return sections.firstIndex { ($0.title ?? "").lowercased() == target }
+    }
 }
 
 /// A grouped section of items in the composed home view.
 /// Sections have optional titles and density controls for spacing.
 public struct ComposedSection: Codable, Sendable, Identifiable {
     public let id: UUID
-    public let title: String?
-    public let density: SectionDensity
-    public let items: [ComposedItem]
+    public var title: String?
+    public var density: SectionDensity
+    public var items: [ComposedItem]
 
     enum CodingKeys: String, CodingKey {
         case title, density, items
@@ -136,4 +249,40 @@ public enum EntryEmphasis: String, Codable, Sendable {
     case hero       // Large card, full content, subtle glow
     case standard   // Medium card, summary + metadata
     case compact    // Single line, category dot + summary
+}
+
+// MARK: - Layout Diff Types
+
+/// A single operation in a layout diff batch. Applied in order by `HomeComposition.apply(operations:)`.
+/// Section targeting uses case-insensitive title matching.
+public enum LayoutOperation: Sendable {
+    case addSection(title: String, density: SectionDensity, position: Int?)
+    case removeSection(title: String)
+    case updateSection(title: String, density: SectionDensity?, newTitle: String?)
+    case insertEntry(entryID: String, section: String, position: Int?,
+                     emphasis: EntryEmphasis, badge: String?)
+    case removeEntry(entryID: String)
+    case moveEntry(entryID: String, toSection: String, toPosition: Int?)
+    case updateEntry(entryID: String, emphasis: EntryEmphasis?, badge: String?)
+}
+
+/// Describes what changed after applying operations. Used by the UI for targeted animations.
+/// Doubles as its own accumulator during `apply()` — `private(set)` properties are mutated
+/// internally but read-only externally.
+public struct LayoutDiff: Sendable {
+    public fileprivate(set) var insertedEntries: [(id: String, section: String)] = []
+    public fileprivate(set) var removedEntries: [String] = []
+    public fileprivate(set) var movedEntries: [(id: String, fromSection: String, toSection: String)] = []
+    public fileprivate(set) var updatedEntries: [String] = []
+    public fileprivate(set) var addedSections: [String] = []
+    public fileprivate(set) var removedSections: [String] = []
+    public fileprivate(set) var updatedSections: [String] = []
+
+    public var isEmpty: Bool {
+        insertedEntries.isEmpty && removedEntries.isEmpty && movedEntries.isEmpty
+            && updatedEntries.isEmpty && addedSections.isEmpty && removedSections.isEmpty
+            && updatedSections.isEmpty
+    }
+
+    public init() {}
 }
