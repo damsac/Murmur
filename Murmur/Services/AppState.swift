@@ -50,7 +50,7 @@ final class AppState {
     // Home composition
     var homeComposition: HomeComposition?
     var isHomeCompositionLoading: Bool = false
-    private var homeCompositionStore: HomeCompositionStore?
+    private(set) var homeCompositionStore: HomeCompositionStore?
 
     // Recent inserts — entries/messages created since last composition (ephemeral, in-memory only)
     var recentInserts: [RecentInsert] = []
@@ -218,6 +218,17 @@ final class AppState {
 
     func addRecentMessage(_ text: String) {
         recentInserts.insert(.message(text, UUID()), at: 0)
+    }
+
+    /// Remove entries from recentInserts that have been placed in the layout by update_layout.
+    func clearRecentInsertForEntry(shortID: String, entries: [Entry]) {
+        guard let entry = Entry.resolve(shortID: shortID, in: entries) else { return }
+        recentInserts.removeAll { insert in
+            if case .entry(let uuid) = insert {
+                return uuid == entry.id
+            }
+            return false
+        }
     }
 
     func requestHomeComposition(entries: [Entry]) async {

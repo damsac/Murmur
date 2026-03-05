@@ -300,7 +300,8 @@ final class ConversationState {
                 let execCtx = AgentActionExecutor.ExecutionContext(
                     entries: entries, transcript: text, source: .text,
                     modelContext: modelContext, preferences: preferences,
-                    memoryStore: appState.memoryStore
+                    memoryStore: appState.memoryStore,
+                    appState: appState
                 )
                 try await consumeAgentStream(stream, generation: gen, context: execCtx, appState: appState)
                 inputState = .idle
@@ -314,6 +315,7 @@ final class ConversationState {
         }
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func consumeAgentStream(
         _ stream: AsyncThrowingStream<AgentStreamEvent, Error>,
         generation gen: Int,
@@ -352,6 +354,14 @@ final class ConversationState {
                 for applied in execResult.applied {
                     if case .create = applied.action {
                         appState.addRecentEntry(applied.entry.id)
+                    }
+                }
+                // Clear recentInserts for entries placed by layout updates
+                for outcome in execResult.outcomes {
+                    if case .layoutUpdated(let diff) = outcome {
+                        for (id, _) in diff.insertedEntries {
+                            appState.clearRecentInsertForEntry(shortID: id, entries: execCtx.entries)
+                        }
                     }
                 }
 

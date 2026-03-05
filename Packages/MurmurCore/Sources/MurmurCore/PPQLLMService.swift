@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 import Foundation
 import os.log
 
@@ -542,6 +543,14 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
                         proposedActions: proposed
                     )))
 
+                case "get_current_layout":
+                    actions.append(.layoutRead)
+
+                case "update_layout":
+                    let wrapper = try JSONDecoder().decode(UpdateLayoutArguments.self, from: argumentsData)
+                    let operations = wrapper.operations.compactMap { $0.asOperation }
+                    actions.append(.layoutUpdate(operations))
+
                 default:
                     continue
                 }
@@ -940,6 +949,66 @@ private struct RawComposedItem: Decodable {
     let emphasis: String?
     let badge: String?
     let text: String?
+}
+
+struct UpdateLayoutArguments: Decodable {
+    let operations: [RawLayoutOperation]
+}
+
+struct RawLayoutOperation: Decodable {
+    let op: String
+    let title: String?
+    let density: String?
+    let position: Int?
+    let newTitle: String?
+    let entryId: String?
+    let section: String?
+    let toSection: String?
+    let toPosition: Int?
+    let emphasis: String?
+    let badge: String?
+
+    enum CodingKeys: String, CodingKey {
+        case op, title, density, position
+        case newTitle = "new_title"
+        case entryId = "entry_id"
+        case section
+        case toSection = "to_section"
+        case toPosition = "to_position"
+        case emphasis, badge
+    }
+
+    var asOperation: LayoutOperation? {
+        switch op {
+        case "add_section":
+            guard let title else { return nil }
+            let d = density.flatMap { SectionDensity(rawValue: $0) } ?? .relaxed
+            return .addSection(title: title, density: d, position: position)
+        case "remove_section":
+            guard let title else { return nil }
+            return .removeSection(title: title)
+        case "update_section":
+            guard let title else { return nil }
+            let d = density.flatMap { SectionDensity(rawValue: $0) }
+            return .updateSection(title: title, density: d, newTitle: newTitle)
+        case "insert_entry":
+            guard let entryId, let section else { return nil }
+            let e = emphasis.flatMap { EntryEmphasis(rawValue: $0) } ?? .standard
+            return .insertEntry(entryID: entryId, section: section, position: position, emphasis: e, badge: badge)
+        case "remove_entry":
+            guard let entryId else { return nil }
+            return .removeEntry(entryID: entryId)
+        case "move_entry":
+            guard let entryId, let toSection else { return nil }
+            return .moveEntry(entryID: entryId, toSection: toSection, toPosition: toPosition)
+        case "update_entry":
+            guard let entryId else { return nil }
+            let e = emphasis.flatMap { EntryEmphasis(rawValue: $0) }
+            return .updateEntry(entryID: entryId, emphasis: e, badge: badge)
+        default:
+            return nil
+        }
+    }
 }
 
 struct EntryMutationArguments: Decodable {

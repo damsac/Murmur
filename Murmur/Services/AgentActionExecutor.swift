@@ -14,12 +14,15 @@ struct AgentActionExecutor {
         let modelContext: ModelContext
         let preferences: NotificationPreferences
         let memoryStore: AgentMemoryStore?
+        weak var appState: AppState?
     }
 
     /// Per-action outcome, 1:1 with input actions array.
     enum ActionOutcome {
         case applied(entry: Entry)
         case memorySaved(wordCount: Int)
+        case layoutRead(json: String)
+        case layoutUpdated(diff: LayoutDiff)
         case skipped
         case failed(reason: String)
     }
@@ -63,6 +66,10 @@ struct AgentActionExecutor {
                 outcomes.append(.applied(entry: entry))
             case .memorySaved(let wordCount):
                 outcomes.append(.memorySaved(wordCount: wordCount))
+            case .layoutRead(let json):
+                outcomes.append(.layoutRead(json: json))
+            case .layoutUpdated(let diff):
+                outcomes.append(.layoutUpdated(diff: diff))
             case .skipped:
                 outcomes.append(.skipped)
             case .failed(let reason):
@@ -88,6 +95,8 @@ struct AgentActionExecutor {
     private enum ActionResult {
         case applied(Entry, UndoItem)
         case memorySaved(wordCount: Int)
+        case layoutRead(json: String)
+        case layoutUpdated(diff: LayoutDiff)
         case skipped
         case failed(String)
     }
@@ -136,6 +145,10 @@ struct AgentActionExecutor {
             return .skipped
         case .confirm:
             return .skipped
+        case .layoutRead:
+            return executeLayoutRead(context: ctx)
+        case .layoutUpdate(let operations):
+            return executeLayoutUpdate(operations, context: ctx)
         }
     }
 
@@ -169,6 +182,34 @@ struct AgentActionExecutor {
             return .skipped
         }
         return .applied(entry, undoItem)
+    }
+
+    // MARK: - Layout Actions
+
+    private static func executeLayoutRead(context ctx: ExecutionContext) -> ActionResult {
+        guard let composition = ctx.appState?.homeComposition else {
+            return .layoutRead(json: #"{"sections":[]}"#)
+        }
+        guard let data = try? JSONEncoder().encode(composition),
+              let json = String(data: data, encoding: .utf8) else {
+            return .layoutRead(json: #"{"sections":[]}"#)
+        }
+        return .layoutRead(json: json)
+    }
+
+    private static func executeLayoutUpdate(
+        _ operations: [LayoutOperation],
+        context ctx: ExecutionContext
+    ) -> ActionResult {
+        guard let appState = ctx.appState else {
+            return .failed("No app state for layout update")
+        }
+        if appState.homeComposition == nil {
+            appState.homeComposition = HomeComposition(sections: [])
+        }
+        let diff = appState.homeComposition!.apply(operations: operations)
+        try? appState.homeCompositionStore?.save(appState.homeComposition!)
+        return .layoutUpdated(diff: diff)
     }
 
     // MARK: - Field Updates

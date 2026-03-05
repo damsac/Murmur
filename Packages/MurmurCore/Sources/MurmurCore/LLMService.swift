@@ -109,6 +109,16 @@ public struct LLMPrompt: @unchecked Sendable {
             - Store: user preferences, naming patterns, recurring schedules, vocabulary corrections.
             - Do NOT store entry data (already in context). Keep under 500 words.
             - Replace full content each time. Only update when you learn something new.
+
+            Layout tools:
+            - After creating/completing/updating entries, call get_current_layout to see the current home screen.
+            - Then call update_layout to place new entries or remove completed ones from the layout.
+            - If the layout is empty (cold start), compose a full layout with add_section + insert_entry operations.
+            - Keep the layout focused: 3-5 sections, 5-15 items total.
+            - Use insert_entry to add new entries to the appropriate section.
+            - Use remove_entry after completing/archiving entries.
+            - Use move_entry when an entry's urgency changes (e.g., becomes overdue).
+            - Calling update_layout is optional — entries without placement appear in a "recent" area above the layout.
             """,
         tools: [
             createEntriesToolSchema(),
@@ -117,6 +127,8 @@ public struct LLMPrompt: @unchecked Sendable {
             archiveEntriesToolSchema(),
             updateMemoryToolSchema(),
             confirmActionsToolSchema(),
+            getCurrentLayoutToolSchema(),
+            updateLayoutToolSchema(),
         ],
         toolChoice: .auto
     )
@@ -426,6 +438,8 @@ public enum AgentAction: Sendable {
     case archive(ArchiveAction)
     case updateMemory(UpdateMemoryAction)
     case confirm(ConfirmationRequest)
+    case layoutRead
+    case layoutUpdate([LayoutOperation])
 }
 
 public extension AgentAction {
@@ -780,6 +794,65 @@ private extension LLMPrompt {
                         ] as [String: Any],
                     ],
                     "required": ["entries"],
+                ] as [String: Any],
+            ] as [String: Any],
+        ]
+    }
+
+    static func getCurrentLayoutToolSchema() -> [String: Any] {
+        [
+            "type": "function",
+            "function": [
+                "name": "get_current_layout",
+                "description": "Read the current home screen layout. Returns sections with their entries, emphasis levels, and badges. Call this before update_layout to understand what's on screen.",
+                "parameters": [
+                    "type": "object",
+                    "properties": [:] as [String: Any],
+                ] as [String: Any],
+            ] as [String: Any],
+        ]
+    }
+
+    static func updateLayoutToolSchema() -> [String: Any] {
+        [
+            "type": "function",
+            "function": [
+                "name": "update_layout",
+                "description": """
+                    Apply incremental changes to the home screen layout. Operations are applied in order \
+                    as a single animated transaction. Use after create_entries/complete_entries/update_entries \
+                    to place or remove entries on screen. For a fresh layout (cold start), use a batch of \
+                    add_section + insert_entry operations.
+                    """,
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "operations": [
+                            "type": "array",
+                            "items": [
+                                "type": "object",
+                                "properties": [
+                                    "op": [
+                                        "type": "string",
+                                        "enum": ["add_section", "remove_section", "update_section",
+                                                 "insert_entry", "remove_entry", "move_entry", "update_entry"],
+                                    ],
+                                    "title": ["type": "string", "description": "Section title (for section ops)"],
+                                    "density": ["type": "string", "enum": ["compact", "relaxed"]],
+                                    "position": ["type": "integer", "description": "0-indexed position (optional, omit to append)"],
+                                    "new_title": ["type": "string", "description": "New title for update_section"],
+                                    "entry_id": ["type": "string", "description": "Entry short ID (for entry ops)"],
+                                    "section": ["type": "string", "description": "Target section title (for insert_entry)"],
+                                    "to_section": ["type": "string", "description": "Destination section (for move_entry)"],
+                                    "to_position": ["type": "integer", "description": "Destination position (for move_entry)"],
+                                    "emphasis": ["type": "string", "enum": ["hero", "standard", "compact"]],
+                                    "badge": ["type": "string", "description": "Badge text: Overdue, Today, New, Stale, etc."],
+                                ] as [String: Any],
+                                "required": ["op"],
+                            ] as [String: Any],
+                        ] as [String: Any],
+                    ],
+                    "required": ["operations"],
                 ] as [String: Any],
             ] as [String: Any],
         ]

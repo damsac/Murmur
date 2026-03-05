@@ -47,6 +47,10 @@ enum ToolResultBuilder {
                 return formatApplied(toolName: toolName, entry: entry)
             case .memorySaved(let wordCount):
                 return "Memory updated (\(wordCount) words)"
+            case .layoutRead(let json):
+                return json
+            case .layoutUpdated(let diff):
+                return formatLayoutDiff(diff)
             case .skipped:
                 return nil
             case .failed(let reason):
@@ -58,6 +62,17 @@ enum ToolResultBuilder {
             return "\(toolName) accepted."
         }
         return parts.joined(separator: ", ")
+    }
+
+    private static func formatLayoutDiff(_ diff: LayoutDiff) -> String {
+        var parts: [String] = []
+        if !diff.addedSections.isEmpty { parts.append("\(diff.addedSections.count) section(s) added") }
+        if !diff.removedSections.isEmpty { parts.append("\(diff.removedSections.count) section(s) removed") }
+        if !diff.insertedEntries.isEmpty { parts.append("\(diff.insertedEntries.count) entry(ies) inserted") }
+        if !diff.removedEntries.isEmpty { parts.append("\(diff.removedEntries.count) entry(ies) removed") }
+        if !diff.movedEntries.isEmpty { parts.append("\(diff.movedEntries.count) entry(ies) moved") }
+        if !diff.updatedEntries.isEmpty { parts.append("\(diff.updatedEntries.count) entry(ies) updated") }
+        return parts.isEmpty ? "No changes applied." : "Layout updated: " + parts.joined(separator: ", ") + "."
     }
 
     private static func formatApplied(toolName: String, entry: Entry) -> String {
