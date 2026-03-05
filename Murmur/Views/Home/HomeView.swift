@@ -204,30 +204,16 @@ struct HomeView: View {
     // MARK: - Swipe Actions
 
     private func swipeActions(for entry: Entry) -> [CardSwipeAction] {
-        let isCompletable = entry.category == .todo
-            || entry.category == .reminder
-            || entry.category == .habit
-
-        var actions: [CardSwipeAction] = []
-
-        if isCompletable {
-            actions.append(CardSwipeAction(
+        [
+            CardSwipeAction(
                 icon: "checkmark.circle.fill", label: "Done",
                 color: Theme.Colors.accentGreen
-            ) { onAction(entry, .complete) })
-        } else {
-            actions.append(CardSwipeAction(
-                icon: "archivebox.fill", label: "Archive",
-                color: Theme.Colors.accentBlue
-            ) { onAction(entry, .archive) })
-        }
-
-        actions.append(CardSwipeAction(
-            icon: "moon.zzz.fill", label: "Snooze",
-            color: Theme.Colors.accentYellow
-        ) { onAction(entry, .snooze(until: nil)) })
-
-        return actions
+            ) { onAction(entry, .complete) },
+            CardSwipeAction(
+                icon: "moon.zzz.fill", label: "Snooze",
+                color: Theme.Colors.accentYellow
+            ) { onAction(entry, .snooze(until: nil)) }
+        ]
     }
 }
 
@@ -393,6 +379,27 @@ private struct FocusCardView: View {
 
     private var accentColor: Color { Theme.categoryColor(entry.category) }
 
+    private var isOverdue: Bool {
+        guard let dueDate = entry.dueDate else { return false }
+        return dueDate < Date() && entry.status == .active
+    }
+
+    private var isDueSoon: Bool {
+        entry.dueDate != nil && !isOverdue
+    }
+
+    private var reasonColor: Color {
+        if isOverdue { return Theme.Colors.accentRed }
+        if isDueSoon { return Theme.Colors.accentYellow }
+        return Theme.Colors.textSecondary
+    }
+
+    private var reasonIcon: String {
+        if isOverdue { return "exclamationmark.circle.fill" }
+        if isDueSoon { return "calendar" }
+        return "circle.fill"
+    }
+
     var body: some View {
         SwipeableCard(
             actions: swipeActionsProvider(entry),
@@ -402,16 +409,20 @@ private struct FocusCardView: View {
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 6) {
-                    CategoryBadge(category: entry.category, size: .small)
+                    CategoryBadge(
+                        category: entry.category,
+                        size: .small,
+                        text: entry.category == .habit ? (entry.cadence ?? .daily).displayName : nil
+                    )
                     Spacer()
                     if !reason.isEmpty {
                         HStack(spacing: 3) {
-                            Image(systemName: "exclamationmark.circle.fill")
+                            Image(systemName: reasonIcon)
                                 .font(.caption2)
                             Text(reason)
                                 .font(Theme.Typography.badge)
                         }
-                        .foregroundStyle(Theme.Colors.accentRed)
+                        .foregroundStyle(reasonColor)
                     }
                 }
 
@@ -496,7 +507,7 @@ private struct CategorySectionView: View {
         self.swipeActionsProvider = swipeActionsProvider
         self.onAction = onAction
         self.onGlowComplete = onGlowComplete
-        self._isCollapsed = AppStorage(wrappedValue: false, "section_\(category.rawValue)_collapsed")
+        self._isCollapsed = AppStorage(wrappedValue: true, "section_\(category.rawValue)_collapsed")
     }
 
     private var color: Color { Theme.categoryColor(category) }
@@ -616,9 +627,22 @@ private struct CategorySectionView: View {
                 .animation(Animations.cardAppear, value: entries.map(\.id))
             }
         }
-        .onChange(of: arrivedEntryIDs) { _, newIDs in
+        .onAppear {
+            // Handle the case where this section was just created because a new entry arrived.
+            // onChange won't fire on initial render, so peek here if entries are already arrived.
+            guard isCollapsed, !arrivedEntryIDs.isEmpty else { return }
+            let newInSection = entries.filter { arrivedEntryIDs.contains($0.id) }
+            guard let latest = newInSection.first else { return }
+
+            peekEntry = latest
+            peekCount += newInSection.count
+            showPeek()
+        }
+        .onChange(of: arrivedEntryIDs) { oldIDs, newIDs in
             guard isCollapsed else { return }
-            let newInSection = entries.filter { newIDs.contains($0.id) }
+            // Only peek when entries are ADDED — ignore removals (glow complete, 5s expiry).
+            let added = newIDs.subtracting(oldIDs)
+            let newInSection = entries.filter { added.contains($0.id) }
             guard let latest = newInSection.first else { return }
 
             peekEntry = latest
@@ -717,6 +741,7 @@ private struct SmartListRow: View {
     }
 
     private var dueText: String? {
+        guard entry.category == .todo || entry.category == .reminder else { return nil }
         guard let dueDate = entry.dueDate else { return nil }
         let calendar = Calendar.current
         if isOverdue { return "Overdue" }
@@ -730,7 +755,11 @@ private struct SmartListRow: View {
         VStack(alignment: .leading, spacing: 10) {
             // Category + metadata row
             HStack(spacing: 6) {
-                CategoryBadge(category: entry.category, size: .small)
+                CategoryBadge(
+                    category: entry.category,
+                    size: .small,
+                    text: entry.category == .habit ? (entry.cadence ?? .daily).displayName : nil
+                )
 
                 Spacer()
 
@@ -776,7 +805,7 @@ private struct SmartListRow: View {
                                     : Theme.Colors.textTertiary
                             )
                             .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
-                            .frame(width: 44, height: 44)
+                            .frame(width: 44)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)

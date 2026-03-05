@@ -2,7 +2,6 @@ import SwiftUI
 import SwiftData
 import MurmurCore
 
-// swiftlint:disable type_body_length
 struct RootView: View {
     @Environment(AppState.self) private var appState
     @Environment(NotificationPreferences.self) private var notifPrefs
@@ -265,14 +264,10 @@ struct RootView: View {
             guard let uuid = notification.userInfo?["entryID"] as? UUID else { return }
             selectedEntry = entries.first { $0.id == uuid }
         }
-        .onChange(of: appState.conversation.agentStreamText) { _, text in
+        .onChange(of: appState.conversation.completionText) { _, text in
             guard let text, !text.isEmpty else { return }
-            // Text-only response (no actions) → show as bottom toast
-            if appState.conversation.arrivedEntryIDs.isEmpty {
-                showToast(text, type: .info)
-            }
-            // Clear after showing
-            appState.conversation.agentStreamText = nil
+            showToast(text, type: .info)
+            appState.conversation.completionText = nil
         }
     }
 
@@ -529,7 +524,6 @@ private extension RootView {
     return RootView()
         .environment(appState)
 }
-// swiftlint:enable type_body_length
 
 #Preview("Recording State") {
     @Previewable @State var appState = AppState()

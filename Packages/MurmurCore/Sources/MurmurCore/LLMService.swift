@@ -223,6 +223,7 @@ public struct AgentContextEntry: Sendable, Codable, Identifiable {
     public let cadence: HabitCadence?
     public let status: AgentEntryStatus
     public let createdAt: Date
+    public let currentStreak: Int?
 
     public init(
         id: String,
@@ -232,7 +233,8 @@ public struct AgentContextEntry: Sendable, Codable, Identifiable {
         dueDateDescription: String? = nil,
         cadence: HabitCadence? = nil,
         status: AgentEntryStatus = .active,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        currentStreak: Int? = nil
     ) {
         self.id = id
         self.summary = summary
@@ -242,6 +244,7 @@ public struct AgentContextEntry: Sendable, Codable, Identifiable {
         self.cadence = cadence
         self.status = status
         self.createdAt = createdAt
+        self.currentStreak = currentStreak
     }
 }
 

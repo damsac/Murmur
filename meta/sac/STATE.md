@@ -6,10 +6,13 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-Post-#86 cleanup PR: dedup logic for agent actions, transcript UI removal, and shimmer → minimal loading indicator.
+Streaming arrival system polish: card arrival animations, toast after last card lands, focus section UX correctness (due text on habits, focus card reason color semantics).
 
 ## Recent decisions
 
+- **`dueText` category guard** — `GlowingEntryRow.dueText` now only renders for `.todo` and `.reminder` entries. The LLM can attach `dueDate` to habits; the view shouldn't surface it as "Due tomorrow" noise in the regular list.
+- **Focus card reason color semantics** — `FocusCardView` was always rendering the LLM reason (e.g., "Due", "Stale") in red with an exclamation mark. Added `isOverdue`/`isDueSoon` computed properties using actual `entry.dueDate` math: overdue → red + `exclamationmark.circle.fill`, due soon → yellow + `calendar`, everything else → secondary text + `circle.fill`. String-matching LLM output for visual treatment is fragile; real entry data is reliable.
+- **Streaming arrival animation system** — `ConversationState` tracks `pendingRevealEntryIDs` (hidden during delay), `arrivedEntryIDs` (glowing), `lastRevealTime` (latest scheduled reveal across all batches), `toastTask` (cancellable; fires `completionText` after 1.5s post-last-reveal). `CategorySectionView` diffs `arrivedEntryIDs` additions (not removals) to prevent re-peek on glow expiry. `onAppear` guard handles first card in a new category.
 - **Removed transcript UI from EntryDetailView** — `onViewTranscript` callback and "View transcript" button deleted. The raw transcript is internal data, not a useful user-facing view. Removed from DevScreen and RootView as well.
 - **Dedup conflicting agent actions by entry ID** — `PPQLLMService` now filters out duplicate actions referencing the same entry ID (via `deduplicateByEntryID`), keeping only the first. Prevents the LLM from emitting both "complete" and "archive" for the same entry in one turn. `mutationEntryID` extension on `AgentAction` enables generic filtering across all mutation types.
 - **Tap-to-edit on proposed create cards** — now obsolete (ResultsSurfaceView deleted by PR #86). Carried dedup logic and transcript removal forward; dropped confirmation UI changes.
@@ -34,8 +37,10 @@ Post-#86 cleanup PR: dedup logic for agent actions, transcript UI removal, and s
 
 - Is 3 the right cap for focus items, or should it adapt to screen space?
 - Weekly and monthly habits: `appliesToday` always returns true for these (they apply every day of the week/month). Is there a scenario where a weekly habit should be excluded from focus on certain days?
+- Dedup policy: is first-wins correct for conflicting agent actions, or should "stronger" actions win (archive > complete)? Relevant if a user voice note says "finish and archive all the old tasks."
+- Individual card reveal tasks (`.sleep` → `pendingRevealEntryIDs.remove`) can't be cancelled if a new request starts mid-reveal. Currently fine (entry just glows briefly), but worth tracking.
 
 ## What I need from dam
 
-- Review the dedup logic (`deduplicateByEntryID` + `mutationEntryID`) — is dedup-by-first the right approach for the streaming SSE path, or does streaming make this irrelevant now that actions fire one at a time?
-- Is there a scenario where the same entry ID should appear in two different actions in one turn (e.g. complete + archive = just archive)? Should we prefer the "stronger" action instead of first-wins?
+- Review the dedup logic (`deduplicateByEntryID` + `mutationEntryID`) — is dedup-by-first the right approach?
+- Is there a scenario where the same entry ID should appear in two different actions in one turn (e.g. complete + archive = just archive)? Should we prefer the "stronger" action?
