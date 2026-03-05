@@ -117,10 +117,7 @@ enum DevScreen: String, CaseIterable, Identifiable {
                         priority: 1
                     ),
                     onBack: {},
-                    onViewTranscript: {},
-                    onArchive: {},
-                    onSnooze: {},
-                    onDelete: {}
+                    onAction: { _ in }
                 )
             case .entryDetailVariants:
                 EntryDetailView(
@@ -132,10 +129,7 @@ enum DevScreen: String, CaseIterable, Identifiable {
                         summary: "Voice-controlled home garden watering system"
                     ),
                     onBack: {},
-                    onViewTranscript: {},
-                    onArchive: {},
-                    onSnooze: {},
-                    onDelete: {}
+                    onAction: { _ in }
                 )
             case .swipeActions:
                 HomeView(
