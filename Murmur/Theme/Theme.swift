@@ -47,7 +47,7 @@ enum Theme {
     // MARK: - Spacing
     enum Spacing {
         static let screenPadding: CGFloat = 24
-        static let cardPadding: CGFloat = 18
+        static let cardPadding: CGFloat = 12
         static let cardGap: CGFloat = 16
         static let cardRadius: CGFloat = 16
         static let pillRadius: CGFloat = 10

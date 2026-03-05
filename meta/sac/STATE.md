@@ -6,9 +6,17 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-Streaming arrival system polish: card arrival animations, toast after last card lands, focus section UX correctness (due text on habits, focus card reason color semantics).
+Home screen design pass: reduced card density, removed redundant chips, flattened information hierarchy.
 
 ## Recent decisions
+
+- **Card density reduction** — `Theme.Spacing.cardPadding` 18 → 12. Single token, affects all cards globally (home list, archive, settings). ~30% vertical space recovered per card.
+- **Category badge removed from list cards** — `CategoryBadge` inside `SmartListRow` was redundant: the section header already communicates category with a colored dot + label. Removing it simplifies cards to pure content.
+- **Priority chip removed from list cards** — P1/P2 chips created conflicting priority signals alongside the AI focus strip. The focus strip owns priority communication; manual chips are noise.
+- **Due text flattened** — Replaced styled capsule chip (icon + colored text) with a plain `.caption` `Text` below the summary. Overdue → `accentRed`, everything else → `textTertiary`. Binary signal, no visual weight.
+- **Summary font → `.subheadline`** — Dropped from `Theme.Typography.body` (17pt) to `.subheadline` (15pt) in both `SmartListRow` and `FocusCardView`. Combined with reduced padding, each card is noticeably more compact.
+- **FocusCardView reason chip → flat text** — The colored reason chip (icon + badge text) replaced with `Text(reason).font(.caption).foregroundStyle(reasonColor)`. Reason color still uses real `entry.dueDate` math (overdue=red, due soon=yellow, otherwise secondary) — not string matching.
+- **Keyboard button kept** — Initial critique suggested removing it, but it's needed for public-context input (mic-averse scenarios). Left untouched.
 
 - **`dueText` category guard** — `GlowingEntryRow.dueText` now only renders for `.todo` and `.reminder` entries. The LLM can attach `dueDate` to habits; the view shouldn't surface it as "Due tomorrow" noise in the regular list.
 - **Focus card reason color semantics** — `FocusCardView` was always rendering the LLM reason (e.g., "Due", "Stale") in red with an exclamation mark. Added `isOverdue`/`isDueSoon` computed properties using actual `entry.dueDate` math: overdue → red + `exclamationmark.circle.fill`, due soon → yellow + `calendar`, everything else → secondary text + `circle.fill`. String-matching LLM output for visual treatment is fragile; real entry data is reliable.
