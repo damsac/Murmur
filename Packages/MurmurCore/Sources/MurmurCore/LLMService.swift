@@ -147,6 +147,27 @@ public struct LLMPrompt: @unchecked Sendable {
     @available(*, deprecated, message: "Use entryManager or entryCreation")
     public static let entryExtraction = entryCreation
 
+    /// Home composition prompt: composes the entire home screen layout via compose_view tool.
+    public static let homeComposition = LLMPrompt(
+        systemPrompt: """
+            You are composing a home screen for a personal voice assistant app.
+            You receive the user's current entries. Compose 3-5 sections showing what matters RIGHT NOW.
+
+            Rules:
+            - Most entries stay hidden. Show 5-15 items total.
+            - Group by urgency and context, NOT by category.
+            - First section: what needs attention now (overdue, due today, P1/P2). Use relaxed density, hero emphasis for urgent items.
+            - Later sections: things to keep in mind, upcoming items. Use compact density.
+            - Include a brief message (under 15 words) if it adds context. Don't force one.
+            - Assign badges: "Overdue" for past-due, "Today" for due today, "Stale" for untouched 7+ days.
+            - Use hero emphasis sparingly (1-2 items max). Compact for low-priority items.
+            - If nothing is urgent, compose a calm view with a reassuring message.
+            - If no entries exist, return zero sections.
+            """,
+        tools: [composeViewToolSchema()],
+        toolChoice: .function(name: "compose_view")
+    )
+
     /// Daily briefing prompt: groups up to 7 focus entries into thematic clusters.
     public static let dailyBriefing = LLMPrompt(
         systemPrompt: """
@@ -759,6 +780,56 @@ private extension LLMPrompt {
                         ] as [String: Any],
                     ],
                     "required": ["entries"],
+                ] as [String: Any],
+            ] as [String: Any],
+        ]
+    }
+
+    static func composeViewToolSchema() -> [String: Any] {
+        [
+            "type": "function",
+            "function": [
+                "name": "compose_view",
+                "description": "Compose the home view. Surface what matters right now. Most entries stay hidden. Group by urgency/context, not category. 3-5 sections max, 5-15 total items.",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "sections": [
+                            "type": "array",
+                            "items": [
+                                "type": "object",
+                                "properties": [
+                                    "title": ["type": "string"],
+                                    "density": [
+                                        "type": "string",
+                                        "enum": ["compact", "relaxed"],
+                                    ],
+                                    "items": [
+                                        "type": "array",
+                                        "items": [
+                                            "type": "object",
+                                            "properties": [
+                                                "type": [
+                                                    "type": "string",
+                                                    "enum": ["entry", "message"],
+                                                ],
+                                                "id": ["type": "string"],
+                                                "emphasis": [
+                                                    "type": "string",
+                                                    "enum": ["hero", "standard", "compact"],
+                                                ],
+                                                "badge": ["type": "string"],
+                                                "text": ["type": "string"],
+                                            ] as [String: Any],
+                                            "required": ["type"],
+                                        ] as [String: Any],
+                                    ] as [String: Any],
+                                ] as [String: Any],
+                                "required": ["items"],
+                            ] as [String: Any],
+                        ] as [String: Any],
+                    ],
+                    "required": ["sections"],
                 ] as [String: Any],
             ] as [String: Any],
         ]

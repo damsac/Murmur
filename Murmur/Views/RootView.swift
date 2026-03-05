@@ -19,6 +19,7 @@ struct RootView: View {
     @State private var isLoadingTopUpProducts = false
     @State private var topUpPacks: [CreditPack] = []
     @State private var topUpProductIDByCredits: [Int64: String] = [:]
+    @AppStorage("homeVariant") private var homeVariant: String = "sac"
     @State private var showCardHints = false
     @State private var pendingDeleteEntry: Entry?
     @State private var pendingDeleteTask: Task<Void, Never>?
@@ -191,6 +192,11 @@ struct RootView: View {
                     await appState.requestDailyFocus(entries: activeEntries)
                 }
             }
+            if homeVariant == "dam" && appState.homeComposition == nil && !appState.isHomeCompositionLoading {
+                Task { @MainActor in
+                    await appState.requestHomeComposition(entries: activeEntries)
+                }
+            }
         }) {
             DevModeView()
         }
@@ -304,44 +310,64 @@ struct RootView: View {
 
     // MARK: - Home Content
 
-    @ViewBuilder
-    private var homeContent: some View {
+    private func toggleRecording() {
         let conversation = appState.conversation
-        HomeView(
-            inputText: $inputText,
-            entries: activeEntries,
-            onMicTap: {
-                if conversation.isRecording {
-                    conversation.stopRecording(
-                        entries: entries,
-                        modelContext: modelContext,
-                        preferences: notifPrefs
-                    )
-                } else {
-                    conversation.startRecording()
-                }
-            },
-            onSubmit: {
-                conversation.inputText = inputText
-                inputText = ""
-                conversation.submitText(
-                    entries: entries,
-                    modelContext: modelContext,
-                    preferences: notifPrefs
-                )
-            },
-            onEntryTap: { entry in selectedEntry = entry },
-            onKeyboardTap: { showTextInputBar = true },
-            onSettingsTap: { showSettings = true },
-            onAction: { entry, action in
-                handleEntryAction(entry, action)
-            }
+        if conversation.isRecording {
+            conversation.stopRecording(
+                entries: entries,
+                modelContext: modelContext,
+                preferences: notifPrefs
+            )
+        } else {
+            conversation.startRecording()
+        }
+    }
+
+    private func submitInput() {
+        let conversation = appState.conversation
+        conversation.inputText = inputText
+        inputText = ""
+        conversation.submitText(
+            entries: entries,
+            modelContext: modelContext,
+            preferences: notifPrefs
         )
     }
 
-    // MARK: - Actions
+    @ViewBuilder
+    private var homeContent: some View {
+        if homeVariant == "dam" {
+            DamHomeView(
+                inputText: $inputText,
+                entries: activeEntries,
+                onMicTap: toggleRecording,
+                onSubmit: submitInput,
+                onEntryTap: { selectedEntry = $0 },
+                onKeyboardTap: { showTextInputBar = true },
+                onSettingsTap: { showSettings = true },
+                onAction: { handleEntryAction($0, $1) }
+            )
+        } else {
+            SacHomeView(
+                inputText: $inputText,
+                entries: activeEntries,
+                onMicTap: toggleRecording,
+                onSubmit: submitInput,
+                onEntryTap: { selectedEntry = $0 },
+                onKeyboardTap: { showTextInputBar = true },
+                onSettingsTap: { showSettings = true },
+                onAction: { handleEntryAction($0, $1) }
+            )
+        }
+    }
 
-    private func handleTopUpPurchase(_ pack: CreditPack) {
+}
+
+// MARK: - Actions & Helpers
+
+private extension RootView {
+
+    func handleTopUpPurchase(_ pack: CreditPack) {
         guard !isPurchasingTopUp else { return }
 
         isPurchasingTopUp = true
@@ -373,7 +399,7 @@ struct RootView: View {
         }
     }
 
-    private func handleEntryAction(_ entry: Entry, _ action: EntryAction) {
+    func handleEntryAction(_ entry: Entry, _ action: EntryAction) {
         switch action {
         case .complete:
             UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -422,7 +448,7 @@ struct RootView: View {
         }
     }
 
-    private func showToast(
+    func showToast(
         _ message: String,
         type: ToastView.ToastType = .success,
         actionLabel: String? = nil,
@@ -437,11 +463,6 @@ struct RootView: View {
         )
     }
 
-}
-
-// MARK: - Helpers
-
-private extension RootView {
     var activeEntries: [Entry] {
         let pendingReveal = appState.conversation.pendingRevealEntryIDs
         return entries.filter {

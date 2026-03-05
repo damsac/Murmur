@@ -1,7 +1,7 @@
 import Foundation
 import os.log
 
-private let sseLog = Logger(subsystem: "com.gudnuf.murmur", category: "SSE")
+private let sseLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "SSE")
 
 // swiftlint:disable type_body_length
 /// LLMService implementation using PPQ.ai's OpenAI-compatible API with tool calling.
@@ -172,6 +172,80 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
             },
             message: args.message
         )
+    }
+
+    // MARK: - Home Composition
+
+    /// One-shot LLM call to compose the home view layout.
+    /// Uses a separate conversation (not the ongoing agent conversation).
+    public func composeHomeView(entries: [AgentContextEntry]) async throws -> HomeComposition {
+        sseLog.info("[SSE] composeHomeView() called — NON-STREAMING path (runTurn), \(entries.count) entries")
+        let userContent = buildCompositionUserContent(entries: entries)
+        let conversation = LLMConversation()
+
+        let turn = try await runTurn(
+            userContent: userContent,
+            prompt: .homeComposition,
+            conversation: conversation
+        )
+
+        let composition = try parseHomeComposition(from: turn.assistantMessage)
+        sseLog.info("[SSE] composeHomeView() complete — \(composition.sections.count) sections")
+        return composition
+    }
+
+    private func buildCompositionUserContent(entries: [AgentContextEntry]) -> String {
+        guard !entries.isEmpty else {
+            return "[COMPOSITION] No entries."
+        }
+
+        let sortedEntries = entries.sorted { lhs, rhs in
+            let leftPriority = lhs.priority ?? 6
+            let rightPriority = rhs.priority ?? 6
+            if leftPriority != rightPriority {
+                return leftPriority < rightPriority
+            }
+            return lhs.createdAt > rhs.createdAt
+        }
+
+        var lines = ["[COMPOSITION] Compose the home view from these entries.", "", "## Current Entries", ""]
+        lines.append(contentsOf: sortedEntries.map(formatContextLine(for:)))
+        return lines.joined(separator: "\n")
+    }
+
+    private func parseHomeComposition(from assistantMessage: [String: Any]) throws -> HomeComposition {
+        guard let toolCalls = assistantMessage["tool_calls"] as? [[String: Any]],
+              let firstCall = toolCalls.first,
+              let function = firstCall["function"] as? [String: Any],
+              let name = function["name"] as? String, name == "compose_view",
+              let argsString = function["arguments"] as? String,
+              let argsData = argsString.data(using: .utf8)
+        else {
+            throw PPQError.noToolCalls
+        }
+
+        let args = try JSONDecoder().decode(ComposeViewArguments.self, from: argsData)
+        let sections = args.sections.map { rawSection in
+            ComposedSection(
+                title: rawSection.title,
+                density: rawSection.density ?? .relaxed,
+                items: rawSection.items.compactMap { rawItem in
+                    switch rawItem.type {
+                    case "entry":
+                        guard let id = rawItem.id else { return nil }
+                        let emphasis = rawItem.emphasis.flatMap { EntryEmphasis(rawValue: $0) } ?? .standard
+                        return ComposedItem.entry(ComposedEntry(id: id, emphasis: emphasis, badge: rawItem.badge))
+                    case "message":
+                        guard let text = rawItem.text else { return nil }
+                        return ComposedItem.message(text)
+                    default:
+                        return nil
+                    }
+                }
+            )
+        }
+
+        return HomeComposition(sections: sections)
     }
 
     // MARK: - Turn Execution
@@ -848,6 +922,24 @@ private struct RawFocusCluster: Decodable {
 private struct RawFocusItem: Decodable {
     let id: String
     let reason: String
+}
+
+private struct ComposeViewArguments: Decodable {
+    let sections: [RawComposedSection]
+}
+
+private struct RawComposedSection: Decodable {
+    let title: String?
+    let density: SectionDensity?
+    let items: [RawComposedItem]
+}
+
+private struct RawComposedItem: Decodable {
+    let type: String
+    let id: String?
+    let emphasis: String?
+    let badge: String?
+    let text: String?
 }
 
 struct EntryMutationArguments: Decodable {
