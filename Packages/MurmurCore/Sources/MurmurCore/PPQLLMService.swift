@@ -1,8 +1,11 @@
 import Foundation
+import os.log
+
+private let sseLog = Logger(subsystem: "com.gudnuf.murmur", category: "SSE")
 
 // swiftlint:disable type_body_length
 /// LLMService implementation using PPQ.ai's OpenAI-compatible API with tool calling.
-public final class PPQLLMService: LLMService, @unchecked Sendable {
+public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked Sendable {
     private let apiKey: String
     private let model: String
     private let prompt: LLMPrompt
@@ -67,6 +70,7 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         existingEntries: [AgentContextEntry],
         conversation: LLMConversation
     ) async throws -> AgentResponse {
+        sseLog.info("[SSE] process() called — NON-STREAMING path (runTurn)")
         sessionRecordingCount += 1
         let userContent = buildAgentUserContent(
             transcript: transcript,
@@ -84,6 +88,7 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         let summary = textContent ?? summarize(actions: parseResult.actions)
         // textResponse is only set when the agent responds with text and no actions
         let textResponse = parseResult.actions.isEmpty ? textContent : nil
+        sseLog.info("[SSE] process() complete — \(parseResult.actions.count) actions, textResponse=\(textResponse != nil)")
         return AgentResponse(
             actions: parseResult.actions,
             summary: summary,
@@ -112,6 +117,7 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
     /// One-shot LLM call to compose the daily focus briefing.
     /// Uses a separate conversation (not the ongoing agent conversation).
     public func composeDailyFocus(entries: [AgentContextEntry]) async throws -> DailyFocus {
+        sseLog.info("[SSE] composeDailyFocus() called — NON-STREAMING path (runTurn), \(entries.count) entries")
         let userContent = buildBriefingUserContent(entries: entries)
         let conversation = LLMConversation()
 
@@ -121,7 +127,9 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
             conversation: conversation
         )
 
-        return try parseDailyFocus(from: turn.assistantMessage)
+        let focus = try parseDailyFocus(from: turn.assistantMessage)
+        sseLog.info("[SSE] composeDailyFocus() complete — \(focus.items.count) items, message=\(focus.message)")
+        return focus
     }
 
     private func buildBriefingUserContent(entries: [AgentContextEntry]) -> String {
@@ -173,6 +181,7 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         prompt: LLMPrompt,
         conversation: LLMConversation
     ) async throws -> TurnResult {
+        sseLog.info("[SSE] runTurn — building request (non-streaming, no stream:true in body)")
         let requestMessages = buildRequestMessages(
             userContent: userContent,
             prompt: prompt,
@@ -180,18 +189,24 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         )
 
         let request = try buildRequest(messages: requestMessages, prompt: prompt)
+        sseLog.info("[SSE] runTurn — sending HTTP request to \(Self.endpoint.absoluteString)")
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
+            sseLog.error("[SSE] runTurn — invalid response (not HTTPURLResponse)")
             throw PPQError.invalidResponse
         }
 
+        sseLog.info("[SSE] runTurn — HTTP \(http.statusCode), body size: \(data.count) bytes")
+
         guard http.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? "<no body>"
+            sseLog.error("[SSE] runTurn — HTTP error \(http.statusCode)")
             throw PPQError.httpError(statusCode: http.statusCode, body: body)
         }
 
         let assistantMessage = try parseAssistantMessage(from: data)
         let usage = parseUsage(from: data)
+        sseLog.info("[SSE] runTurn — parsed response, usage: in=\(usage.inputTokens) out=\(usage.outputTokens)")
         updateConversation(
             conversation,
             requestMessages: requestMessages,
@@ -199,6 +214,90 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
         )
 
         return TurnResult(assistantMessage: assistantMessage, usage: usage)
+    }
+
+    // MARK: - Streaming
+
+    /// Stream agent response via SSE, yielding events as text and tool calls arrive.
+    public func processStreaming(
+        transcript: String,
+        existingEntries: [AgentContextEntry],
+        conversation: LLMConversation
+    ) -> AsyncThrowingStream<AgentStreamEvent, Error> {
+        sessionRecordingCount += 1
+        let userContent = buildAgentUserContent(
+            transcript: transcript,
+            existingEntries: existingEntries
+        )
+        let requestMessages = buildRequestMessages(
+            userContent: userContent,
+            prompt: prompt,
+            conversation: conversation
+        )
+
+        return AsyncThrowingStream { continuation in
+            let task = Task { [self] in
+                do {
+                    sseLog.info("[SSE] processStreaming — starting SSE request")
+                    let request = try self.buildStreamingRequest(
+                        messages: requestMessages,
+                        prompt: self.prompt
+                    )
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let http = response as? HTTPURLResponse else {
+                        throw PPQError.invalidResponse
+                    }
+                    guard http.statusCode == 200 else {
+                        throw PPQError.httpError(
+                            statusCode: http.statusCode,
+                            body: "streaming request failed"
+                        )
+                    }
+
+                    sseLog.info("[SSE] processStreaming — HTTP \(http.statusCode), consuming SSE stream")
+                    let accumulator = StreamingResponseAccumulator()
+
+                    for try await line in bytes.lines {
+                        guard !Task.isCancelled else { break }
+
+                        guard let event = SSELineParser.parse(line: line) else { continue }
+
+                        switch event {
+                        case .data(let chunk):
+                            for streamEvent in accumulator.feed(chunk: chunk) {
+                                continuation.yield(streamEvent)
+                            }
+                        case .done:
+                            sseLog.info("[SSE] processStreaming — received [DONE]")
+                            for streamEvent in accumulator.finish() {
+                                continuation.yield(streamEvent)
+                            }
+
+                            let assistantMessage = accumulator.assembledMessage()
+                            self.updateConversation(
+                                conversation,
+                                requestMessages: requestMessages,
+                                assistantMessage: assistantMessage
+                            )
+
+                            let finalResponse = accumulator.buildFinalResponse()
+                            sseLog.info("[SSE] processStreaming — complete, \(finalResponse.actions.count) actions")
+                            continuation.yield(.completed(finalResponse))
+                        }
+                    }
+
+                    continuation.finish()
+                } catch {
+                    sseLog.error("[SSE] processStreaming — error: \(error.localizedDescription)")
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
     }
 
     // MARK: - Request Building
@@ -236,6 +335,25 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
             "messages": messages,
             "tools": prompt.tools,
             "tool_choice": prompt.toolChoice.requestBodyValue,
+        ]
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    private func buildStreamingRequest(messages: [[String: Any]], prompt: LLMPrompt) throws -> URLRequest {
+        var request = URLRequest(url: Self.endpoint)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = [
+            "model": model,
+            "messages": messages,
+            "tools": prompt.tools,
+            "tool_choice": prompt.toolChoice.requestBodyValue,
+            "stream": true,
+            "stream_options": ["include_usage": true],
         ]
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -555,11 +673,11 @@ public final class PPQLLMService: LLMService, @unchecked Sendable {
 
 // MARK: - Response Decoding Types
 
-private struct CreateEntriesArguments: Decodable {
+struct CreateEntriesArguments: Decodable {
     let entries: [RawCreateAction]
 }
 
-private struct RawCreateAction: Decodable {
+struct RawCreateAction: Decodable {
     let content: String
     let category: EntryCategory
     let sourceText: String?
@@ -622,11 +740,11 @@ private struct RawCreateAction: Decodable {
     }
 }
 
-private struct UpdateEntriesArguments: Decodable {
+struct UpdateEntriesArguments: Decodable {
     let updates: [RawUpdateAction]
 }
 
-private struct RawUpdateAction: Decodable {
+struct RawUpdateAction: Decodable {
     let id: String
     let fields: RawUpdateFields
     let reason: String?
@@ -647,7 +765,7 @@ private struct RawUpdateAction: Decodable {
     }
 }
 
-private struct RawUpdateFields: Decodable {
+struct RawUpdateFields: Decodable {
     let content: String?
     let summary: String?
     let category: EntryCategory?
@@ -709,15 +827,15 @@ private struct RawFocusItem: Decodable {
     let reason: String
 }
 
-private struct EntryMutationArguments: Decodable {
+struct EntryMutationArguments: Decodable {
     let entries: [RawEntryMutation]
 }
 
-private struct UpdateMemoryArguments: Decodable {
+struct UpdateMemoryArguments: Decodable {
     let content: String
 }
 
-private struct RawEntryMutation: Decodable {
+struct RawEntryMutation: Decodable {
     let id: String
     let reason: String?
 
@@ -730,12 +848,12 @@ private struct RawEntryMutation: Decodable {
     }
 }
 
-private struct ConfirmActionsArguments: Decodable {
+struct ConfirmActionsArguments: Decodable {
     let message: String
     let actions: [RawProposedAction]
 }
 
-private struct RawProposedAction: Decodable {
+struct RawProposedAction: Decodable {
     let tool: String
     let arguments: AnyCodable
 
@@ -746,7 +864,7 @@ private struct RawProposedAction: Decodable {
 }
 
 /// Wrapper to decode arbitrary JSON objects from the arguments field.
-private struct AnyCodable: Decodable {
+struct AnyCodable: Decodable {
     let value: Any
 
     init(from decoder: Decoder) throws {

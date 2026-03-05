@@ -15,7 +15,10 @@ enum ToolResultBuilder {
 
         for group in groups {
             coveredToolCallIDs.insert(group.toolCallID)
-            let slice = outcomes[group.actionRange]
+            // Safe access: clamp range to outcomes bounds to avoid index-out-of-bounds
+            let clampedLower = min(group.actionRange.lowerBound, outcomes.count)
+            let clampedUpper = min(group.actionRange.upperBound, outcomes.count)
+            let slice = outcomes[clampedLower..<clampedUpper]
             let content = formatGroupOutcomes(toolName: group.toolName, outcomes: Array(slice))
             results.append((toolCallID: group.toolCallID, content: content))
         }

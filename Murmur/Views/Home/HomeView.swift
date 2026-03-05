@@ -133,16 +133,26 @@ struct HomeView: View {
                         onAction: onAction
                     )
 
+                    // Processing indicator
+                    if appState.conversation.isProcessing {
+                        ProcessingDotsView()
+                            .transition(.opacity)
+                    }
+
                     // Category sections
                     VStack(spacing: 0) {
                         ForEach(entriesByCategory, id: \.category) { group in
                             CategorySectionView(
                                 category: group.category,
                                 entries: group.entries,
+                                arrivedEntryIDs: appState.conversation.arrivedEntryIDs,
                                 activeSwipeEntryID: $activeSwipeEntryID,
                                 onEntryTap: onEntryTap,
                                 swipeActionsProvider: swipeActions(for:),
-                                onAction: onAction
+                                onAction: onAction,
+                                onGlowComplete: { id in
+                                    appState.conversation.arrivedEntryIDs.remove(id)
+                                }
                             )
                         }
                     }
@@ -493,38 +503,59 @@ private struct FocusCardView: View {
 private struct CategorySectionView: View {
     let category: EntryCategory
     let entries: [Entry]
+    let arrivedEntryIDs: Set<UUID>
     @Binding var activeSwipeEntryID: UUID?
     let onEntryTap: (Entry) -> Void
     let swipeActionsProvider: (Entry) -> [CardSwipeAction]
     let onAction: (Entry, EntryAction) -> Void
+    let onGlowComplete: (UUID) -> Void
 
     @AppStorage private var isCollapsed: Bool
+
+    // MARK: - Peek State (collapsed section arrival preview)
+    @State private var peekEntry: Entry?
+    @State private var peekCount: Int = 0
+    @State private var peekVisible: Bool = false
+    @State private var peekTask: Task<Void, Never>?
+    @State private var headerGlowIntensity: Double = 0
 
     init(
         category: EntryCategory,
         entries: [Entry],
+        arrivedEntryIDs: Set<UUID>,
         activeSwipeEntryID: Binding<UUID?>,
         onEntryTap: @escaping (Entry) -> Void,
         swipeActionsProvider: @escaping (Entry) -> [CardSwipeAction],
-        onAction: @escaping (Entry, EntryAction) -> Void
+        onAction: @escaping (Entry, EntryAction) -> Void,
+        onGlowComplete: @escaping (UUID) -> Void
     ) {
         self.category = category
         self.entries = entries
+        self.arrivedEntryIDs = arrivedEntryIDs
         self._activeSwipeEntryID = activeSwipeEntryID
         self.onEntryTap = onEntryTap
         self.swipeActionsProvider = swipeActionsProvider
         self.onAction = onAction
+        self.onGlowComplete = onGlowComplete
         self._isCollapsed = AppStorage(wrappedValue: false, "section_\(category.rawValue)_collapsed")
     }
 
     private var color: Color { Theme.categoryColor(category) }
-    private var hasOverdue: Bool { entries.contains { $0.dueDate.map { $0 < Date() } ?? false } }
 
     var body: some View {
         VStack(spacing: 0) {
             // Section header
             Button {
-                withAnimation(Animations.smoothSlide) { isCollapsed.toggle() }
+                withAnimation(Animations.smoothSlide) {
+                    isCollapsed.toggle()
+                    // Clear peek when expanding
+                    if !isCollapsed {
+                        peekTask?.cancel()
+                        peekVisible = false
+                        peekEntry = nil
+                        peekCount = 0
+                    }
+                }
             } label: {
                 HStack(spacing: 0) {
                     HStack(spacing: 8) {
@@ -542,6 +573,14 @@ private struct CategorySectionView: View {
                     Spacer()
 
                     HStack(spacing: 8) {
+                        // Arrival count badge
+                        if peekCount > 0 {
+                            Text("+\(peekCount)")
+                                .font(Theme.Typography.badge)
+                                .foregroundStyle(color)
+                                .transition(.scale.combined(with: .opacity))
+                        }
+
                         Text("\(entries.count)")
                             .font(Theme.Typography.badge)
                             .foregroundStyle(Theme.Colors.textTertiary)
@@ -564,9 +603,32 @@ private struct CategorySectionView: View {
             .buttonStyle(.plain)
             .padding(.horizontal, Theme.Spacing.screenPadding)
             .padding(.top, 20)
-            .padding(.bottom, isCollapsed ? 8 : 12)
+            .padding(.bottom, isCollapsed && !peekVisible ? 8 : 12)
+            .shadow(color: color.opacity(0.3 * headerGlowIntensity), radius: 8)
 
-            // Section body
+            // Peek slot (collapsed section arrival preview)
+            if isCollapsed && peekVisible, let peekEntry {
+                SmartListRow(
+                    entry: peekEntry,
+                    onAction: onAction,
+                    glowAccent: color,
+                    glowIntensity: 1.0
+                )
+                .padding(.horizontal, Theme.Spacing.screenPadding)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+                .onTapGesture {
+                    // Expand section, cancel retract
+                    peekTask?.cancel()
+                    withAnimation(Animations.smoothSlide) {
+                        isCollapsed = false
+                        peekVisible = false
+                        self.peekEntry = nil
+                        peekCount = 0
+                    }
+                }
+            }
+
+            // Section body (expanded)
             if !isCollapsed {
                 LazyVStack(spacing: 12) {
                     ForEach(entries) { entry in
@@ -576,13 +638,108 @@ private struct CategorySectionView: View {
                             entryID: entry.id,
                             onTap: { onEntryTap(entry) }
                         ) {
-                            SmartListRow(entry: entry, onAction: onAction)
+                            GlowingEntryRow(
+                                entry: entry,
+                                isArrived: arrivedEntryIDs.contains(entry.id),
+                                category: category,
+                                onAction: onAction,
+                                onGlowComplete: { onGlowComplete(entry.id) }
+                            )
                         }
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .scale(scale: 0.97)).combined(with: .offset(y: 8)),
+                            removal: .opacity.combined(with: .scale(scale: 0.95))
+                        ))
                     }
                 }
                 .padding(.horizontal, Theme.Spacing.screenPadding)
                 .transition(.opacity.combined(with: .move(edge: .top)))
+                .animation(Animations.cardAppear, value: entries.map(\.id))
             }
+        }
+        .onChange(of: arrivedEntryIDs) { _, newIDs in
+            guard isCollapsed else { return }
+            let newInSection = entries.filter { newIDs.contains($0.id) }
+            guard let latest = newInSection.first else { return }
+
+            peekEntry = latest
+            peekCount += newInSection.count
+            showPeek()
+        }
+    }
+
+    // MARK: - Peek Helpers
+
+    private func showPeek() {
+        // Header pulse
+        headerGlowIntensity = 1.0
+        withAnimation(.easeOut(duration: 1.0)) {
+            headerGlowIntensity = 0
+        }
+
+        // Show peek slot
+        withAnimation(Animations.cardAppear) {
+            peekVisible = true
+        }
+
+        // Reset retract timer
+        peekTask?.cancel()
+        peekTask = Task {
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation(Animations.smoothSlide) {
+                    peekVisible = false
+                }
+                // Reset after animation completes
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    peekEntry = nil
+                    peekCount = 0
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Glowing Entry Row
+
+private struct GlowingEntryRow: View {
+    let entry: Entry
+    let isArrived: Bool
+    let category: EntryCategory
+    let onAction: (Entry, EntryAction) -> Void
+    let onGlowComplete: () -> Void
+
+    @State private var glowIntensity: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        SmartListRow(
+            entry: entry,
+            onAction: onAction,
+            glowAccent: glowIntensity > 0 ? Theme.categoryColor(category) : nil,
+            glowIntensity: glowIntensity
+        )
+        .onChange(of: isArrived) { _, newValue in
+            if newValue { triggerGlow() }
+        }
+        .onAppear {
+            if isArrived && glowIntensity == 0 { triggerGlow() }
+        }
+    }
+
+    private func triggerGlow() {
+        if reduceMotion {
+            // Skip animation, just clear tracking
+            onGlowComplete()
+            return
+        }
+        glowIntensity = 1.0
+        withAnimation(.easeOut(duration: 2.0)) {
+            glowIntensity = 0
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            onGlowComplete()
         }
     }
 }
@@ -592,6 +749,8 @@ private struct CategorySectionView: View {
 private struct SmartListRow: View {
     let entry: Entry
     let onAction: (Entry, EntryAction) -> Void
+    var glowAccent: Color?
+    var glowIntensity: Double = 0
 
     private var isOverdue: Bool {
         guard let dueDate = entry.dueDate else { return false }
@@ -665,7 +824,7 @@ private struct SmartListRow: View {
                 }
             }
         }
-        .cardStyle()
+        .cardStyle(accent: glowAccent, intensity: glowIntensity)
         .opacity(entry.isDoneForPeriod || entry.isCompletedToday ? 0.5 : 1.0)
         .animation(.easeInOut(duration: 0.2), value: entry.isCompletedToday)
         .accessibilityElement(children: .combine)
@@ -673,119 +832,31 @@ private struct SmartListRow: View {
     }
 }
 
-// MARK: - Card Swipe Actions
+// MARK: - Processing Dots (inline streaming indicator)
 
-struct CardSwipeAction: Identifiable {
-    let id = UUID()
-    let icon: String
-    let label: String
-    let color: Color
-    let handler: () -> Void
-}
-
-struct SwipeableCard<Content: View>: View {
-    let actions: [CardSwipeAction]
-    @Binding var activeSwipeID: UUID?
-    let entryID: UUID
-    var onHeightChange: ((CGFloat) -> Void)?
-    let onTap: () -> Void
-    @ViewBuilder let content: () -> Content
-
-    @State private var dragOffset: CGFloat = 0
-    @State private var revealed = false
-    @State private var lastDragEndTime: Date = .distantPast
-    @State private var cardHeight: CGFloat = 0
-    @State private var isDraggingHorizontally = false
-
-    private let actionWidth: CGFloat = 74
-    private let swipeVisibilityThreshold: CGFloat = -1
-    private var totalWidth: CGFloat { actionWidth * CGFloat(actions.count) }
+private struct ProcessingDotsView: View {
+    @State private var phase: Int = 0
 
     var body: some View {
-        ZStack(alignment: .trailing) {
-            // Action buttons revealed behind the card
-            HStack(spacing: 0) {
-                ForEach(actions) { action in
-                    Button {
-                        action.handler()
-                        snap(reveal: false)
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: action.icon)
-                                .font(.system(size: 16, weight: .semibold))
-                            Text(action.label)
-                                .font(.system(size: 10, weight: .medium))
-                        }
-                        .foregroundStyle(.white)
-                        .frame(width: actionWidth)
-                        .frame(maxHeight: .infinity)
-                        .background(action.color)
-                    }
-                    .buttonStyle(.plain)
+        HStack(spacing: 5) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .fill(Theme.Colors.accentPurple)
+                    .frame(width: 5, height: 5)
+                    .scaleEffect(phase == i ? 1.4 : 0.8)
+                    .opacity(phase == i ? 1.0 : 0.3)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
+        .accessibilityLabel("Processing")
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(400))
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    phase = (phase + 1) % 3
                 }
             }
-            .frame(height: cardHeight > 0 ? cardHeight : nil)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius))
-            .opacity(revealed || dragOffset < swipeVisibilityThreshold ? 1 : 0)
-            .zIndex(revealed ? 1 : 0)
-
-            // Card content slides left to reveal actions
-            content()
-                .background(
-                    GeometryReader { geo in
-                        Color.clear
-                            .onAppear {
-                                cardHeight = geo.size.height
-                                onHeightChange?(geo.size.height)
-                            }
-                            .onChange(of: geo.size.height) { _, height in
-                                cardHeight = height
-                                onHeightChange?(height)
-                            }
-                    }
-                    .allowsHitTesting(false)
-                )
-                .contentShape(Rectangle())
-                .offset(x: dragOffset)
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 10, coordinateSpace: .local)
-                        .onChanged { value in
-                            guard !actions.isEmpty else { return }
-                            let dx = value.translation.width
-                            let dy = value.translation.height
-                            guard abs(dx) > abs(dy) else { return }
-                            isDraggingHorizontally = true
-                            activeSwipeID = entryID
-                            let base: CGFloat = revealed ? -totalWidth : 0
-                            dragOffset = min(0, max(-totalWidth, base + dx))
-                        }
-                        .onEnded { _ in
-                            guard isDraggingHorizontally else { return }
-                            isDraggingHorizontally = false
-                            snap(reveal: -dragOffset > totalWidth * 0.35)
-                            lastDragEndTime = Date()
-                        }
-                )
-        }
-        .onTapGesture {
-            guard Date().timeIntervalSince(lastDragEndTime) > 0.15 else { return }
-            if revealed {
-                snap(reveal: false)
-            } else {
-                onTap()
-            }
-        }
-        .onChange(of: activeSwipeID) { _, newID in
-            if newID != entryID && revealed {
-                snap(reveal: false)
-            }
-        }
-    }
-
-    private func snap(reveal: Bool) {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            revealed = reveal
-            dragOffset = reveal ? -totalWidth : 0
         }
     }
 }

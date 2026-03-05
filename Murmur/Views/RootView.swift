@@ -104,47 +104,6 @@ struct RootView: View {
                         .transition(.opacity)
                         .zIndex(15)
                 }
-                // Results surface — shows after agent completes actions or requests confirmation
-                if conversation.showResultsSurface {
-                    ResultsSurfaceView(
-                        results: conversation.pendingResults,
-                        confirmation: conversation.pendingConfirmation,
-                        entries: entries,
-                        onDismiss: {
-                            withAnimation(Animations.overlayDismiss) {
-                                conversation.dismissResults()
-                            }
-                        },
-                        onUndo: { data in
-                            data.undo.execute(
-                                entries: entries,
-                                context: modelContext,
-                                preferences: notifPrefs
-                            )
-                            withAnimation(Animations.overlayDismiss) {
-                                conversation.dismissResults()
-                            }
-                            showToast("Undone", type: .info)
-                        },
-                        onConfirm: { actions in
-                            withAnimation(Animations.overlayDismiss) {
-                                conversation.confirmPendingActions(
-                                    actions: actions,
-                                    entries: entries,
-                                    modelContext: modelContext,
-                                    preferences: notifPrefs
-                                )
-                            }
-                        },
-                        onDeny: {
-                            withAnimation(Animations.overlayDismiss) {
-                                conversation.denyPendingActions()
-                            }
-                        }
-                    )
-                    .transition(.opacity.animation(.easeInOut(duration: 0.3)))
-                    .zIndex(25)
-                }
             }
 
             // Post-onboarding card hints
@@ -305,6 +264,15 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .murmurOpenEntry)) { notification in
             guard let uuid = notification.userInfo?["entryID"] as? UUID else { return }
             selectedEntry = entries.first { $0.id == uuid }
+        }
+        .onChange(of: appState.conversation.agentStreamText) { _, text in
+            guard let text, !text.isEmpty else { return }
+            // Text-only response (no actions) → show as bottom toast
+            if appState.conversation.arrivedEntryIDs.isEmpty {
+                showToast(text, type: .info)
+            }
+            // Clear after showing
+            appState.conversation.agentStreamText = nil
         }
     }
 
@@ -469,8 +437,11 @@ struct RootView: View {
 
 private extension RootView {
     var activeEntries: [Entry] {
-        entries.filter {
-            $0.status == .active && $0.persistentModelID != pendingDeleteEntry?.persistentModelID
+        let pendingReveal = appState.conversation.pendingRevealEntryIDs
+        return entries.filter {
+            $0.status == .active
+                && $0.persistentModelID != pendingDeleteEntry?.persistentModelID
+                && !pendingReveal.contains($0.id)
         }
     }
 

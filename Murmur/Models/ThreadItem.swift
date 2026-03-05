@@ -46,23 +46,6 @@ struct ActionResultData {
     var isEmpty: Bool { applied.isEmpty && failures.isEmpty }
 }
 
-/// Data for the results surface shown after agent actions complete.
-struct ResultsSurfaceData: Identifiable {
-    let id = UUID()
-    let summary: String
-    let applied: [AppliedActionInfo]
-    let undo: UndoTransaction
-    let generation: Int
-}
-
-/// Data for a pending confirmation (agent proposed actions, awaiting user confirm/deny).
-struct ConfirmationData: Identifiable {
-    let id = UUID()
-    let message: String
-    let proposedActions: [AgentAction]
-    let transcript: String
-}
-
 /// Info about a single applied action for display in the thread.
 struct AppliedActionInfo: Identifiable {
     let id: UUID

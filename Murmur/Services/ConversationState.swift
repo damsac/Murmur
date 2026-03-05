@@ -5,12 +5,14 @@ import SwiftData
 import MurmurCore
 import AVFAudio
 import UIKit
+import os.log
+
+private let sseLog = Logger(subsystem: "com.gudnuf.murmur", category: "SSE")
 
 /// Manages conversation thread state, input lifecycle, and agent pipeline interaction.
 /// Lazy-initialized from AppState on first conversation open.
 @Observable
 @MainActor
-// swiftlint:disable:next type_body_length
 final class ConversationState {
     // MARK: - Thread
 
@@ -23,11 +25,13 @@ final class ConversationState {
     /// Latest agent response text for the stream overlay. Cleared after animation.
     var agentStreamText: String?
 
-    /// Results surface data to show completed actions. Cleared on dismiss.
-    var pendingResults: ResultsSurfaceData?
+    /// Entry IDs created or updated in the current agent response.
+    /// Views use this to apply arrival glow animation.
+    var arrivedEntryIDs: Set<UUID> = []
 
-    /// Pending confirmation awaiting user confirm/deny. Cleared on confirm or deny.
-    var pendingConfirmation: ConfirmationData?
+    /// Entry IDs waiting to be revealed with stagger animation.
+    /// Entries exist in SwiftData but are filtered from the view until revealed.
+    var pendingRevealEntryIDs: Set<UUID> = []
 
     /// Transcript saved when recording stops, shown in overlay during processing.
     var displayTranscript: String?
@@ -42,7 +46,6 @@ final class ConversationState {
     private var processingTask: Task<Void, Never>?
     private var recordingTask: Task<Void, Never>?
     private var conversation: LLMConversation = LLMConversation()
-    private let denialLogStore = DenialLogStore()
 
     /// Stable ID for the ephemeral status indicator (replaced in-place, not appended)
     private let statusItemID = UUID()
@@ -96,6 +99,9 @@ final class ConversationState {
     func startRecording() {
         guard case .idle = inputState else { return }
         guard let pipeline = appState?.pipeline else { return }
+
+        arrivedEntryIDs.removeAll()
+        pendingRevealEntryIDs.removeAll()
 
         withAnimation(.easeInOut(duration: 0.35)) {
             inputState = .recording(transcript: "")
@@ -262,6 +268,9 @@ final class ConversationState {
         preferences: NotificationPreferences
     ) {
         processingTask?.cancel()
+        arrivedEntryIDs.removeAll()
+        pendingRevealEntryIDs.removeAll()
+
         processingTask = Task { @MainActor in
             guard let appState, let pipeline = appState.pipeline else {
                 inputState = .idle
@@ -270,94 +279,90 @@ final class ConversationState {
             }
 
             do {
+                sseLog.info("[SSE] submitDirect — streaming agent call, gen=\(gen)")
                 appState.llmService?.agentMemory = appState.memoryStore?.load() ?? ""
                 let agentContext = entries.filter { $0.status == .active || $0.status == .snoozed }
                     .map { $0.toAgentContext() }
-
-                // Truncate conversation history to prevent unbounded token growth
                 truncateConversationHistory()
 
-                let result = try await pipeline.processWithAgent(
+                let stream = try await pipeline.processWithAgentStreaming(
                     transcript: text,
                     existingEntries: agentContext,
                     conversation: conversation
                 )
-                guard !Task.isCancelled else { return }
 
-                await appState.refreshCreditBalance()
-
-                // Check for confirmation request first
-                if let confirmAction = result.response.actions.first(where: \.isConfirmation),
-                   case .confirm(let request) = confirmAction {
-                    // Don't execute — show confirmation UI
-                    removeStatusItem()
-                    self.pendingConfirmation = ConfirmationData(
-                        message: request.message,
-                        proposedActions: request.proposedActions,
-                        transcript: text
-                    )
-                    self.displayTranscript = nil
-                    inputState = .idle
-                    return
-                }
-
-                // Execute actions
-                let ctx = AgentActionExecutor.ExecutionContext(
-                    entries: entries,
-                    transcript: text,
-                    source: .text,
-                    modelContext: modelContext,
-                    preferences: preferences,
+                let execCtx = AgentActionExecutor.ExecutionContext(
+                    entries: entries, transcript: text, source: .text,
+                    modelContext: modelContext, preferences: preferences,
                     memoryStore: appState.memoryStore
                 )
-                let execResult = AgentActionExecutor.execute(
-                    actions: result.response.actions,
-                    context: ctx
-                )
-                guard !Task.isCancelled else { return }
-
-                // Build and replace tool results
-                let toolResults = ToolResultBuilder.build(
-                    groups: result.response.toolCallGroups,
-                    outcomes: execResult.outcomes,
-                    parseFailures: result.response.parseFailures
-                )
-                conversation.replaceToolResults(toolResults)
-
-                // Remove processing status
-                removeStatusItem()
-
-                // Add agent text response if present
-                if let textResponse = result.response.textResponse,
-                   !textResponse.isEmpty {
-                    threadItems.append(.agentText(text: textResponse))
-                    self.agentStreamText = textResponse
-                }
-
-                // Add action result if there were actions
-                let hasActions = !execResult.applied.isEmpty || !execResult.failures.isEmpty
-                if hasActions {
-                    handleActionResult(execResult: execResult, generation: gen)
-                } else if let textResponse = result.response.textResponse,
-                          !textResponse.isEmpty {
-                    // Text-only response — show in results surface
-                    self.pendingResults = ResultsSurfaceData(
-                        summary: textResponse,
-                        applied: [],
-                        undo: UndoTransaction(items: []),
-                        generation: gen
-                    )
-                }
-
+                try await consumeAgentStream(stream, generation: gen, context: execCtx, appState: appState)
                 inputState = .idle
             } catch {
                 guard !Task.isCancelled else { return }
                 removeStatusItem()
-
-                let errorMessage = sanitizeError(error)
-                let retryText = text
-                threadItems.append(.error(message: errorMessage, retryText: retryText))
+                sseLog.error("[SSE] streaming agent call failed: \(error.localizedDescription)")
+                threadItems.append(.error(message: sanitizeError(error), retryText: text))
                 inputState = .idle
+            }
+        }
+    }
+
+    private func consumeAgentStream(
+        _ stream: AsyncThrowingStream<AgentStreamEvent, Error>,
+        generation gen: Int,
+        context execCtx: AgentActionExecutor.ExecutionContext,
+        appState: AppState
+    ) async throws {
+        var allApplied: [AgentActionExecutor.AppliedAction] = []
+        var allFailures: [AgentActionExecutor.ActionFailure] = []
+        var allUndoItems: [UndoItem] = []
+        var allOutcomes: [AgentActionExecutor.ActionOutcome] = []
+        var allGroups: [ToolCallGroup] = []
+        var allParseFailures: [ParseFailure] = []
+        var streamedText = ""
+
+        for try await event in stream {
+            guard !Task.isCancelled else { break }
+
+            switch event {
+            case .textDelta(let delta):
+                streamedText += delta
+                self.agentStreamText = streamedText
+
+            case .toolCallStarted:
+                break
+
+            case .toolCallCompleted(let result):
+                sseLog.info("[SSE] tool call completed: \(result.toolName) — executing")
+                allGroups.append(result.group)
+                let execResult = AgentActionExecutor.execute(actions: result.actions, context: execCtx)
+                allApplied.append(contentsOf: execResult.applied)
+                allFailures.append(contentsOf: execResult.failures)
+                allUndoItems.append(contentsOf: execResult.undo.items)
+                allOutcomes.append(contentsOf: execResult.outcomes)
+                trackArrivedEntries(execResult.applied)
+
+            case .toolCallFailed(let failure):
+                allParseFailures.append(failure)
+
+            case .completed:
+                await appState.refreshCreditBalance()
+                let toolResults = ToolResultBuilder.build(
+                    groups: allGroups, outcomes: allOutcomes, parseFailures: allParseFailures
+                )
+                conversation.replaceToolResults(toolResults)
+                removeStatusItem()
+
+                if !streamedText.isEmpty, allApplied.isEmpty {
+                    threadItems.append(.agentText(text: streamedText))
+                }
+
+                let combined = AgentActionExecutor.ExecutionResult(
+                    applied: allApplied, failures: allFailures,
+                    undo: UndoTransaction(items: allUndoItems), outcomes: allOutcomes
+                )
+                recordActionResult(execResult: combined, generation: gen)
             }
         }
     }
@@ -381,119 +386,6 @@ final class ConversationState {
             }
             return false
         })?.id }
-    }
-
-    // MARK: - Action Result Handling
-
-    private func handleActionResult(
-        execResult: AgentActionExecutor.ExecutionResult,
-        generation gen: Int
-    ) {
-        let appliedInfos = execResult.applied.map { applied -> AppliedActionInfo in
-            let actionType = AppliedActionInfo.ActionType.from(applied.action)
-            return AppliedActionInfo(id: applied.entry.id, entry: applied.entry, actionType: actionType)
-        }
-
-        let summary = buildActionSummary(applied: execResult.applied, failures: execResult.failures)
-        let resultData = ActionResultData(
-            summary: summary,
-            applied: appliedInfos,
-            failures: execResult.failures.map { $0.reason },
-            undo: execResult.undo,
-            generation: gen
-        )
-        threadItems.append(.actionResult(result: resultData))
-
-        // Use LLM text response as summary if available, otherwise use action summary
-        let resultsSummary = self.agentStreamText ?? resultData.summary
-
-        // Emit results surface for RootView
-        self.pendingResults = ResultsSurfaceData(
-            summary: resultsSummary,
-            applied: appliedInfos,
-            undo: execResult.undo,
-            generation: gen
-        )
-
-        // Clear transcript overlay
-        self.displayTranscript = nil
-
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-    }
-
-    // MARK: - Results Surface
-
-    /// Whether the results surface should be shown (either results or confirmation).
-    var showResultsSurface: Bool {
-        pendingResults != nil || pendingConfirmation != nil
-    }
-
-    func dismissResults() {
-        pendingResults = nil
-        agentStreamText = nil
-        displayTranscript = nil
-    }
-
-    // MARK: - Confirmation
-
-    func confirmPendingActions(
-        actions: [AgentAction],
-        entries: [Entry],
-        modelContext: ModelContext,
-        preferences: NotificationPreferences
-    ) {
-        guard let confirmation = pendingConfirmation else { return }
-        pendingConfirmation = nil
-
-        let gen = nextGeneration()
-        let ctx = AgentActionExecutor.ExecutionContext(
-            entries: entries,
-            transcript: confirmation.transcript,
-            source: .text,
-            modelContext: modelContext,
-            preferences: preferences,
-            memoryStore: appState?.memoryStore
-        )
-        let execResult = AgentActionExecutor.execute(
-            actions: actions,
-            context: ctx
-        )
-
-        let appliedInfos = execResult.applied.map { applied -> AppliedActionInfo in
-            let actionType = AppliedActionInfo.ActionType.from(applied.action)
-            return AppliedActionInfo(id: applied.entry.id, entry: applied.entry, actionType: actionType)
-        }
-
-        let summary = buildActionSummary(applied: execResult.applied, failures: execResult.failures)
-        let resultData = ActionResultData(
-            summary: summary,
-            applied: appliedInfos,
-            failures: execResult.failures.map { $0.reason },
-            undo: execResult.undo,
-            generation: gen
-        )
-        threadItems.append(.actionResult(result: resultData))
-
-        self.pendingResults = ResultsSurfaceData(
-            summary: summary,
-            applied: appliedInfos,
-            undo: execResult.undo,
-            generation: gen
-        )
-
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-    }
-
-    func denyPendingActions() {
-        guard let confirmation = pendingConfirmation else { return }
-        pendingConfirmation = nil
-
-        // Log the denial for future learning
-        denialLogStore.log(
-            transcript: confirmation.transcript,
-            proposedActions: confirmation.proposedActions,
-            message: confirmation.message
-        )
     }
 
     // MARK: - Retry
@@ -531,8 +423,8 @@ final class ConversationState {
         generationCounter = 0
         conversation = LLMConversation()
         agentStreamText = nil
-        pendingResults = nil
-        pendingConfirmation = nil
+        arrivedEntryIDs.removeAll()
+        pendingRevealEntryIDs.removeAll()
         displayTranscript = nil
         audioLevels = []
 
@@ -549,11 +441,67 @@ final class ConversationState {
     func cancelProcessing() {
         processingTask?.cancel()
         processingTask = nil
+        pendingRevealEntryIDs.removeAll()
         removeStatusItem()
         inputState = .idle
     }
 
     // MARK: - Private Helpers
+
+    /// Track which entries just arrived and stagger their reveal.
+    /// First entry appears immediately; rest appear with 150ms delays.
+    private func trackArrivedEntries(_ applied: [AgentActionExecutor.AppliedAction]) {
+        let entries = applied.map { $0.entry }
+        guard !entries.isEmpty else { return }
+
+        // Hide all entries initially
+        for entry in entries {
+            pendingRevealEntryIDs.insert(entry.id)
+        }
+
+        // Stagger reveals: first immediately, rest with 150ms gaps
+        for (index, entry) in entries.enumerated() {
+            let delay = Double(index) * 0.15
+            Task { @MainActor in
+                if delay > 0 {
+                    try? await Task.sleep(for: .seconds(delay))
+                }
+                guard !Task.isCancelled else { return }
+                withAnimation(Animations.cardAppear) {
+                    pendingRevealEntryIDs.remove(entry.id)
+                    arrivedEntryIDs.insert(entry.id)
+                }
+                // Safety TTL: clear glow after 5s per entry
+                try? await Task.sleep(for: .seconds(5))
+                arrivedEntryIDs.remove(entry.id)
+            }
+        }
+    }
+
+    /// Record completed actions to the thread and fire haptic.
+    private func recordActionResult(
+        execResult: AgentActionExecutor.ExecutionResult,
+        generation gen: Int
+    ) {
+        guard !execResult.applied.isEmpty || !execResult.failures.isEmpty else { return }
+
+        let appliedInfos = execResult.applied.map { applied -> AppliedActionInfo in
+            let actionType = AppliedActionInfo.ActionType.from(applied.action)
+            return AppliedActionInfo(id: applied.entry.id, entry: applied.entry, actionType: actionType)
+        }
+
+        let summary = buildActionSummary(applied: execResult.applied, failures: execResult.failures)
+        let resultData = ActionResultData(
+            summary: summary,
+            applied: appliedInfos,
+            failures: execResult.failures.map { $0.reason },
+            undo: execResult.undo,
+            generation: gen
+        )
+        threadItems.append(.actionResult(result: resultData))
+        displayTranscript = nil
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
 
     private func nextGeneration() -> Int {
         generationCounter += 1
@@ -570,49 +518,39 @@ final class ConversationState {
         }
     }
 
-    private func buildActionSummary(
-        applied: [AgentActionExecutor.AppliedAction],
-        failures: [AgentActionExecutor.ActionFailure]
-    ) -> String {
-        let counts: [(String, Int)] = [
-            ("Created", applied.filter { if case .create = $0.action { return true }; return false }.count),
-            ("Updated", applied.filter { if case .update = $0.action { return true }; return false }.count),
-            ("Completed", applied.filter { if case .complete = $0.action { return true }; return false }.count),
-            ("Archived", applied.filter { if case .archive = $0.action { return true }; return false }.count)
-        ]
-
-        let parts = counts.compactMap { label, count -> String? in
-            guard count > 0 else { return nil }
-            return "\(label) \(count) \(count == 1 ? "entry" : "entries")"
-        }
-
-        if parts.isEmpty {
-            let total = applied.count
-            return total == 1 ? "1 change" : "\(total) changes"
-        }
-        return parts.joined(separator: ", ")
-    }
-
-    private func sanitizeError(_ error: Error) -> String {
-        if case PipelineError.insufficientCredits = error {
-            return "Out of credits."
-        }
-        if case PipelineError.emptyTranscript = error {
-            return "Nothing to process."
-        }
-        if case PipelineError.noEntriesExtracted = error {
-            return "No entries found in your input."
-        }
-        if case PipelineError.extractionFailed = error {
-            return "Couldn't process — network error."
-        }
-        return "Couldn't process — try again."
-    }
-
-    /// Truncate conversation history to prevent unbounded token growth.
-    /// Keeps the system prompt (first message) and the most recent turns.
     private func truncateConversationHistory() {
-        let maxMessages = 20  // ~10 turns (user + assistant pairs)
-        conversation.truncate(keepingLast: maxMessages)
+        conversation.truncate(keepingLast: 20)
+    }
+}
+
+// MARK: - Helpers (outside class body for swiftlint type_body_length)
+
+private func buildActionSummary(
+    applied: [AgentActionExecutor.AppliedAction],
+    failures: [AgentActionExecutor.ActionFailure]
+) -> String {
+    let labels: [(String, (AgentAction) -> Bool)] = [
+        ("Created", { if case .create = $0 { return true }; return false }),
+        ("Updated", { if case .update = $0 { return true }; return false }),
+        ("Completed", { if case .complete = $0 { return true }; return false }),
+        ("Archived", { if case .archive = $0 { return true }; return false }),
+    ]
+    let parts = labels.compactMap { label, pred -> String? in
+        let n = applied.filter { pred($0.action) }.count
+        return n > 0 ? "\(label) \(n) \(n == 1 ? "entry" : "entries")" : nil
+    }
+    if parts.isEmpty {
+        return applied.count == 1 ? "1 change" : "\(applied.count) changes"
+    }
+    return parts.joined(separator: ", ")
+}
+
+private func sanitizeError(_ error: Error) -> String {
+    switch error {
+    case PipelineError.insufficientCredits: return "Out of credits."
+    case PipelineError.emptyTranscript: return "Nothing to process."
+    case PipelineError.noEntriesExtracted: return "No entries found in your input."
+    case PipelineError.extractionFailed: return "Couldn't process — network error."
+    default: return "Couldn't process — try again."
     }
 }

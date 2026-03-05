@@ -6,38 +6,38 @@ What dam is working on right now. Updated with every PR.
 
 ## Current focus
 
-- **Shipped** — daily focus system, results surface, confirmation UI, focus strip polish, recording UI fix, thought category removal
+- **Shipping** — SSE streaming, entry arrival animations, confirmation UI removal, crash fixes
 
 ## What happened last session
 
-- Removed `.thought` category — no distinct behavior, falls back to `.note`
-- Daily focus system end-to-end: `compose_focus` tool, `DailyFocusStore`, `AppState.requestDailyFocus()`, deterministic fallback
-- `FocusStripView` rewired for LLM-curated focus: greeting + briefing message + staggered card entry
-- `FocusShimmerView` — rippling shimmer placeholder while LLM composes
-- `FocusContainerView` — stable-height container through loading → loaded transition
-- `ResultsSurfaceView` + `ConfirmationData` + `DenialLogStore` — replaces toast-based agent responses
-- Confirmation UI: tap-to-cycle actions, removed header clutter, fixed card backgrounds
-- Dev mode: "Regenerate Daily Focus" button clears cache + triggers fresh LLM call
-- Recording UI: removed waveform from mic button during processing, edge glow only
+- Removed confirmation UI entirely (ResultsSurfaceView, ConfirmationData, DenialLogStore)
+- Wired SSE streaming into agent pipeline (processWithAgentStreaming, StreamingResponseAccumulator)
+- Entry arrival animations: glow on expanded sections, peek preview on collapsed sections, staggered 150ms reveals
+- Extracted SwipeableCard to its own file (was inline in HomeView)
+- Bottom toast for text-only agent responses (replaces results surface)
+- Toast direction changed from top to bottom (near mic button)
+- ProcessingDotsView inline indicator while agent is working
+- Fixed crash in ToolResultBuilder when actions include .confirm (safe range clamping)
+- Added os.Logger SSE debug logging throughout pipeline
+- Fixed Logger subsystem from com.murmur.app to com.gudnuf.murmur
 
 ## Recent decisions
 
-- `.thought` removed — category must drive different behavior to earn existence
-- Daily focus fires once per app launch, cached for the day
-- Deterministic fallback uses overdue + P1/P2 rules when LLM unavailable
-- `compose_focus` is forced tool call — always returns structured data
-- Focus strip uses staggered entry animation (message first, then cards one-by-one)
-- Shimmer uses rippling glow pattern (not uniform pulse)
-- Mic button: edge glow only during processing, no waveform overlay
+- Confirmation UI removed — too much friction for the interaction model. Agent acts, user undoes.
+- SSE streaming replaces batch calls — tool calls execute immediately as they arrive
+- Entry arrival tracking via arrivedEntryIDs/pendingRevealEntryIDs on ConversationState
+- Stagger animation: first entry immediately, rest with 150ms gaps
+- Safety TTL: glow clears after 5s per entry
+- buildActionSummary/sanitizeError moved to file-scope private functions (swiftlint type_body_length)
+- Decodable types in PPQLLMService made internal (was private) — needed by ToolCallParser in separate file
 
 ## Open questions
 
 - Conversation reset: timer, explicit button, or N seconds of silence?
 - Token budget for context window
-- Confirmation flow UX: how should confirm/deny feel in practice?
+- Pre-existing test flake: PPQLLMServiceTests "Parses tool call response" fails due to MockURLProtocol static delegate cross-suite contamination
 
 ## What I need from sac
 
-- Iterate on focus section UI — LLM curation is wired, visual polish welcome
-- Review color remapping — `.thought` removed, colors redistributed
-- Coordinate on remaining conversation UI
+- Review arrival animation feel — timing, glow color, peek behavior
+- Iterate on focus section UI — LLM curation wired, visual polish welcome
