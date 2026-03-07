@@ -9,6 +9,7 @@ import os.log
 
 private let sseLog = Logger(subsystem: "com.gudnuf.murmur", category: "SSE")
 
+// swiftlint:disable type_body_length
 /// Manages conversation thread state, input lifecycle, and agent pipeline interaction.
 /// Lazy-initialized from AppState on first conversation open.
 @Observable
@@ -24,6 +25,9 @@ final class ConversationState {
 
     /// Latest agent response text for the stream overlay. Cleared after animation.
     var agentStreamText: String?
+
+    /// Set once after all cards have been revealed. Observed by RootView to show the confirmation toast.
+    var completionText: String?
 
     /// Entry IDs created or updated in the current agent response.
     /// Views use this to apply arrival glow animation.
@@ -45,6 +49,8 @@ final class ConversationState {
     private var generationCounter: Int = 0
     private var processingTask: Task<Void, Never>?
     private var recordingTask: Task<Void, Never>?
+    private var toastTask: Task<Void, Never>?
+    private var lastRevealTime: Date = .distantPast
     private var conversation: LLMConversation = LLMConversation()
 
     /// Stable ID for the ephemeral status indicator (replaced in-place, not appended)
@@ -264,6 +270,10 @@ final class ConversationState {
         preferences: NotificationPreferences
     ) {
         processingTask?.cancel()
+        toastTask?.cancel()
+        toastTask = nil
+        completionText = nil
+        lastRevealTime = .distantPast
         arrivedEntryIDs.removeAll()
         pendingRevealEntryIDs.removeAll()
 
@@ -354,6 +364,8 @@ final class ConversationState {
                     threadItems.append(.agentText(text: streamedText))
                 }
 
+                scheduleCompletionToast(streamedText: streamedText, applied: allApplied, failures: allFailures)
+
                 let combined = AgentActionExecutor.ExecutionResult(
                     applied: allApplied, failures: allFailures,
                     undo: UndoTransaction(items: allUndoItems), outcomes: allOutcomes
@@ -419,6 +431,10 @@ final class ConversationState {
         generationCounter = 0
         conversation = LLMConversation()
         agentStreamText = nil
+        completionText = nil
+        toastTask?.cancel()
+        toastTask = nil
+        lastRevealTime = .distantPast
         arrivedEntryIDs.removeAll()
         pendingRevealEntryIDs.removeAll()
         displayTranscript = nil
@@ -437,6 +453,8 @@ final class ConversationState {
     func cancelProcessing() {
         processingTask?.cancel()
         processingTask = nil
+        toastTask?.cancel()
+        toastTask = nil
         pendingRevealEntryIDs.removeAll()
         removeStatusItem()
         inputState = .idle
@@ -446,18 +464,21 @@ final class ConversationState {
 
     /// Track which entries just arrived and stagger their reveal.
     /// First entry appears immediately; rest appear with 150ms delays.
+    /// Also updates `lastRevealTime` so the toast can fire after the final card.
     private func trackArrivedEntries(_ applied: [AgentActionExecutor.AppliedAction]) {
         let entries = applied.map { $0.entry }
         guard !entries.isEmpty else { return }
 
-        // Hide all entries initially
         for entry in entries {
             pendingRevealEntryIDs.insert(entry.id)
         }
 
-        // Stagger reveals: first immediately, rest with 150ms gaps
         for (index, entry) in entries.enumerated() {
             let delay = Double(index) * 0.15
+            // Keep `lastRevealTime` pointing at the latest scheduled reveal across all batches.
+            let revealAt = Date().addingTimeInterval(delay)
+            if revealAt > lastRevealTime { lastRevealTime = revealAt }
+
             Task { @MainActor in
                 if delay > 0 {
                     try? await Task.sleep(for: .seconds(delay))
@@ -467,10 +488,33 @@ final class ConversationState {
                     pendingRevealEntryIDs.remove(entry.id)
                     arrivedEntryIDs.insert(entry.id)
                 }
-                // Safety TTL: clear glow after 5s per entry
                 try? await Task.sleep(for: .seconds(5))
                 arrivedEntryIDs.remove(entry.id)
             }
+        }
+    }
+
+    /// Schedule the post-stream confirmation toast. Delay is anchored to the last card reveal time.
+    private func scheduleCompletionToast(
+        streamedText: String,
+        applied: [AgentActionExecutor.AppliedAction],
+        failures: [AgentActionExecutor.ActionFailure]
+    ) {
+        let toastText: String?
+        if !streamedText.isEmpty {
+            toastText = streamedText
+        } else if !applied.isEmpty {
+            toastText = buildActionSummary(applied: applied, failures: failures)
+        } else {
+            toastText = nil
+        }
+        guard let toastText else { return }
+        let toastDelay = max(0, lastRevealTime.timeIntervalSinceNow) + 1.5
+        toastTask?.cancel()
+        toastTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(toastDelay))
+            guard !Task.isCancelled else { return }
+            self?.completionText = toastText
         }
     }
 
@@ -518,6 +562,7 @@ final class ConversationState {
         conversation.truncate(keepingLast: 20)
     }
 }
+// swiftlint:enable type_body_length
 
 // MARK: - Helpers (outside class body for swiftlint type_body_length)
 

@@ -117,6 +117,13 @@ struct EntryDetailView: View {
                                 entry.updatedAt = Date()
                                 save()
                             }
+                            if entry.currentStreak > 0 {
+                                HabitStreakRow(
+                                    current: entry.currentStreak,
+                                    longest: entry.longestStreak,
+                                    cadence: entry.cadence ?? .daily
+                                )
+                            }
                         }
 
                         // Divider
@@ -359,6 +366,39 @@ private struct CadencePicker: View {
                     }
                     .buttonStyle(.plain)
                 }
+            }
+        }
+        .padding(.bottom, 24)
+    }
+}
+
+// MARK: - Habit Streak Row
+
+private struct HabitStreakRow: View {
+    let current: Int
+    let longest: Int
+    let cadence: HabitCadence
+
+    private var periodLabel: String {
+        switch cadence {
+        case .daily, .weekdays: return current == 1 ? "day" : "days"
+        case .weekly: return current == 1 ? "week" : "weeks"
+        case .monthly: return current == 1 ? "month" : "months"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("\(current) \(periodLabel) streak")
+                .font(Theme.Typography.label)
+                .foregroundStyle(Theme.Colors.accentGreen)
+
+            if longest > current {
+                Text("·")
+                    .foregroundStyle(Theme.Colors.textMuted)
+                Text("Best: \(longest)")
+                    .font(Theme.Typography.label)
+                    .foregroundStyle(Theme.Colors.textMuted)
             }
         }
         .padding(.bottom, 24)

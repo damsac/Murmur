@@ -662,6 +662,10 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
             line += " status:\(entry.status.rawValue)"
         }
 
+        if let streak = entry.currentStreak, streak > 1 {
+            line += " streak:\(streak)"
+        }
+
         return line
     }
 

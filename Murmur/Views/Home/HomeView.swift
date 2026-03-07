@@ -204,30 +204,16 @@ struct HomeView: View {
     // MARK: - Swipe Actions
 
     private func swipeActions(for entry: Entry) -> [CardSwipeAction] {
-        let isCompletable = entry.category == .todo
-            || entry.category == .reminder
-            || entry.category == .habit
-
-        var actions: [CardSwipeAction] = []
-
-        if isCompletable {
-            actions.append(CardSwipeAction(
+        [
+            CardSwipeAction(
                 icon: "checkmark.circle.fill", label: "Done",
                 color: Theme.Colors.accentGreen
-            ) { onAction(entry, .complete) })
-        } else {
-            actions.append(CardSwipeAction(
-                icon: "archivebox.fill", label: "Archive",
-                color: Theme.Colors.accentBlue
-            ) { onAction(entry, .archive) })
-        }
-
-        actions.append(CardSwipeAction(
-            icon: "moon.zzz.fill", label: "Snooze",
-            color: Theme.Colors.accentYellow
-        ) { onAction(entry, .snooze(until: nil)) })
-
-        return actions
+            ) { onAction(entry, .complete) },
+            CardSwipeAction(
+                icon: "moon.zzz.fill", label: "Snooze",
+                color: Theme.Colors.accentYellow
+            ) { onAction(entry, .snooze(until: nil)) }
+        ]
     }
 }
 
@@ -393,6 +379,21 @@ private struct FocusCardView: View {
 
     private var accentColor: Color { Theme.categoryColor(entry.category) }
 
+    private var isOverdue: Bool {
+        guard let dueDate = entry.dueDate else { return false }
+        return dueDate < Date() && entry.status == .active
+    }
+
+    private var isDueSoon: Bool {
+        entry.dueDate != nil && !isOverdue
+    }
+
+    private var reasonColor: Color {
+        if isOverdue { return Theme.Colors.accentRed }
+        if isDueSoon { return Theme.Colors.accentYellow }
+        return Theme.Colors.textSecondary
+    }
+
     var body: some View {
         SwipeableCard(
             actions: swipeActionsProvider(entry),
@@ -402,22 +403,22 @@ private struct FocusCardView: View {
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 6) {
-                    CategoryBadge(category: entry.category, size: .small)
+                    CategoryBadge(
+                        category: entry.category,
+                        size: .small,
+                        text: entry.category == .habit ? (entry.cadence ?? .daily).displayName : nil
+                    )
                     Spacer()
                     if !reason.isEmpty {
-                        HStack(spacing: 3) {
-                            Image(systemName: "exclamationmark.circle.fill")
-                                .font(.caption2)
-                            Text(reason)
-                                .font(Theme.Typography.badge)
-                        }
-                        .foregroundStyle(Theme.Colors.accentRed)
+                        Text(reason)
+                            .font(.caption)
+                            .foregroundStyle(reasonColor)
                     }
                 }
 
                 HStack(alignment: .center, spacing: 12) {
                     Text(entry.summary)
-                        .font(Theme.Typography.body)
+                        .font(.subheadline)
                         .foregroundStyle(entry.isDoneForPeriod || entry.isCompletedToday ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
                         .lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -496,7 +497,7 @@ private struct CategorySectionView: View {
         self.swipeActionsProvider = swipeActionsProvider
         self.onAction = onAction
         self.onGlowComplete = onGlowComplete
-        self._isCollapsed = AppStorage(wrappedValue: false, "section_\(category.rawValue)_collapsed")
+        self._isCollapsed = AppStorage(wrappedValue: true, "section_\(category.rawValue)_collapsed")
     }
 
     private var color: Color { Theme.categoryColor(category) }
@@ -616,9 +617,22 @@ private struct CategorySectionView: View {
                 .animation(Animations.cardAppear, value: entries.map(\.id))
             }
         }
-        .onChange(of: arrivedEntryIDs) { _, newIDs in
+        .onAppear {
+            // Handle the case where this section was just created because a new entry arrived.
+            // onChange won't fire on initial render, so peek here if entries are already arrived.
+            guard isCollapsed, !arrivedEntryIDs.isEmpty else { return }
+            let newInSection = entries.filter { arrivedEntryIDs.contains($0.id) }
+            guard let latest = newInSection.first else { return }
+
+            peekEntry = latest
+            peekCount += newInSection.count
+            showPeek()
+        }
+        .onChange(of: arrivedEntryIDs) { oldIDs, newIDs in
             guard isCollapsed else { return }
-            let newInSection = entries.filter { newIDs.contains($0.id) }
+            // Only peek when entries are ADDED — ignore removals (glow complete, 5s expiry).
+            let added = newIDs.subtracting(oldIDs)
+            let newInSection = entries.filter { added.contains($0.id) }
             guard let latest = newInSection.first else { return }
 
             peekEntry = latest
@@ -717,6 +731,7 @@ private struct SmartListRow: View {
     }
 
     private var dueText: String? {
+        guard entry.category == .todo || entry.category == .reminder else { return nil }
         guard let dueDate = entry.dueDate else { return nil }
         let calendar = Calendar.current
         if isOverdue { return "Overdue" }
@@ -727,60 +742,37 @@ private struct SmartListRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Category + metadata row
-            HStack(spacing: 6) {
-                CategoryBadge(category: entry.category, size: .small)
-
-                Spacer()
-
-                if let priority = entry.priority, priority <= 2 {
-                    HStack(spacing: 3) {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .font(.caption2)
-                        Text("P\(priority)")
-                            .font(Theme.Typography.badge)
-                    }
-                    .foregroundStyle(Theme.Colors.accentRed)
-                }
-
-                if let dueText {
-                    HStack(spacing: 3) {
-                        Image(systemName: isOverdue ? "exclamationmark.circle.fill" : "calendar")
-                            .font(.caption2)
-                        Text(dueText)
-                            .font(Theme.Typography.badge)
-                            .fontWeight(.medium)
-                    }
-                    .foregroundStyle(isOverdue ? Theme.Colors.accentRed : Theme.Colors.accentYellow)
-                }
-            }
-
-            // Summary + habit check-off
-            HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(entry.summary)
-                    .font(Theme.Typography.body)
+                    .font(.subheadline)
                     .foregroundStyle(entry.isDoneForPeriod || entry.isCompletedToday ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
                     .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                if entry.category == .habit && entry.appliesToday {
-                    Button {
-                        onAction(entry, .checkOffHabit)
-                    } label: {
-                        Image(systemName: entry.isCompletedToday ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 24))
-                            .foregroundStyle(
-                                entry.isCompletedToday
-                                    ? Theme.categoryColor(entry.category)
-                                    : Theme.Colors.textTertiary
-                            )
-                            .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+                if let dueText {
+                    Text(dueText)
+                        .font(.caption)
+                        .foregroundStyle(isOverdue ? Theme.Colors.accentRed : Theme.Colors.textTertiary)
                 }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if entry.category == .habit && entry.appliesToday {
+                Button {
+                    onAction(entry, .checkOffHabit)
+                } label: {
+                    Image(systemName: entry.isCompletedToday ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 24))
+                        .foregroundStyle(
+                            entry.isCompletedToday
+                                ? Theme.categoryColor(entry.category)
+                                : Theme.Colors.textTertiary
+                        )
+                        .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
+                        .frame(width: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
         }
         .cardStyle(accent: glowAccent, intensity: glowIntensity)

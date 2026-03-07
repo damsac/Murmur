@@ -5,6 +5,7 @@ struct CategoryBadge: View {
     let category: EntryCategory
     let size: BadgeSize
     var showDotGlow: Bool = true
+    var text: String?
 
     enum BadgeSize {
         case small
@@ -33,11 +34,18 @@ struct CategoryBadge: View {
     }
 
     var body: some View {
-        // Category indicator dot with glow
-        Circle()
-            .fill(categoryColor)
-            .frame(width: size.dotSize, height: size.dotSize)
-            .shadow(color: showDotGlow ? categoryColor.opacity(0.5) : .clear, radius: 3, x: 0, y: 0)
+        HStack(spacing: 5) {
+            Circle()
+                .fill(categoryColor)
+                .frame(width: size.dotSize, height: size.dotSize)
+                .shadow(color: showDotGlow ? categoryColor.opacity(0.5) : .clear, radius: 3, x: 0, y: 0)
+
+            if let text {
+                Text(text)
+                    .font(Theme.Typography.badge)
+                    .foregroundStyle(categoryColor)
+            }
+        }
         .padding(size.padding)
         .background(
             Capsule()

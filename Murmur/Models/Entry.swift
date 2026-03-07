@@ -77,6 +77,9 @@ public final class Entry {
     /// When this habit was last checked off (used to determine isDoneForPeriod)
     public var lastHabitCompletionDate: Date?
 
+    /// Full history of habit check-off dates (used to compute streaks)
+    public var habitCompletionDates: [Date] = []
+
     // MARK: - Source metadata
 
     /// Recording length in seconds
@@ -203,6 +206,8 @@ extension Entry {
         case .snoozed: .snoozed
         }
 
+        let streak = category == .habit && currentStreak > 0 ? currentStreak : nil
+
         return AgentContextEntry(
             id: shortID,
             summary: summary,
@@ -211,7 +216,8 @@ extension Entry {
             dueDateDescription: dueDateDescription,
             cadence: cadence,
             status: agentStatus,
-            createdAt: createdAt
+            createdAt: createdAt,
+            currentStreak: streak
         )
     }
 
@@ -267,6 +273,88 @@ extension Entry {
     }
 }
 
+// MARK: - Habit Streaks
+
+extension Entry {
+    /// Number of consecutive periods this habit has been completed up to and including the current period.
+    /// Returns 0 if the streak is broken (a period was skipped).
+    public var currentStreak: Int {
+        guard category == .habit else { return 0 }
+        return computeStreaks().current
+    }
+
+    /// Longest consecutive run ever recorded.
+    public var longestStreak: Int {
+        guard category == .habit else { return 0 }
+        return computeStreaks().longest
+    }
+
+    private func computeStreaks() -> (current: Int, longest: Int) {
+        guard !habitCompletionDates.isEmpty else { return (0, 0) }
+        let calendar = Calendar.current
+        let c = cadence ?? .daily
+
+        // Normalize each completion to its period boundary, deduplicate, sort descending
+        let periods = Array(
+            Set(habitCompletionDates.map { periodStart(for: $0, cadence: c, calendar: calendar) })
+        ).sorted(by: >)
+
+        guard !periods.isEmpty else { return (0, 0) }
+
+        // Group into consecutive runs
+        var runs: [[Date]] = []
+        var run = [periods[0]]
+        for i in 1..<periods.count {
+            let expected = prevPeriodStart(before: periods[i - 1], cadence: c, calendar: calendar)
+            if periods[i] == expected {
+                run.append(periods[i])
+            } else {
+                runs.append(run)
+                run = [periods[i]]
+            }
+        }
+        runs.append(run)
+
+        let longest = runs.map(\.count).max() ?? 0
+
+        // Current streak is alive if the latest period is today or the previous applicable period
+        let today = periodStart(for: Date(), cadence: c, calendar: calendar)
+        let prev = prevPeriodStart(before: today, cadence: c, calendar: calendar)
+        let latestPeriod = runs[0][0]
+        let current = (latestPeriod == today || latestPeriod == prev) ? runs[0].count : 0
+
+        return (current, longest)
+    }
+
+    private func periodStart(for date: Date, cadence: HabitCadence, calendar: Calendar) -> Date {
+        switch cadence {
+        case .daily, .weekdays:
+            return calendar.startOfDay(for: date)
+        case .weekly:
+            return calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? calendar.startOfDay(for: date)
+        case .monthly:
+            return calendar.dateInterval(of: .month, for: date)?.start ?? calendar.startOfDay(for: date)
+        }
+    }
+
+    private func prevPeriodStart(before date: Date, cadence: HabitCadence, calendar: Calendar) -> Date {
+        let period = periodStart(for: date, cadence: cadence, calendar: calendar)
+        switch cadence {
+        case .daily:
+            return calendar.date(byAdding: .day, value: -1, to: period)!
+        case .weekdays:
+            // Monday → Friday (skip weekend)
+            let weekday = calendar.component(.weekday, from: period)
+            let daysBack = weekday == 2 ? 3 : 1
+            return calendar.date(byAdding: .day, value: -daysBack, to: period)!
+        case .weekly:
+            return calendar.date(byAdding: .weekOfYear, value: -1, to: period)!
+        case .monthly:
+            return calendar.date(byAdding: .month, value: -1, to: period)!
+        }
+    }
+}
+
 // MARK: - Entry Actions
 
 enum EntryAction {
@@ -315,7 +403,14 @@ extension Entry {
             save(in: context)
 
         case .checkOffHabit:
-            lastHabitCompletionDate = isCompletedToday ? nil : Date()
+            if isCompletedToday {
+                habitCompletionDates.removeAll { Calendar.current.isDateInToday($0) }
+                lastHabitCompletionDate = nil
+            } else {
+                let now = Date()
+                habitCompletionDates.append(now)
+                lastHabitCompletionDate = now
+            }
             updatedAt = Date()
             save(in: context)
         }
