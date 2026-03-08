@@ -19,6 +19,9 @@ struct DamHomeView: View {
     @State private var pulseOpacity2: Double = 0.7
     @State private var pulseOpacity3: Double = 0.5
 
+    @Namespace private var layoutNamespace
+    @State private var revealedEntryIDs: Set<String> = []
+    @State private var hasAnimatedInitialLoad: Bool = false
     @State private var activeSwipeEntryID: UUID?
 
     var body: some View {
@@ -85,11 +88,15 @@ struct DamHomeView: View {
                             section: section,
                             entries: entries,
                             activeSwipeEntryID: $activeSwipeEntryID,
+                            layoutNamespace: layoutNamespace,
+                            isEntryRevealed: isEntryRevealed,
                             onEntryTap: onEntryTap,
                             swipeActionsProvider: swipeActions(for:),
                             onAction: onAction
                         )
+                        .transition(.move(edge: .top).combined(with: .opacity))
                     }
+                    .animation(Animations.layoutSpring, value: composition.sections.map(\.id))
                 }
             }
             .padding(.bottom, 80)
@@ -97,7 +104,12 @@ struct DamHomeView: View {
         .scrollIndicators(.hidden)
         .onAppear {
             Task {
-                await appState.requestHomeComposition(entries: entries)
+                await appState.requestHomeComposition(entries: entries, variant: .scanner)
+            }
+        }
+        .onChange(of: appState.homeComposition?.composedAt) { _, newValue in
+            if newValue != nil && !hasAnimatedInitialLoad {
+                staggerRevealEntries()
             }
         }
     }
@@ -204,6 +216,44 @@ struct DamHomeView: View {
         }
     }
 
+    // MARK: - Layout Reveal
+
+    private func isEntryRevealed(_ id: String) -> Bool {
+        hasAnimatedInitialLoad || revealedEntryIDs.contains(id)
+    }
+
+    private func staggerRevealEntries() {
+        guard let composition = appState.homeComposition else { return }
+        let allEntryIDs = composition.sections.flatMap { section in
+            section.items.compactMap { item in
+                if case .entry(let e) = item { return e.id }
+                return nil
+            }
+        }
+
+        guard !allEntryIDs.isEmpty else {
+            hasAnimatedInitialLoad = true
+            return
+        }
+
+        for (index, id) in allEntryIDs.enumerated() {
+            let delay = Double(index) * 0.06
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(delay))
+                withAnimation(Animations.layoutSpring) {
+                    revealedEntryIDs.insert(id)
+                }
+            }
+        }
+
+        // Mark initial load complete after all entries revealed
+        let totalDelay = Double(allEntryIDs.count) * 0.06 + 0.3
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(totalDelay))
+            hasAnimatedInitialLoad = true
+        }
+    }
+
     // MARK: - Swipe Actions
 
     private func swipeActions(for entry: Entry) -> [CardSwipeAction] {
@@ -240,6 +290,8 @@ private struct ComposedSectionView: View {
     let section: ComposedSection
     let entries: [Entry]
     @Binding var activeSwipeEntryID: UUID?
+    var layoutNamespace: Namespace.ID
+    var isEntryRevealed: (String) -> Bool
     let onEntryTap: (Entry) -> Void
     let swipeActionsProvider: (Entry) -> [CardSwipeAction]
     let onAction: (Entry, EntryAction) -> Void
@@ -295,6 +347,10 @@ private struct ComposedSectionView: View {
                                     onTap: { onEntryTap(entry) },
                                     onAction: { onAction(entry, $0) }
                                 )
+                                .matchedGeometryEffect(id: "entry-\(composed.id)", in: layoutNamespace)
+                                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                                .opacity(isEntryRevealed(composed.id) ? 1 : 0)
+                                .scaleEffect(isEntryRevealed(composed.id) ? 1 : 0.95)
                             case .message(let text):
                                 ComposedMessageView(text: text)
                             }
@@ -315,6 +371,10 @@ private struct ComposedSectionView: View {
                                     onTap: { onEntryTap(entry) },
                                     onAction: { onAction(entry, $0) }
                                 )
+                                .matchedGeometryEffect(id: "entry-\(composed.id)", in: layoutNamespace)
+                                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                                .opacity(isEntryRevealed(composed.id) ? 1 : 0)
+                                .scaleEffect(isEntryRevealed(composed.id) ? 1 : 0.95)
                             case .message(let text):
                                 ComposedMessageView(text: text)
                             }

@@ -365,7 +365,6 @@ struct RootView: View {
                 onMicTap: toggleRecording,
                 onSubmit: submitInput,
                 onEntryTap: { selectedEntry = $0 },
-                onKeyboardTap: { showTextInputBar = true },
                 onSettingsTap: { showSettings = true },
                 onAction: { handleEntryAction($0, $1) }
             )
