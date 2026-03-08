@@ -144,8 +144,8 @@ struct SacHomeView: View {
         ZStack {
             if appState.selectedTab == .focus {
                 FocusTabView(
-                    isLoading: appState.isFocusLoading,
-                    dailyFocus: appState.dailyFocus,
+                    isLoading: appState.isHomeCompositionLoading,
+                    composition: appState.homeComposition,
                     isProcessing: appState.conversation.isProcessing,
                     allEntries: entries,
                     activeSwipeEntryID: $activeSwipeEntryID,
@@ -206,7 +206,7 @@ struct SacHomeView: View {
 
 private struct FocusTabView: View {
     let isLoading: Bool
-    let dailyFocus: DailyFocus?
+    let composition: HomeComposition?
     let isProcessing: Bool
     let allEntries: [Entry]
     @Binding var activeSwipeEntryID: UUID?
@@ -223,7 +223,6 @@ private struct FocusTabView: View {
     }
 
     private struct ResolvedCluster {
-        let message: String
         let items: [FocusItemResolved]
 
         var dominantCategory: EntryCategory {
@@ -231,14 +230,14 @@ private struct FocusTabView: View {
         }
     }
 
-    private func resolvedClusters(focus: DailyFocus) -> [ResolvedCluster] {
-        // Flatten all LLM-selected items and re-group by entry.category client-side.
-        // This prevents the LLM from thematically mixing categories (e.g., todos in the reminder cluster).
-        var byCategory: [EntryCategory: [(entry: Entry, reason: String)]] = [:]
-        for cluster in focus.clusters {
-            for item in cluster.items {
-                guard let entry = Entry.resolve(shortID: item.id, in: allEntries) else { continue }
-                byCategory[entry.category, default: []].append((entry, item.reason))
+    /// Flatten composition items and re-group by entry category client-side.
+    private func resolvedClusters(composition: HomeComposition) -> [ResolvedCluster] {
+        var byCategory: [EntryCategory: [(entry: Entry, badge: String?)]] = [:]
+        for section in composition.sections {
+            for item in section.items {
+                guard case .entry(let composed) = item,
+                      let entry = Entry.resolve(shortID: composed.id, in: allEntries) else { continue }
+                byCategory[entry.category, default: []].append((entry, composed.badge))
             }
         }
         let order: [EntryCategory] = [.todo, .reminder, .habit, .idea, .list, .note, .question]
@@ -247,11 +246,15 @@ private struct FocusTabView: View {
         for category in order {
             guard let pairs = byCategory[category], !pairs.isEmpty else { continue }
             let items = pairs.map { pair -> FocusItemResolved in
-                let item = FocusItemResolved(entry: pair.entry, reason: pair.reason, globalIndex: globalIndex)
+                let item = FocusItemResolved(
+                    entry: pair.entry,
+                    reason: pair.badge ?? "",
+                    globalIndex: globalIndex
+                )
                 globalIndex += 1
                 return item
             }
-            result.append(ResolvedCluster(message: "", items: items))
+            result.append(ResolvedCluster(items: items))
         }
         return result
     }
@@ -259,26 +262,28 @@ private struct FocusTabView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                if isLoading && dailyFocus == nil {
+                if isLoading && composition == nil {
                     FocusLoadingView()
                         .transition(.opacity)
-                } else if let focus = dailyFocus {
+                } else if let composition {
                     // Greeting + briefing header
                     VStack(alignment: .leading, spacing: 4) {
                         Text(Greeting.current + ".")
                             .font(.title3.weight(.semibold))
                             .foregroundStyle(Theme.Colors.textPrimary)
 
-                        Text(focus.message)
-                            .font(Theme.Typography.caption)
-                            .foregroundStyle(Theme.Colors.textSecondary)
+                        if let briefing = composition.briefing {
+                            Text(briefing)
+                                .font(Theme.Typography.caption)
+                                .foregroundStyle(Theme.Colors.textSecondary)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .opacity(messageVisible ? 1 : 0)
                     .offset(y: messageVisible ? 0 : 6)
 
                     // Focus clusters
-                    let clusters = resolvedClusters(focus: focus)
+                    let clusters = resolvedClusters(composition: composition)
                     if !clusters.isEmpty {
                         VStack(spacing: 24) {
                             ForEach(clusters.indices, id: \.self) { i in
@@ -349,15 +354,15 @@ private struct FocusTabView: View {
         }
         .scrollIndicators(.hidden)
         .onAppear {
-            guard visibleCardCount == 0, let focus = dailyFocus else { return }
-            let count = resolvedClusters(focus: focus).reduce(0) { $0 + $1.items.count }
+            guard visibleCardCount == 0, let composition else { return }
+            let count = resolvedClusters(composition: composition).reduce(0) { $0 + $1.items.count }
             staggerIn(count: count)
         }
-        .onChange(of: dailyFocus?.composedAt) { _, _ in
-            guard let focus = dailyFocus else { return }
+        .onChange(of: composition?.composedAt) { _, _ in
+            guard let composition else { return }
             messageVisible = false
             visibleCardCount = 0
-            let count = resolvedClusters(focus: focus).reduce(0) { $0 + $1.items.count }
+            let count = resolvedClusters(composition: composition).reduce(0) { $0 + $1.items.count }
             staggerIn(count: count)
         }
     }
