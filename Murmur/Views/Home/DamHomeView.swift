@@ -25,11 +25,69 @@ struct DamHomeView: View {
     @State private var activeSwipeEntryID: UUID?
 
     var body: some View {
-        if entries.isEmpty {
-            emptyState
-        } else {
-            composedContent
+        VStack(spacing: 0) {
+            topBar
+            if entries.isEmpty {
+                emptyState
+            } else {
+                populatedState
+            }
         }
+    }
+
+    // MARK: - Top Bar
+
+    private var topBar: some View {
+        HStack {
+            Spacer()
+            Button(action: onSettingsTap) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, Theme.Spacing.screenPadding - 10)
+        }
+    }
+
+    // MARK: - Populated State (tab switcher)
+
+    @ViewBuilder
+    private var populatedState: some View {
+        ZStack {
+            if appState.selectedTab == .focus {
+                composedContent
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .leading),
+                        removal: .move(edge: .trailing)
+                    ))
+            } else {
+                AllEntriesView(
+                    entries: entries,
+                    isProcessing: appState.conversation.isProcessing,
+                    arrivedEntryIDs: appState.conversation.arrivedEntryIDs,
+                    activeSwipeEntryID: $activeSwipeEntryID,
+                    onEntryTap: onEntryTap,
+                    swipeActionsProvider: swipeActions(for:),
+                    onAction: onAction,
+                    onGlowComplete: { id in appState.conversation.arrivedEntryIDs.remove(id) }
+                )
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing),
+                    removal: .move(edge: .leading)
+                ))
+            }
+        }
+        .animation(Animations.smoothSlide, value: appState.selectedTab == .focus)
+        .mask(
+            VStack(spacing: 0) {
+                Color.black
+                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 110)
+            }
+        )
     }
 
     // MARK: - Composed Content
@@ -38,21 +96,6 @@ struct DamHomeView: View {
     private var composedContent: some View {
         ScrollView {
             VStack(spacing: 0) {
-                // Settings gear
-                HStack {
-                    Spacer()
-                    Button(action: onSettingsTap) {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(Theme.Colors.textSecondary)
-                            .frame(width: 36, height: 36)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, Theme.Spacing.screenPadding)
-                .padding(.top, 4)
-
                 // Recent inserts — entries/messages created since last composition
                 if !appState.recentInserts.isEmpty {
                     VStack(spacing: 8) {
@@ -119,20 +162,6 @@ struct DamHomeView: View {
     @ViewBuilder
     private var emptyState: some View {
         VStack(spacing: 0) {
-            HStack {
-                Spacer()
-                Button(action: onSettingsTap) {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                        .frame(width: 36, height: 36)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, Theme.Spacing.screenPadding)
-            .padding(.top, 4)
-
             Spacer()
 
             VStack(spacing: 40) {

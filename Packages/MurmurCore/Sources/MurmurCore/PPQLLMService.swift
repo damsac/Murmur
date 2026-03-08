@@ -280,7 +280,7 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
         switch variant {
         case .scanner:
             return """
-                Group by urgency/context, not category. 3-5 sections, 5-15 items. \
+                Group by urgency/context, not category. 3-5 sections, up to 7 items. \
                 Hero for urgent (1-2 max), compact for low-priority. \
                 Badges: Overdue, Today, Stale, P1, New.
                 """

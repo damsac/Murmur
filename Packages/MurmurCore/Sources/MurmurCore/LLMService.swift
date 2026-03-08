@@ -164,7 +164,7 @@ public struct LLMPrompt: @unchecked Sendable {
             You receive the user's current entries. Compose 3-5 sections showing what matters RIGHT NOW.
 
             Rules:
-            - Most entries stay hidden. Show 5-15 items total.
+            - Most entries stay hidden. Show up to 7 items total.
             - Group by urgency and context, NOT by category.
             - First section: what needs attention now (overdue, due today, P1/P2). Use relaxed density, hero emphasis for urgent items.
             - Later sections: things to keep in mind, upcoming items. Use compact density.
@@ -816,7 +816,7 @@ private extension LLMPrompt {
             "type": "function",
             "function": [
                 "name": "compose_view",
-                "description": "Compose the home view. Surface what matters right now. Most entries stay hidden. Group by urgency/context, not category. 3-5 sections max, 5-15 total items.",
+                "description": "Compose the home view. Surface what matters right now. Most entries stay hidden. Group by urgency/context, not category. 3-5 sections max, up to 7 total items.",
                 "parameters": [
                     "type": "object",
                     "properties": [

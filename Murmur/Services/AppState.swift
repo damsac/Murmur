@@ -269,13 +269,18 @@ final class AppState {
         }
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func buildScannerFallback(entries: [Entry]) -> HomeComposition {
         let now = Date()
         var sections: [ComposedSection] = []
 
+        let maxTotal = 7
+        var totalCount = 0
+
         // Section 1: "Needs attention" — overdue, P1/P2, due today
         var attentionItems: [ComposedItem] = []
         for entry in entries {
+            guard totalCount < maxTotal else { break }
             let isOverdue = entry.dueDate.map { $0 < now } ?? false
             let isHighPriority = (entry.priority ?? Int.max) <= 2
             let isDueToday = entry.dueDate.map { Calendar.current.isDateInToday($0) } ?? false
@@ -286,18 +291,21 @@ final class AppState {
                     emphasis: .hero,
                     badge: "Overdue"
                 )))
+                totalCount += 1
             } else if isHighPriority {
                 attentionItems.append(.entry(ComposedEntry(
                     id: entry.shortID,
                     emphasis: .standard,
                     badge: "P\(entry.priority ?? 1)"
                 )))
+                totalCount += 1
             } else if isDueToday {
                 attentionItems.append(.entry(ComposedEntry(
                     id: entry.shortID,
                     emphasis: .standard,
                     badge: "Today"
                 )))
+                totalCount += 1
             }
         }
         if !attentionItems.isEmpty {
@@ -308,12 +316,17 @@ final class AppState {
             ))
         }
 
-        // Section 2: "Recent" — last 5 created entries as compact
+        // Section 2: "Recent" — fill remaining slots with recent entries
+        let remaining = maxTotal - totalCount
+        guard remaining > 0 else {
+            return HomeComposition(sections: sections, composedAt: now, variant: .scanner)
+        }
         let recentEntries = entries
             .sorted { $0.createdAt > $1.createdAt }
-            .prefix(5)
+            .prefix(remaining + attentionItems.count) // over-fetch to account for dedup
         var recentItems: [ComposedItem] = []
         for entry in recentEntries {
+            guard recentItems.count < remaining else { break }
             let alreadyShown = attentionItems.contains { item in
                 if case .entry(let composed) = item {
                     return composed.id == entry.shortID
