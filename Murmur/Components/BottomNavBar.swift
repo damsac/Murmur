@@ -7,6 +7,8 @@ struct BottomNavBar: View {
     @Binding var inputText: String
     var onMicTap: (() -> Void)?
     var onKeyboardTap: (() -> Void)?
+    var selectedTab: AppState.Tab = .focus
+    var onTabChange: ((AppState.Tab) -> Void)?
     var onTextSubmit: (() -> Void)?
     var onDismissTextInput: (() -> Void)?
 
@@ -14,7 +16,9 @@ struct BottomNavBar: View {
     @Namespace private var navBarNamespace
 
     private let micSize = Theme.Spacing.micButtonSize
-    private let kbSize: CGFloat = 40
+    private let barHeight: CGFloat = 50
+    private let notchR: CGFloat = 44   // micRadius(36) + gap(8)
+    private let notchD: CGFloat = 0    // arc centre sits exactly at bar top
 
     var body: some View {
         ZStack {
@@ -40,7 +44,30 @@ struct BottomNavBar: View {
     @ViewBuilder
     private var normalMode: some View {
         ZStack {
-            // Mic button — centered, staggered higher
+            // Notched bar background — anchored to bottom
+            VStack(spacing: 0) {
+                Spacer()
+                ZStack {
+                    NotchedTabBarShape(notchRadius: notchR, notchDepth: notchD, curveOffset: 0)
+                        .fill(Theme.Colors.bgCard)
+                    NotchedTabBarShape(notchRadius: notchR, notchDepth: notchD, curveOffset: 0)
+                        .stroke(Theme.Colors.borderSubtle, lineWidth: 1)
+                }
+                .frame(height: barHeight)
+            }
+
+            // Tab labels — centered in bar area, one each side of notch
+            HStack {
+                tabItem(tab: .focus, label: "Focus")
+                Spacer()
+                tabItem(tab: .all, label: "All")
+            }
+            .padding(.horizontal, 32)
+            .offset(y: (micSize - barHeight) / 2)
+            .opacity(isRecording ? 0.0 : 1.0)
+            .animation(.easeInOut(duration: 0.2), value: isRecording)
+
+            // Mic button — floats in the notch dome
             MicButton(
                 size: .large,
                 isRecording: isRecording,
@@ -51,20 +78,37 @@ struct BottomNavBar: View {
             .offset(y: -12)
             .accessibilityLabel(isRecording ? "Stop recording" : "Record voice note")
 
-            // Keyboard button — to the right of mic, lower
-            if !isRecording && !isProcessing, let onKeyboardTap {
-                Button(action: onKeyboardTap) {
-                    Image(systemName: "keyboard")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                        .frame(width: kbSize, height: kbSize)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Type a note")
-                .offset(x: micSize / 2 + kbSize / 2 + 6)
-                .transition(.scale.combined(with: .opacity))
+            // Keyboard button — floats at top-right of the mic
+            Button { onKeyboardTap?() } label: {
+                Image(systemName: "keyboard")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Type a note")
+            .offset(x: 54, y: -28)
+            .opacity(!isRecording && !isProcessing ? 1 : 0)
+            .animation(.easeInOut(duration: 0.2), value: isRecording)
+            .animation(.easeInOut(duration: 0.2), value: isProcessing)
+        }
+    }
+
+    @ViewBuilder
+    private func tabItem(tab: AppState.Tab, label: String) -> some View {
+        let isSelected = selectedTab == tab
+        Button { onTabChange?(tab) } label: {
+            VStack(spacing: 6) {
+                Text(label)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(isSelected ? Theme.Colors.textPrimary : Theme.Colors.textSecondary)
+                Capsule()
+                    .fill(isSelected ? Theme.Colors.accentPurple : Color.clear)
+                    .frame(width: 24, height: 3)
             }
         }
+        .buttonStyle(.plain)
+        .animation(Animations.smoothSlide, value: isSelected)
     }
 
     // MARK: - Text Input Mode
@@ -185,7 +229,7 @@ struct NotchedTabBarShape: Shape {
             radius: notchRadius,
             startAngle: startAngle,
             endAngle: endAngle,
-            clockwise: false
+            clockwise: true
         )
 
         path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))

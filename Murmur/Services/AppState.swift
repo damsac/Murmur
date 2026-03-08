@@ -11,9 +11,11 @@ enum RecordingState {
 @Observable
 @MainActor
 final class AppState {
+    enum Tab { case focus, all }
     var recordingState: RecordingState = .idle
     var showOnboarding: Bool = false
     var showFocusCard: Bool = false
+    var selectedTab: Tab = .focus
     #if DEBUG
     var isDevMode: Bool = true
     #else
@@ -102,6 +104,16 @@ final class AppState {
         dailyFocusStore?.clear()
     }
 
+    /// Regenerate focus only if stale (older than `stalenessInterval`) or missing.
+    /// Call on scene foreground and after entry completion/archival.
+    func requestFocusIfStale(entries: [Entry], stalenessInterval: TimeInterval = 3 * 3600) async {
+        if let existing = dailyFocus {
+            let age = Date().timeIntervalSince(existing.composedAt)
+            guard age >= stalenessInterval else { return }
+        }
+        await requestDailyFocus(entries: entries)
+    }
+
     func requestDailyFocus(entries: [Entry]) async {
         // Check cache first
         if let cached = dailyFocusStore?.load(), cached.isFromToday {
@@ -165,7 +177,7 @@ final class AppState {
             return pa < pb
         }
 
-        let items = focusEntries.prefix(3).map { FocusItem(id: $0.entry.shortID, reason: $0.reason) }
+        let items = focusEntries.prefix(7).map { FocusItem(id: $0.entry.shortID, reason: $0.reason) }
         let message = items.isEmpty
             ? "All clear — nothing pressing today."
             : "Focus on these things today."
