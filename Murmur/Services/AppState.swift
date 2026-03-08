@@ -162,6 +162,9 @@ final class AppState {
     }
 
     func requestHomeComposition(entries: [Entry], variant: CompositionVariant) async {
+        // Deduplicate: skip if already loading a fresh composition
+        guard !isHomeCompositionLoading else { return }
+
         // Set variant on LLM service
         llmService?.compositionVariant = variant
 

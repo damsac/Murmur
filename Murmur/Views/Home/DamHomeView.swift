@@ -145,11 +145,6 @@ struct DamHomeView: View {
             .padding(.bottom, 80)
         }
         .scrollIndicators(.hidden)
-        .onAppear {
-            Task {
-                await appState.requestHomeComposition(entries: entries, variant: .scanner)
-            }
-        }
         .onChange(of: appState.homeComposition?.composedAt) { _, newValue in
             if newValue != nil && !hasAnimatedInitialLoad {
                 staggerRevealEntries()
