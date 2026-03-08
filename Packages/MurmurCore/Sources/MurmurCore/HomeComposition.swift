@@ -1,5 +1,15 @@
 import Foundation
 
+// MARK: - Composition Variant
+
+/// Which home view style the composition targets.
+/// Scanner = urgency-grouped, emphasis levels, 5-15 items.
+/// Navigator = category-grouped, up to 7 items, briefing.
+public enum CompositionVariant: String, Codable, Sendable {
+    case scanner
+    case navigator
+}
+
 // MARK: - Home Composition Types
 
 /// AI-composed home screen layout. Contains sections of entries and messages
@@ -8,14 +18,23 @@ import Foundation
 public struct HomeComposition: Codable, Sendable {
     public var sections: [ComposedSection]
     public var composedAt: Date
+    public var briefing: String?
+    public var variant: CompositionVariant?
 
     public var isFromToday: Bool {
         Calendar.current.isDateInToday(composedAt)
     }
 
-    public init(sections: [ComposedSection], composedAt: Date = Date()) {
+    public init(
+        sections: [ComposedSection],
+        composedAt: Date = Date(),
+        briefing: String? = nil,
+        variant: CompositionVariant? = nil
+    ) {
         self.sections = sections
         self.composedAt = composedAt
+        self.briefing = briefing
+        self.variant = variant
     }
 
     /// Apply a batch of layout operations in order. Returns a diff for animation.
