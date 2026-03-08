@@ -22,6 +22,7 @@ struct RootView: View {
     @State private var showCardHints = false
     @State private var pendingDeleteEntry: Entry?
     @State private var pendingDeleteTask: Task<Void, Never>?
+    @State private var focusRefreshTask: Task<Void, Never>?
     @State private var snoozeEntry: Entry?
     @State private var showSnoozeDialog = false
     @State private var showCustomSnoozeSheet = false
@@ -160,6 +161,8 @@ struct RootView: View {
                             }
                         },
                         onKeyboardTap: { showTextInputBar = true },
+                        selectedTab: appState.selectedTab,
+                        onTabChange: { appState.selectedTab = $0 },
                         onTextSubmit: {
                             conversation.inputText = inputText
                             inputText = ""
@@ -255,7 +258,12 @@ struct RootView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { wakeUpSnoozedEntries() }
+            if phase == .active {
+                wakeUpSnoozedEntries()
+                Task { @MainActor in
+                    await appState.requestFocusIfStale(entries: activeEntries)
+                }
+            }
         }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
             wakeUpSnoozedEntries()
@@ -323,6 +331,7 @@ struct RootView: View {
                 )
             },
             onEntryTap: { entry in selectedEntry = entry },
+            onKeyboardTap: { showTextInputBar = true },
             onSettingsTap: { showSettings = true },
             onAction: { entry, action in
                 handleEntryAction(entry, action)
@@ -370,11 +379,13 @@ struct RootView: View {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             entry.perform(.complete, in: modelContext, preferences: notifPrefs)
             showToast("Completed")
+            scheduleFocusRefresh()
 
         case .archive:
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             entry.perform(.archive, in: modelContext, preferences: notifPrefs)
             showToast("Archived", type: .info)
+            scheduleFocusRefresh()
 
         case .unarchive:
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -473,6 +484,17 @@ private extension RootView {
             for entry in woken {
                 NotificationService.shared.sync(entry, preferences: notifPrefs)
             }
+        }
+    }
+
+    /// Debounced focus refresh — waits 1.5 s then regenerates (no staleness gate on action-triggered refresh).
+    func scheduleFocusRefresh() {
+        focusRefreshTask?.cancel()
+        focusRefreshTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            appState.invalidateDailyFocus()
+            await appState.requestDailyFocus(entries: activeEntries)
         }
     }
 

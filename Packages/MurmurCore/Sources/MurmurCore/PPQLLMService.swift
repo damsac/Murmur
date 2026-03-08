@@ -146,7 +146,7 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
             return lhs.createdAt > rhs.createdAt
         }
 
-        var lines: [String] = ["[BRIEFING] Select up to 3 entries for today's focus.", "", "## Current Entries", ""]
+        var lines: [String] = ["[BRIEFING] Group up to 7 entries into thematic clusters for today's focus.", "", "## Current Entries", ""]
         lines.append(contentsOf: sortedEntries.map(formatContextLine(for:)))
         return lines.joined(separator: "\n")
     }
@@ -164,7 +164,12 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
 
         let args = try JSONDecoder().decode(ComposeFocusArguments.self, from: argsData)
         return DailyFocus(
-            items: args.items.map { FocusItem(id: $0.id, reason: $0.reason) },
+            clusters: args.clusters.map { rawCluster in
+                FocusCluster(
+                    message: rawCluster.message,
+                    items: rawCluster.items.map { FocusItem(id: $0.id, reason: $0.reason) }
+                )
+            },
             message: args.message
         )
     }
@@ -831,8 +836,13 @@ struct RawUpdateFields: Decodable {
 }
 
 private struct ComposeFocusArguments: Decodable {
-    let items: [RawFocusItem]
+    let clusters: [RawFocusCluster]
     let message: String
+}
+
+private struct RawFocusCluster: Decodable {
+    let message: String
+    let items: [RawFocusItem]
 }
 
 private struct RawFocusItem: Decodable {

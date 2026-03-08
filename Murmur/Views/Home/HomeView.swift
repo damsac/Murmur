@@ -8,6 +8,7 @@ struct HomeView: View {
     let onMicTap: () -> Void
     let onSubmit: () -> Void
     let onEntryTap: (Entry) -> Void
+    let onKeyboardTap: () -> Void
     let onSettingsTap: () -> Void
     let onAction: (Entry, EntryAction) -> Void
 
@@ -19,12 +20,34 @@ struct HomeView: View {
     @State private var pulseOpacity2: Double = 0.7
     @State private var pulseOpacity3: Double = 0.5
     @State private var activeSwipeEntryID: UUID?
+    @State private var focusMessageVisible: Bool = false
+    @State private var focusVisibleCardCount: Int = 0
 
     var body: some View {
-        if entries.isEmpty {
-            emptyState
-        } else {
-            populatedState
+        VStack(spacing: 0) {
+            topBar
+            if entries.isEmpty {
+                emptyState
+            } else {
+                populatedState
+            }
+        }
+    }
+
+    // MARK: - Top Bar
+
+    private var topBar: some View {
+        HStack {
+            Spacer()
+            Button(action: onSettingsTap) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Settings")
+            .padding(.trailing, Theme.Spacing.screenPadding - 10)
         }
     }
 
@@ -114,91 +137,53 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Populated State
+    // MARK: - Populated State (tab switcher)
 
     @ViewBuilder
     private var populatedState: some View {
-        VStack(spacing: 0) {
-            // Scrollable content: focus strip + category sections
-            ScrollView {
-                VStack(spacing: 0) {
-                    // Focus strip: shimmer → cards in a stable-height container
-                    FocusContainerView(
-                        isLoading: appState.isFocusLoading,
-                        dailyFocus: appState.dailyFocus,
-                        allEntries: entries,
-                        activeSwipeEntryID: $activeSwipeEntryID,
-                        onEntryTap: onEntryTap,
-                        swipeActionsProvider: swipeActions(for:),
-                        onAction: onAction
-                    )
-
-                    // Processing indicator
-                    if appState.conversation.isProcessing {
-                        ProcessingDotsView()
-                            .transition(.opacity)
-                    }
-
-                    // Category sections
-                    VStack(spacing: 0) {
-                        ForEach(entriesByCategory, id: \.category) { group in
-                            CategorySectionView(
-                                category: group.category,
-                                entries: group.entries,
-                                arrivedEntryIDs: appState.conversation.arrivedEntryIDs,
-                                activeSwipeEntryID: $activeSwipeEntryID,
-                                onEntryTap: onEntryTap,
-                                swipeActionsProvider: swipeActions(for:),
-                                onAction: onAction,
-                                onGlowComplete: { id in
-                                    appState.conversation.arrivedEntryIDs.remove(id)
-                                }
-                            )
-                        }
-                    }
-                    // Extra padding so last card clears the floating mic
-                    .padding(.bottom, 80)
-                }
-                .animation(Animations.smoothSlide, value: appState.isFocusLoading)
-                .animation(Animations.smoothSlide, value: appState.dailyFocus?.items.count ?? 0)
+        ZStack {
+            if appState.selectedTab == .focus {
+                FocusTabView(
+                    isLoading: appState.isFocusLoading,
+                    dailyFocus: appState.dailyFocus,
+                    isProcessing: appState.conversation.isProcessing,
+                    allEntries: entries,
+                    activeSwipeEntryID: $activeSwipeEntryID,
+                    messageVisible: $focusMessageVisible,
+                    visibleCardCount: $focusVisibleCardCount,
+                    onEntryTap: onEntryTap,
+                    swipeActionsProvider: swipeActions(for:),
+                    onAction: onAction
+                )
+                .transition(.asymmetric(
+                    insertion: .move(edge: .leading),
+                    removal: .move(edge: .trailing)
+                ))
+            } else {
+                AllTabView(
+                    entries: entries,
+                    isProcessing: appState.conversation.isProcessing,
+                    arrivedEntryIDs: appState.conversation.arrivedEntryIDs,
+                    activeSwipeEntryID: $activeSwipeEntryID,
+                    onEntryTap: onEntryTap,
+                    swipeActionsProvider: swipeActions(for:),
+                    onAction: onAction,
+                    onGlowComplete: { id in appState.conversation.arrivedEntryIDs.remove(id) }
+                )
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing),
+                    removal: .move(edge: .leading)
+                ))
             }
-            .scrollIndicators(.hidden)
-            .mask(
-                VStack(spacing: 0) {
-                    Color.black
-                    LinearGradient(
-                        colors: [.black, .clear],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: 40)
-                }
-            )
         }
-    }
-
-    // MARK: - Category Section Data
-
-    private static let categoryDisplayOrder: [EntryCategory] = [
-        .todo, .reminder, .habit, .idea, .list, .note, .question
-    ]
-
-    /// Entries grouped by category, in fixed display order, only non-empty categories.
-    private var entriesByCategory: [(category: EntryCategory, entries: [Entry])] {
-        let grouped = Dictionary(grouping: entries) { $0.category }
-        return Self.categoryDisplayOrder.compactMap { category in
-            guard let items = grouped[category], !items.isEmpty else { return nil }
-            let sorted = items.sorted { lhs, rhs in
-                let pa = lhs.priority ?? Int.max
-                let pb = rhs.priority ?? Int.max
-                if pa != pb { return pa < pb }
-                let da = lhs.dueDate ?? Date.distantFuture
-                let db = rhs.dueDate ?? Date.distantFuture
-                if da != db { return da < db }
-                return lhs.createdAt > rhs.createdAt
+        .animation(Animations.smoothSlide, value: appState.selectedTab == .focus)
+        .mask(
+            VStack(spacing: 0) {
+                Color.black
+                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 110)
             }
-            return (category: category, entries: sorted)
-        }
+        )
     }
 
     // MARK: - Swipe Actions
@@ -217,117 +202,170 @@ struct HomeView: View {
     }
 }
 
-// MARK: - Focus Container (stable height through loading → loaded)
+// MARK: - Focus Tab (full-page focus dashboard)
 
-private struct FocusContainerView: View {
+private struct FocusTabView: View {
     let isLoading: Bool
     let dailyFocus: DailyFocus?
+    let isProcessing: Bool
     let allEntries: [Entry]
     @Binding var activeSwipeEntryID: UUID?
+    @Binding var messageVisible: Bool
+    @Binding var visibleCardCount: Int
     let onEntryTap: (Entry) -> Void
     let swipeActionsProvider: (Entry) -> [CardSwipeAction]
     let onAction: (Entry, EntryAction) -> Void
 
-    private var showShimmer: Bool {
-        isLoading && dailyFocus == nil
+    private struct FocusItemResolved {
+        let entry: Entry
+        let reason: String
+        let globalIndex: Int
     }
 
-    var body: some View {
-        if showShimmer {
-            FocusLoadingView()
-                .padding(.top, 12)
-                .padding(.bottom, 16)
-                .transition(.opacity)
-        } else if let focus = dailyFocus {
-            FocusStripView(
-                dailyFocus: focus,
-                allEntries: allEntries,
-                activeSwipeEntryID: $activeSwipeEntryID,
-                onEntryTap: onEntryTap,
-                swipeActionsProvider: swipeActionsProvider,
-                onAction: onAction
-            )
-            .padding(.top, 12)
-            .padding(.bottom, 16)
-            .transition(.opacity.combined(with: .offset(y: 4)))
-        }
-    }
-}
+    private struct ResolvedCluster {
+        let message: String
+        let items: [FocusItemResolved]
 
-// MARK: - Focus Strip
-
-private struct FocusStripView: View {
-    let dailyFocus: DailyFocus
-    let allEntries: [Entry]
-    @Binding var activeSwipeEntryID: UUID?
-    let onEntryTap: (Entry) -> Void
-    let swipeActionsProvider: (Entry) -> [CardSwipeAction]
-    let onAction: (Entry, EntryAction) -> Void
-
-    @State private var messageVisible: Bool = false
-    @State private var visibleCardCount: Int = 0
-
-    private var resolvedItems: [(entry: Entry, reason: String)] {
-        dailyFocus.items.compactMap { item in
-            guard let entry = Entry.resolve(shortID: item.id, in: allEntries) else { return nil }
-            return (entry, item.reason)
+        var dominantCategory: EntryCategory {
+            items.first?.entry.category ?? .todo
         }
     }
 
-    var body: some View {
-        let items = resolvedItems
-        VStack(spacing: 12) {
-            // Greeting + briefing — always shown when focus is available
-            VStack(alignment: .leading, spacing: 4) {
-                Text(Greeting.current + ".")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(Theme.Colors.textPrimary)
-
-                Text(dailyFocus.message)
-                    .font(Theme.Typography.caption)
-                    .foregroundStyle(Theme.Colors.textSecondary)
+    private func resolvedClusters(focus: DailyFocus) -> [ResolvedCluster] {
+        // Flatten all LLM-selected items and re-group by entry.category client-side.
+        // This prevents the LLM from thematically mixing categories (e.g., todos in the reminder cluster).
+        var byCategory: [EntryCategory: [(entry: Entry, reason: String)]] = [:]
+        for cluster in focus.clusters {
+            for item in cluster.items {
+                guard let entry = Entry.resolve(shortID: item.id, in: allEntries) else { continue }
+                byCategory[entry.category, default: []].append((entry, item.reason))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .opacity(messageVisible ? 1 : 0)
-            .offset(y: messageVisible ? 0 : 6)
+        }
+        let order: [EntryCategory] = [.todo, .reminder, .habit, .idea, .list, .note, .question]
+        var globalIndex = 0
+        var result: [ResolvedCluster] = []
+        for category in order {
+            guard let pairs = byCategory[category], !pairs.isEmpty else { continue }
+            let items = pairs.map { pair -> FocusItemResolved in
+                let item = FocusItemResolved(entry: pair.entry, reason: pair.reason, globalIndex: globalIndex)
+                globalIndex += 1
+                return item
+            }
+            result.append(ResolvedCluster(message: "", items: items))
+        }
+        return result
+    }
 
-            // Focus cards — stagger in one at a time, only when there are items
-            if !items.isEmpty {
-                VStack(spacing: 10) {
-                    ForEach(Array(items.enumerated()), id: \.element.entry.id) { index, item in
-                        if index < visibleCardCount {
-                            FocusCardView(
-                                entry: item.entry,
-                                reason: item.reason,
-                                activeSwipeEntryID: $activeSwipeEntryID,
-                                swipeActionsProvider: swipeActionsProvider,
-                                onAction: onAction,
-                                onTap: { onEntryTap(item.entry) }
-                            )
-                            .transition(
-                                .asymmetric(
-                                    insertion: .opacity
-                                        .combined(with: .offset(y: 8))
-                                        .combined(with: .scale(scale: 0.97, anchor: .top)),
-                                    removal: .opacity
-                                )
-                            )
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                if isLoading && dailyFocus == nil {
+                    FocusLoadingView()
+                        .transition(.opacity)
+                } else if let focus = dailyFocus {
+                    // Greeting + briefing header
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(Greeting.current + ".")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(Theme.Colors.textPrimary)
+
+                        Text(focus.message)
+                            .font(Theme.Typography.caption)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .opacity(messageVisible ? 1 : 0)
+                    .offset(y: messageVisible ? 0 : 6)
+
+                    // Focus clusters
+                    let clusters = resolvedClusters(focus: focus)
+                    if !clusters.isEmpty {
+                        VStack(spacing: 24) {
+                            ForEach(clusters.indices, id: \.self) { i in
+                                let cluster = clusters[i]
+                                VStack(alignment: .leading, spacing: 12) {
+                                    let dominantCat = cluster.dominantCategory
+                                    let accentColor = Theme.categoryColor(dominantCat)
+                                    HStack(spacing: 0) {
+                                        HStack(spacing: 8) {
+                                            Circle()
+                                                .fill(accentColor)
+                                                .frame(width: 8, height: 8)
+                                                .shadow(color: accentColor.opacity(0.6), radius: 4)
+                                            Text(dominantCat.displayName.uppercased())
+                                                .font(Theme.Typography.badge)
+                                                .foregroundStyle(Theme.Colors.textSecondary)
+                                                .tracking(0.8)
+                                        }
+                                        Spacer()
+                                        Text("\(cluster.items.count)")
+                                            .font(Theme.Typography.badge)
+                                            .foregroundStyle(Theme.Colors.textTertiary)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 3)
+                                            .background(
+                                                Capsule()
+                                                    .fill(Theme.Colors.bgCard)
+                                                    .overlay(Capsule().stroke(Theme.Colors.borderSubtle, lineWidth: 1))
+                                            )
+                                    }
+                                    VStack(spacing: 10) {
+                                        ForEach(cluster.items, id: \.entry.id) { item in
+                                            if item.globalIndex < visibleCardCount {
+                                                FocusCardExpandedView(
+                                                    entry: item.entry,
+                                                    reason: item.reason,
+                                                    activeSwipeEntryID: $activeSwipeEntryID,
+                                                    swipeActionsProvider: swipeActionsProvider,
+                                                    onAction: onAction,
+                                                    onTap: { onEntryTap(item.entry) }
+                                                )
+                                                .transition(
+                                                    .asymmetric(
+                                                        insertion: .opacity
+                                                            .combined(with: .offset(y: 8))
+                                                            .combined(with: .scale(scale: 0.97, anchor: .top)),
+                                                        removal: .opacity
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
+                    }
+
+                    // Processing indicator below focus cards
+                    if isProcessing {
+                        ProcessingDotsView()
+                            .transition(.opacity)
                     }
                 }
             }
+            .padding(.horizontal, Theme.Spacing.screenPadding)
+            .padding(.top, 8)
+            .padding(.bottom, 160)
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, Theme.Spacing.screenPadding)
-        .onAppear { staggerIn(count: items.count) }
+        .scrollIndicators(.hidden)
+        .onAppear {
+            guard visibleCardCount == 0, let focus = dailyFocus else { return }
+            let count = resolvedClusters(focus: focus).reduce(0) { $0 + $1.items.count }
+            staggerIn(count: count)
+        }
+        .onChange(of: dailyFocus?.composedAt) { _, _ in
+            guard let focus = dailyFocus else { return }
+            messageVisible = false
+            visibleCardCount = 0
+            let count = resolvedClusters(focus: focus).reduce(0) { $0 + $1.items.count }
+            staggerIn(count: count)
+        }
     }
 
     private func staggerIn(count: Int) {
-        // Message fades in first
         withAnimation(.easeOut(duration: 0.4)) {
             messageVisible = true
         }
-        // Cards appear one at a time
         for i in 0..<count {
             let delay = 0.2 + Double(i) * 0.25
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
@@ -336,6 +374,166 @@ private struct FocusStripView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Focus Card (compact — matches SmartListRow dimensions)
+
+private struct FocusCardExpandedView: View {
+    let entry: Entry
+    let reason: String
+    @Binding var activeSwipeEntryID: UUID?
+    let swipeActionsProvider: (Entry) -> [CardSwipeAction]
+    let onAction: (Entry, EntryAction) -> Void
+    let onTap: () -> Void
+
+    @State private var glowIntensity: Double = 1.0
+
+    private var accentColor: Color { Theme.categoryColor(entry.category) }
+
+    private var isOverdue: Bool {
+        guard let dueDate = entry.dueDate else { return false }
+        return dueDate < Date() && entry.status == .active
+    }
+
+    private var detailText: String? {
+        if entry.category == .habit, let cadence = entry.cadence {
+            return cadence.displayName
+        }
+        guard let dueDate = entry.dueDate else { return nil }
+        let priorityPrefix = (entry.priority ?? Int.max) <= 2 ? "P\(entry.priority!) · " : ""
+        if isOverdue { return priorityPrefix + "Overdue" }
+        if Calendar.current.isDateInToday(dueDate) { return priorityPrefix + "Due today" }
+        if Calendar.current.isDateInTomorrow(dueDate) { return priorityPrefix + "Due tomorrow" }
+        return nil
+    }
+
+    private var detailColor: Color {
+        isOverdue ? Theme.Colors.accentRed : Theme.Colors.textTertiary
+    }
+
+    var body: some View {
+        SwipeableCard(
+            actions: swipeActionsProvider(entry),
+            activeSwipeID: $activeSwipeEntryID,
+            entryID: entry.id,
+            onTap: onTap
+        ) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(entry.summary)
+                        .font(.subheadline)
+                        .foregroundStyle(entry.isDoneForPeriod || entry.isCompletedToday ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
+                        .lineLimit(2)
+
+                    if let detail = detailText {
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(detailColor)
+                    } else if !reason.isEmpty {
+                        Text(reason)
+                            .font(.caption)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+
+                if entry.category == .habit && entry.appliesToday {
+                    Button {
+                        onAction(entry, .checkOffHabit)
+                    } label: {
+                        Image(systemName: entry.isCompletedToday ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 24))
+                            .foregroundStyle(
+                                entry.isCompletedToday
+                                    ? Theme.categoryColor(entry.category)
+                                    : Theme.Colors.textTertiary
+                            )
+                            .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
+                            .frame(width: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .cardStyle()
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius)
+                    .stroke(accentColor.opacity(0.45 * glowIntensity), lineWidth: 1.5)
+            )
+            .shadow(color: accentColor.opacity(0.25 * glowIntensity), radius: 14, y: 0)
+            .opacity(entry.isDoneForPeriod || entry.isCompletedToday ? 0.5 : 1.0)
+            .animation(.easeInOut(duration: 0.2), value: entry.isCompletedToday)
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 1.8)) {
+                glowIntensity = 0
+            }
+        }
+    }
+}
+
+// MARK: - All Tab (category sections browser)
+
+private struct AllTabView: View {
+    let entries: [Entry]
+    let isProcessing: Bool
+    let arrivedEntryIDs: Set<UUID>
+    @Binding var activeSwipeEntryID: UUID?
+    let onEntryTap: (Entry) -> Void
+    let swipeActionsProvider: (Entry) -> [CardSwipeAction]
+    let onAction: (Entry, EntryAction) -> Void
+    let onGlowComplete: (UUID) -> Void
+
+    private static let categoryDisplayOrder: [EntryCategory] = [
+        .todo, .reminder, .habit, .idea, .list, .note, .question
+    ]
+
+    private var entriesByCategory: [(category: EntryCategory, entries: [Entry])] {
+        let grouped = Dictionary(grouping: entries) { $0.category }
+        return Self.categoryDisplayOrder.compactMap { category in
+            guard let items = grouped[category], !items.isEmpty else { return nil }
+            let sorted = items.sorted { lhs, rhs in
+                let pa = lhs.priority ?? Int.max
+                let pb = rhs.priority ?? Int.max
+                if pa != pb { return pa < pb }
+                let da = lhs.dueDate ?? Date.distantFuture
+                let db = rhs.dueDate ?? Date.distantFuture
+                if da != db { return da < db }
+                return lhs.createdAt > rhs.createdAt
+            }
+            return (category: category, entries: sorted)
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                if isProcessing {
+                    ProcessingDotsView()
+                        .transition(.opacity)
+                }
+
+                VStack(spacing: 0) {
+                    ForEach(entriesByCategory, id: \.category) { group in
+                        CategorySectionView(
+                            category: group.category,
+                            entries: group.entries,
+                            arrivedEntryIDs: arrivedEntryIDs,
+                            activeSwipeEntryID: $activeSwipeEntryID,
+                            onEntryTap: onEntryTap,
+                            swipeActionsProvider: swipeActionsProvider,
+                            onAction: onAction,
+                            onGlowComplete: onGlowComplete
+                        )
+                    }
+                }
+                .animation(Animations.smoothSlide, value: entries.map(\.id))
+
+                Color.clear.frame(height: 160)
+            }
+        }
+        .scrollIndicators(.hidden)
     }
 }
 
@@ -356,103 +554,9 @@ private struct FocusLoadingView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)
-        .padding(.horizontal, Theme.Spacing.screenPadding)
         .onAppear {
             withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
                 isPulsing = true
-            }
-        }
-    }
-}
-
-// MARK: - Focus Card
-
-private struct FocusCardView: View {
-    let entry: Entry
-    let reason: String
-    @Binding var activeSwipeEntryID: UUID?
-    let swipeActionsProvider: (Entry) -> [CardSwipeAction]
-    let onAction: (Entry, EntryAction) -> Void
-    let onTap: () -> Void
-
-    @State private var glowIntensity: Double = 1.0
-
-    private var accentColor: Color { Theme.categoryColor(entry.category) }
-
-    private var isOverdue: Bool {
-        guard let dueDate = entry.dueDate else { return false }
-        return dueDate < Date() && entry.status == .active
-    }
-
-    private var isDueSoon: Bool {
-        entry.dueDate != nil && !isOverdue
-    }
-
-    private var reasonColor: Color {
-        if isOverdue { return Theme.Colors.accentRed }
-        if isDueSoon { return Theme.Colors.accentYellow }
-        return Theme.Colors.textSecondary
-    }
-
-    var body: some View {
-        SwipeableCard(
-            actions: swipeActionsProvider(entry),
-            activeSwipeID: $activeSwipeEntryID,
-            entryID: entry.id,
-            onTap: onTap
-        ) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 6) {
-                    CategoryBadge(
-                        category: entry.category,
-                        size: .small,
-                        text: entry.category == .habit ? (entry.cadence ?? .daily).displayName : nil
-                    )
-                    Spacer()
-                    if !reason.isEmpty {
-                        Text(reason)
-                            .font(.caption)
-                            .foregroundStyle(reasonColor)
-                    }
-                }
-
-                HStack(alignment: .center, spacing: 12) {
-                    Text(entry.summary)
-                        .font(.subheadline)
-                        .foregroundStyle(entry.isDoneForPeriod || entry.isCompletedToday ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
-                        .lineLimit(2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    if entry.category == .habit && entry.appliesToday {
-                        Button {
-                            onAction(entry, .checkOffHabit)
-                        } label: {
-                            Image(systemName: entry.isCompletedToday ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 24))
-                                .foregroundStyle(
-                                    entry.isCompletedToday
-                                        ? Theme.categoryColor(entry.category)
-                                        : Theme.Colors.textTertiary
-                                )
-                                .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            .cardStyle()
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius)
-                    .stroke(accentColor.opacity(0.55 * glowIntensity), lineWidth: 1.5)
-            )
-            .shadow(color: accentColor.opacity(0.30 * glowIntensity), radius: 18, y: 0)
-            .opacity(entry.isDoneForPeriod || entry.isCompletedToday ? 0.5 : 1.0)
-            .animation(.easeInOut(duration: 0.2), value: entry.isCompletedToday)
-        }
-        .onAppear {
-            // Start glowing immediately — card arrives with glow, then fades out
-            withAnimation(.easeOut(duration: 1.8)) {
-                glowIntensity = 0
             }
         }
     }
@@ -742,20 +846,24 @@ private struct SmartListRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(entry.summary)
                     .font(.subheadline)
                     .foregroundStyle(entry.isDoneForPeriod || entry.isCompletedToday ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
                     .lineLimit(2)
 
-                if let dueText {
+                if entry.category == .habit, let cadence = entry.cadence {
+                    Text(cadence.displayName)
+                        .font(.caption)
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                } else if let dueText {
                     Text(dueText)
                         .font(.caption)
                         .foregroundStyle(isOverdue ? Theme.Colors.accentRed : Theme.Colors.textTertiary)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
 
             if entry.category == .habit && entry.appliesToday {
                 Button {
@@ -869,6 +977,7 @@ private struct ProcessingDotsView: View {
         onMicTap: { print("Mic tapped") },
         onSubmit: { print("Submit:", inputText) },
         onEntryTap: { print("Entry tapped:", $0.summary) },
+        onKeyboardTap: { print("Keyboard tapped") },
         onSettingsTap: { print("Settings tapped") },
         onAction: { entry, action in print("Action:", action, entry.summary) }
     )

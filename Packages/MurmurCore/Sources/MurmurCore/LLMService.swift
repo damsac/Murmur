@@ -147,13 +147,16 @@ public struct LLMPrompt: @unchecked Sendable {
     @available(*, deprecated, message: "Use entryManager or entryCreation")
     public static let entryExtraction = entryCreation
 
-    /// Daily briefing prompt: selects up to 3 focus entries + writes a short message.
+    /// Daily briefing prompt: groups up to 7 focus entries into thematic clusters.
     public static let dailyBriefing = LLMPrompt(
         systemPrompt: """
             You are Murmur's daily briefing system.
 
-            You receive the user's current entries. Your job is to select up to 3 entries that deserve
-            the user's attention today, and write a brief natural-language message (under 12 words).
+            You receive the user's current entries. Your job is to:
+            1. Select up to 7 entries that deserve attention today
+            2. Group them into thematic clusters (1–4 clusters) based on shared topic or context
+            3. Write a short, natural intro sentence for each cluster (under 15 words)
+            4. Write an overall briefing message (under 12 words)
 
             Selection criteria (in priority order):
             1. Overdue entries (due date has passed)
@@ -164,13 +167,29 @@ public struct LLMPrompt: @unchecked Sendable {
 
             For each selected entry, provide a 1-word reason: Overdue, Today, Urgent, Stale, Due, etc.
 
-            The message should feel natural and concise, like a quick briefing:
-            - "Busy Monday — tackle these first."
-            - "Two things overdue, one due today."
-            - "Light day — just one thing needs attention."
+            Cluster grouping rules:
+            - Group entries with a shared theme: home tasks, work, errands, health, finances, etc.
+            - A cluster can contain just 1 entry if it stands alone thematically
+            - Aim for 1–4 clusters total
+            - Never mix TODO and REMINDER entries in the same cluster. They have different
+              semantics: todos are tasks the user chooses to do; reminders are time-bound events
+              they must not forget. Keep them in separate clusters even if they share a theme.
+            - Cluster messages must accurately reflect the entry types present. Only use the word
+              "habit" or "habits" if the cluster contains entries with category HABIT. Never call
+              a TODO or REMINDER a habit, even if it sounds like one.
 
-            Always call compose_focus with your selections. If no entries deserve focus, call it with
-            an empty items array and a message like "All clear — nothing pressing today."
+            Cluster message tone — conversational and motivating:
+            - "Looks like you have some home chores to knock out"
+            - "A couple of work items need your attention"
+            - "One errand you shouldn't forget today"
+
+            Overall message tone — brief and energetic:
+            - "Busy day — tackle these in order."
+            - "Light load today — one thing needs you."
+            - "All clear — nothing pressing today."
+
+            Always call compose_focus. If nothing deserves focus, call with empty clusters and
+            a message like "All clear — nothing pressing today."
             """,
         tools: [composeFocusToolSchema()],
         toolChoice: .function(name: "compose_focus")
@@ -189,8 +208,18 @@ public struct FocusItem: Codable, Sendable, Identifiable {
     }
 }
 
-public struct DailyFocus: Codable, Sendable {
+public struct FocusCluster: Codable, Sendable {
+    public let message: String   // LLM-generated intro sentence for this cluster
     public let items: [FocusItem]
+
+    public init(message: String, items: [FocusItem]) {
+        self.message = message
+        self.items = items
+    }
+}
+
+public struct DailyFocus: Codable, Sendable {
+    public let clusters: [FocusCluster]
     public let message: String
     public let composedAt: Date
 
@@ -198,8 +227,18 @@ public struct DailyFocus: Codable, Sendable {
         Calendar.current.isDateInToday(composedAt)
     }
 
+    /// Flat list of all items across clusters (convenience accessor)
+    public var items: [FocusItem] { clusters.flatMap(\.items) }
+
+    public init(clusters: [FocusCluster], message: String, composedAt: Date = Date()) {
+        self.clusters = clusters
+        self.message = message
+        self.composedAt = composedAt
+    }
+
+    /// Convenience init: wraps flat items into a single anonymous cluster
     public init(items: [FocusItem], message: String, composedAt: Date = Date()) {
-        self.items = items
+        self.clusters = items.isEmpty ? [] : [FocusCluster(message: "", items: items)]
         self.message = message
         self.composedAt = composedAt
     }
@@ -730,34 +769,48 @@ private extension LLMPrompt {
             "type": "function",
             "function": [
                 "name": "compose_focus",
-                "description": "Select up to 3 entries for the user's daily focus and write a briefing message",
+                "description": "Group up to 7 entries into thematic clusters with a contextual intro for each",
                 "parameters": [
                     "type": "object",
                     "properties": [
-                        "items": [
+                        "clusters": [
                             "type": "array",
-                            "description": "Up to 3 entries that deserve attention today",
+                            "description": "1–4 thematic groups of related focus entries",
                             "items": [
                                 "type": "object",
                                 "properties": [
-                                    "id": [
+                                    "message": [
                                         "type": "string",
-                                        "description": "Entry short ID from the context list",
+                                        "description": "Short encouraging intro for this cluster, under 15 words",
                                     ],
-                                    "reason": [
-                                        "type": "string",
-                                        "description": "1-word reason: Overdue, Today, Urgent, Stale, Due, etc.",
-                                    ],
+                                    "items": [
+                                        "type": "array",
+                                        "description": "Entries in this cluster",
+                                        "items": [
+                                            "type": "object",
+                                            "properties": [
+                                                "id": [
+                                                    "type": "string",
+                                                    "description": "Entry short ID from the context list",
+                                                ],
+                                                "reason": [
+                                                    "type": "string",
+                                                    "description": "1-word reason: Overdue, Today, Urgent, Stale, Due, etc.",
+                                                ],
+                                            ] as [String: Any],
+                                            "required": ["id", "reason"],
+                                        ] as [String: Any],
+                                    ] as [String: Any],
                                 ] as [String: Any],
-                                "required": ["id", "reason"],
+                                "required": ["message", "items"],
                             ] as [String: Any],
                         ] as [String: Any],
                         "message": [
                             "type": "string",
-                            "description": "Natural briefing message, under 12 words",
+                            "description": "Overall briefing message, under 12 words",
                         ],
                     ] as [String: Any],
-                    "required": ["items", "message"],
+                    "required": ["clusters", "message"],
                 ] as [String: Any],
             ] as [String: Any],
         ]
