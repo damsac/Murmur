@@ -1,7 +1,8 @@
+// swiftlint:disable file_length
 import Foundation
 import os.log
 
-private let sseLog = Logger(subsystem: "com.gudnuf.murmur", category: "SSE")
+private let sseLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "SSE")
 
 // swiftlint:disable type_body_length
 /// LLMService implementation using PPQ.ai's OpenAI-compatible API with tool calling.
@@ -14,6 +15,9 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
 
     /// Persistent memory content injected into the system prompt.
     public var agentMemory: String?
+
+    /// Active layout variant. Set by AppState before composition/agent calls.
+    public var compositionVariant: CompositionVariant = .scanner
 
     private static let endpoint = URL(string: "https://api.ppq.ai/chat/completions")!
 
@@ -112,29 +116,58 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
         return LLMResult(entries: parseResult.actions.compactMap(\.createdEntry), usage: turn.usage)
     }
 
-    // MARK: - Daily Focus
+    // MARK: - Home Composition
 
-    /// One-shot LLM call to compose the daily focus briefing.
+    /// One-shot LLM call to compose the home view layout.
     /// Uses a separate conversation (not the ongoing agent conversation).
-    public func composeDailyFocus(entries: [AgentContextEntry]) async throws -> DailyFocus {
-        sseLog.info("[SSE] composeDailyFocus() called — NON-STREAMING path (runTurn), \(entries.count) entries")
-        let userContent = buildBriefingUserContent(entries: entries)
+    public func composeHomeView(
+        entries: [AgentContextEntry],
+        variant: CompositionVariant = .scanner
+    ) async throws -> HomeComposition {
+        sseLog.info("[SSE] composeHomeView(\(variant.rawValue)) called — \(entries.count) entries")
+        let userContent = buildCompositionUserContent(entries: entries)
         let conversation = LLMConversation()
+        let prompt: LLMPrompt = variant == .scanner ? .homeComposition : .navigatorComposition
 
         let turn = try await runTurn(
             userContent: userContent,
-            prompt: .dailyBriefing,
+            prompt: prompt,
             conversation: conversation
         )
 
-        let focus = try parseDailyFocus(from: turn.assistantMessage)
-        sseLog.info("[SSE] composeDailyFocus() complete — \(focus.items.count) items, message=\(focus.message)")
-        return focus
+        var composition = try parseHomeComposition(from: turn.assistantMessage)
+        composition.variant = variant
+        sseLog.info("[SSE] composeHomeView() complete — \(composition.sections.count) sections, briefing=\(composition.briefing != nil)")
+        return composition
     }
 
-    private func buildBriefingUserContent(entries: [AgentContextEntry]) -> String {
+    // MARK: - Layout Refresh
+
+    /// Diff-only refresh: compare current layout against entries, return operations.
+    /// One-shot isolated call — does not affect the agent conversation.
+    public func refreshLayout(
+        entries: [AgentContextEntry],
+        currentLayout: HomeComposition,
+        variant: CompositionVariant
+    ) async throws -> [LayoutOperation] {
+        sseLog.info("[SSE] refreshLayout(\(variant.rawValue)) called — \(entries.count) entries")
+        let conversation = LLMConversation()
+        let userContent = buildRefreshUserContent(entries: entries, layout: currentLayout, variant: variant)
+
+        let turn = try await runTurn(
+            userContent: userContent,
+            prompt: .layoutRefresh,
+            conversation: conversation
+        )
+
+        let operations = parseLayoutOperations(from: turn.assistantMessage)
+        sseLog.info("[SSE] refreshLayout() complete — \(operations.count) operations")
+        return operations
+    }
+
+    private func buildCompositionUserContent(entries: [AgentContextEntry]) -> String {
         guard !entries.isEmpty else {
-            return "[BRIEFING] No entries."
+            return "[COMPOSITION] No entries."
         }
 
         let sortedEntries = entries.sorted { lhs, rhs in
@@ -146,32 +179,119 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
             return lhs.createdAt > rhs.createdAt
         }
 
-        var lines: [String] = ["[BRIEFING] Group up to 7 entries into thematic clusters for today's focus.", "", "## Current Entries", ""]
+        var lines = ["[COMPOSITION] Compose the home view from these entries.", "", "## Current Entries", ""]
         lines.append(contentsOf: sortedEntries.map(formatContextLine(for:)))
         return lines.joined(separator: "\n")
     }
 
-    private func parseDailyFocus(from assistantMessage: [String: Any]) throws -> DailyFocus {
+    private func parseHomeComposition(from assistantMessage: [String: Any]) throws -> HomeComposition {
         guard let toolCalls = assistantMessage["tool_calls"] as? [[String: Any]],
               let firstCall = toolCalls.first,
               let function = firstCall["function"] as? [String: Any],
-              let name = function["name"] as? String, name == "compose_focus",
+              let name = function["name"] as? String, name == "compose_view",
               let argsString = function["arguments"] as? String,
               let argsData = argsString.data(using: .utf8)
         else {
             throw PPQError.noToolCalls
         }
 
-        let args = try JSONDecoder().decode(ComposeFocusArguments.self, from: argsData)
-        return DailyFocus(
-            clusters: args.clusters.map { rawCluster in
-                FocusCluster(
-                    message: rawCluster.message,
-                    items: rawCluster.items.map { FocusItem(id: $0.id, reason: $0.reason) }
-                )
-            },
-            message: args.message
-        )
+        let args = try JSONDecoder().decode(ComposeViewArguments.self, from: argsData)
+        let sections = args.sections.map { rawSection in
+            ComposedSection(
+                title: rawSection.title,
+                density: rawSection.density ?? .relaxed,
+                items: rawSection.items.compactMap { rawItem in
+                    switch rawItem.type {
+                    case "entry":
+                        guard let id = rawItem.id else { return nil }
+                        let emphasis = rawItem.emphasis.flatMap { EntryEmphasis(rawValue: $0) } ?? .standard
+                        return ComposedItem.entry(ComposedEntry(id: id, emphasis: emphasis, badge: rawItem.badge))
+                    case "message":
+                        guard let text = rawItem.text else { return nil }
+                        return ComposedItem.message(text)
+                    default:
+                        return nil
+                    }
+                }
+            )
+        }
+
+        return HomeComposition(sections: sections, briefing: args.briefing)
+    }
+
+    // MARK: - Refresh Parsing
+
+    private func parseLayoutOperations(from assistantMessage: [String: Any]) -> [LayoutOperation] {
+        guard let toolCalls = assistantMessage["tool_calls"] as? [[String: Any]],
+              let firstCall = toolCalls.first,
+              let function = firstCall["function"] as? [String: Any],
+              let name = function["name"] as? String, name == "update_layout",
+              let argsString = function["arguments"] as? String,
+              let argsData = argsString.data(using: .utf8),
+              let wrapper = try? JSONDecoder().decode(UpdateLayoutArguments.self, from: argsData)
+        else {
+            return []
+        }
+        return wrapper.operations.compactMap { $0.asOperation }
+    }
+
+    private func buildRefreshUserContent(
+        entries: [AgentContextEntry],
+        layout: HomeComposition,
+        variant: CompositionVariant
+    ) -> String {
+        var lines: [String] = []
+
+        lines.append("## Current Layout")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .prettyPrinted
+        if let layoutJSON = try? encoder.encode(layout),
+           let layoutString = String(data: layoutJSON, encoding: .utf8) {
+            lines.append(layoutString)
+        } else {
+            lines.append("{}")
+        }
+
+        lines.append("")
+        lines.append("## Layout Instructions")
+        lines.append(Self.layoutInstructions(for: variant))
+
+        lines.append("")
+        lines.append("## Current Entries")
+        if entries.isEmpty {
+            lines.append("No entries.")
+        } else {
+            let sorted = entries.sorted { lhs, rhs in
+                let lp = lhs.priority ?? 6
+                let rp = rhs.priority ?? 6
+                if lp != rp { return lp < rp }
+                return lhs.createdAt > rhs.createdAt
+            }
+            lines.append(contentsOf: sorted.map(formatContextLine(for:)))
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Layout Instructions
+
+    /// Variant-specific layout constraints. Used by both agent user content and refresh.
+    static func layoutInstructions(for variant: CompositionVariant) -> String {
+        switch variant {
+        case .scanner:
+            return """
+                Group by urgency/context, not category. 3-5 sections, up to 7 items. \
+                Hero for urgent (1-2 max), compact for low-priority. \
+                Badges: Overdue, Today, Stale, P1, New.
+                """
+        case .navigator:
+            return """
+                Sections named by category (todo, reminder, habit, idea, list, note, question). \
+                Standard emphasis for all. Relaxed density. 7 items max total. \
+                No inline message items. \
+                Badge = short reason for attention (Overdue, Due today, High priority, New, Stale).
+                """
+        }
     }
 
     // MARK: - Turn Execution
@@ -468,6 +588,14 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
                         proposedActions: proposed
                     )))
 
+                case "get_current_layout":
+                    actions.append(.layoutRead)
+
+                case "update_layout":
+                    let wrapper = try JSONDecoder().decode(UpdateLayoutArguments.self, from: argumentsData)
+                    let operations = wrapper.operations.compactMap { $0.asOperation }
+                    actions.append(.layoutUpdate(operations))
+
                 default:
                     continue
                 }
@@ -639,6 +767,9 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
 
         var lines: [String] = ["## Current Entries", ""]
         lines.append(contentsOf: sortedEntries.map(formatContextLine(for:)))
+        lines.append("")
+        lines.append("## Layout Instructions")
+        lines.append(Self.layoutInstructions(for: compositionVariant))
         lines.append("")
         lines.append("## User Transcript")
         lines.append(transcript)
@@ -835,19 +966,83 @@ struct RawUpdateFields: Decodable {
     }
 }
 
-private struct ComposeFocusArguments: Decodable {
-    let clusters: [RawFocusCluster]
-    let message: String
+private struct ComposeViewArguments: Decodable {
+    let sections: [RawComposedSection]
+    let briefing: String?
 }
 
-private struct RawFocusCluster: Decodable {
-    let message: String
-    let items: [RawFocusItem]
+private struct RawComposedSection: Decodable {
+    let title: String?
+    let density: SectionDensity?
+    let items: [RawComposedItem]
 }
 
-private struct RawFocusItem: Decodable {
-    let id: String
-    let reason: String
+private struct RawComposedItem: Decodable {
+    let type: String
+    let id: String?
+    let emphasis: String?
+    let badge: String?
+    let text: String?
+}
+
+struct UpdateLayoutArguments: Decodable {
+    let operations: [RawLayoutOperation]
+}
+
+struct RawLayoutOperation: Decodable {
+    let op: String
+    let title: String?
+    let density: String?
+    let position: Int?
+    let newTitle: String?
+    let entryId: String?
+    let section: String?
+    let toSection: String?
+    let toPosition: Int?
+    let emphasis: String?
+    let badge: String?
+
+    enum CodingKeys: String, CodingKey {
+        case op, title, density, position
+        case newTitle = "new_title"
+        case entryId = "entry_id"
+        case section
+        case toSection = "to_section"
+        case toPosition = "to_position"
+        case emphasis, badge
+    }
+
+    var asOperation: LayoutOperation? {
+        switch op {
+        case "add_section":
+            guard let title else { return nil }
+            let d = density.flatMap { SectionDensity(rawValue: $0) } ?? .relaxed
+            return .addSection(title: title, density: d, position: position)
+        case "remove_section":
+            guard let title else { return nil }
+            return .removeSection(title: title)
+        case "update_section":
+            guard let title else { return nil }
+            let d = density.flatMap { SectionDensity(rawValue: $0) }
+            return .updateSection(title: title, density: d, newTitle: newTitle)
+        case "insert_entry":
+            guard let entryId, let section else { return nil }
+            let e = emphasis.flatMap { EntryEmphasis(rawValue: $0) } ?? .standard
+            return .insertEntry(entryID: entryId, section: section, position: position, emphasis: e, badge: badge)
+        case "remove_entry":
+            guard let entryId else { return nil }
+            return .removeEntry(entryID: entryId)
+        case "move_entry":
+            guard let entryId, let toSection else { return nil }
+            return .moveEntry(entryID: entryId, toSection: toSection, toPosition: toPosition)
+        case "update_entry":
+            guard let entryId else { return nil }
+            let e = emphasis.flatMap { EntryEmphasis(rawValue: $0) }
+            return .updateEntry(entryID: entryId, emphasis: e, badge: badge)
+        default:
+            return nil
+        }
+    }
 }
 
 struct EntryMutationArguments: Decodable {

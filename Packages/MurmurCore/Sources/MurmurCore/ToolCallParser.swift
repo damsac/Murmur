@@ -8,6 +8,7 @@ public enum ToolCallParser {
         public let failure: ParseFailure?
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     public static func parse(name: String, arguments: String, toolCallID: String) -> Result {
         guard let argumentsData = arguments.data(using: .utf8) else {
             return Result(
@@ -56,6 +57,15 @@ public enum ToolCallParser {
                     message: wrapper.message,
                     proposedActions: proposed
                 ))]
+
+            case "get_current_layout":
+                actions = [.layoutRead]
+
+            case "update_layout":
+                let wrapper = try JSONDecoder().decode(UpdateLayoutArguments.self, from: argumentsData)
+                actions = wrapper.operations.compactMap { $0.asOperation }.isEmpty
+                    ? []
+                    : [.layoutUpdate(wrapper.operations.compactMap { $0.asOperation })]
 
             default:
                 return Result(actions: [], failure: nil)

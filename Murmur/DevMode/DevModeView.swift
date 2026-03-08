@@ -4,6 +4,7 @@ import MurmurCore
 struct DevModeView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("homeVariant") private var homeVariant: String = "sac"
 
     var body: some View {
         @Bindable var appState = appState
@@ -62,6 +63,22 @@ struct DevModeView: View {
                                     }
                                 }
                                 .padding(.top, 4)
+
+                                // Home variant picker
+                                HStack {
+                                    Text("Home View")
+                                        .font(.subheadline)
+                                        .foregroundStyle(Theme.Colors.textSecondary)
+
+                                    Spacer()
+
+                                    Picker("", selection: $homeVariant) {
+                                        Text("Navigator").tag("sac")
+                                        Text("Scanner").tag("dam")
+                                    }
+                                    .pickerStyle(.segmented)
+                                    .frame(width: 140)
+                                }
                             }
                         }
                         .padding(.horizontal, Theme.Spacing.screenPadding)
@@ -106,27 +123,27 @@ struct DevModeView: View {
                         Divider()
                             .background(Theme.Colors.borderSubtle)
 
-                        // Regenerate Daily Focus
+                        // Recompose Home
                         Button {
-                            appState.invalidateDailyFocus()
+                            appState.invalidateHomeComposition()
                             dismiss()
                         } label: {
                             HStack(spacing: 8) {
-                                Image(systemName: "sparkles")
+                                Image(systemName: "rectangle.3.group")
                                     .font(.body.weight(.semibold))
 
-                                Text("Regenerate Daily Focus")
+                                Text("Recompose Home")
                                     .font(.body.weight(.semibold))
                             }
-                            .foregroundStyle(Theme.Colors.accentPurple)
+                            .foregroundStyle(Theme.Colors.accentBlue)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
                             .background(
                                 RoundedRectangle(cornerRadius: 14)
-                                    .fill(Theme.Colors.accentPurple.opacity(0.1))
+                                    .fill(Theme.Colors.accentBlue.opacity(0.1))
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 14)
-                                            .stroke(Theme.Colors.accentPurple.opacity(0.2), lineWidth: 1)
+                                            .stroke(Theme.Colors.accentBlue.opacity(0.2), lineWidth: 1)
                                     )
                             )
                         }

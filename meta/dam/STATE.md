@@ -6,38 +6,35 @@ What dam is working on right now. Updated with every PR.
 
 ## Current focus
 
-- **Shipping** — SSE streaming, entry arrival animations, confirmation UI removal, crash fixes
+- **Layout diff system** — Phase 1 (data model) and Phase 2 (tool schemas + agent integration) complete. Next: Phase 3 (DamHomeView animations) and Phase 4 (settings toggle).
 
 ## What happened last session
 
-- Removed confirmation UI entirely (ResultsSurfaceView, ConfirmationData, DenialLogStore)
-- Wired SSE streaming into agent pipeline (processWithAgentStreaming, StreamingResponseAccumulator)
-- Entry arrival animations: glow on expanded sections, peek preview on collapsed sections, staggered 150ms reveals
-- Extracted SwipeableCard to its own file (was inline in HomeView)
-- Bottom toast for text-only agent responses (replaces results surface)
-- Toast direction changed from top to bottom (near mic button)
-- ProcessingDotsView inline indicator while agent is working
-- Fixed crash in ToolResultBuilder when actions include .confirm (safe range clamping)
-- Added os.Logger SSE debug logging throughout pipeline
-- Fixed Logger subsystem from com.murmur.app to com.gudnuf.murmur
+- Layout diff system Phase 1: LayoutOperation enum (7 cases), LayoutDiff return type, mutable HomeComposition with apply(operations:), findSection helper, 27 new unit tests
+- Layout diff system Phase 2: get_current_layout and update_layout tool schemas, AgentAction cases, parsing in both streaming (ToolCallParser) and non-streaming (PPQLLMService) paths, AgentActionExecutor layout handling with appState, ToolResultBuilder formatting, ConversationState recentInserts clearing
+- All 51 HomeComposition/LayoutOperations tests pass, full app builds clean
 
 ## Recent decisions
 
-- Confirmation UI removed — too much friction for the interaction model. Agent acts, user undoes.
-- SSE streaming replaces batch calls — tool calls execute immediately as they arrive
-- Entry arrival tracking via arrivedEntryIDs/pendingRevealEntryIDs on ConversationState
-- Stagger animation: first entry immediately, rest with 150ms gaps
-- Safety TTL: glow clears after 5s per entry
-- buildActionSummary/sanitizeError moved to file-scope private functions (swiftlint type_body_length)
-- Decodable types in PPQLLMService made internal (was private) — needed by ToolCallParser in separate file
+- Layout tools added to entryManager prompt (not separate prompt) — agent can read/update layout during normal conversation
+- RawLayoutOperation decodes from snake_case JSON (entry_id, to_section, etc.) to Swift LayoutOperation enum
+- Agent sees layout as JSON via get_current_layout, returns diff confirmation via update_layout
+- homeCompositionStore changed from private to private(set) so executor can persist layout updates
+- Layout actions don't produce Entry objects — new ActionOutcome cases (layoutRead, layoutUpdated) handle them
+- compose_view one-shot path preserved as cold start; update_layout is additive
 
 ## Open questions
 
+- Card design direction: inline row vs slim card vs multi-column grid?
+- LLM model switch: when to move from Sonnet to Haiku? Need to validate quality with core-scenarios
+- Credit value redefinition: $0.001 → $0.0005 per credit to make packs profitable
 - Conversation reset: timer, explicit button, or N seconds of silence?
 - Token budget for context window
-- Pre-existing test flake: PPQLLMServiceTests "Parses tool call response" fails due to MockURLProtocol static delegate cross-suite contamination
+- Phase 3 matchedGeometryEffect: known to be finicky — may need fallback to simple opacity transitions
 
 ## What I need from sac
 
-- Review arrival animation feel — timing, glow color, peek behavior
-- Iterate on focus section UI — LLM curation wired, visual polish welcome
+- Sign off on onboarding demo transcript and 3 vs 1 demo entries
+- Category color palette approval
+- Read the design psychology doc — does "Navigator" resonate?
+- Thoughts on "Focus / Browse" as the settings toggle labels

@@ -7,7 +7,7 @@ import AVFAudio
 import UIKit
 import os.log
 
-private let sseLog = Logger(subsystem: "com.gudnuf.murmur", category: "SSE")
+private let sseLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "SSE")
 
 // swiftlint:disable type_body_length
 /// Manages conversation thread state, input lifecycle, and agent pipeline interaction.
@@ -300,7 +300,8 @@ final class ConversationState {
                 let execCtx = AgentActionExecutor.ExecutionContext(
                     entries: entries, transcript: text, source: .text,
                     modelContext: modelContext, preferences: preferences,
-                    memoryStore: appState.memoryStore
+                    memoryStore: appState.memoryStore,
+                    appState: appState
                 )
                 try await consumeAgentStream(stream, generation: gen, context: execCtx, appState: appState)
                 inputState = .idle
@@ -314,6 +315,7 @@ final class ConversationState {
         }
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func consumeAgentStream(
         _ stream: AsyncThrowingStream<AgentStreamEvent, Error>,
         generation gen: Int,
@@ -348,6 +350,20 @@ final class ConversationState {
                 allUndoItems.append(contentsOf: execResult.undo.items)
                 allOutcomes.append(contentsOf: execResult.outcomes)
                 trackArrivedEntries(execResult.applied)
+                // Auto-insert created entries into the home view's recent area
+                for applied in execResult.applied {
+                    if case .create = applied.action {
+                        appState.addRecentEntry(applied.entry.id)
+                    }
+                }
+                // Clear recentInserts for entries placed by layout updates
+                for outcome in execResult.outcomes {
+                    if case .layoutUpdated(let diff) = outcome {
+                        for (id, _) in diff.insertedEntries {
+                            appState.clearRecentInsertForEntry(shortID: id, entries: execCtx.entries)
+                        }
+                    }
+                }
 
             case .toolCallFailed(let failure):
                 allParseFailures.append(failure)
@@ -362,6 +378,8 @@ final class ConversationState {
 
                 if !streamedText.isEmpty, allApplied.isEmpty {
                     threadItems.append(.agentText(text: streamedText))
+                    // Auto-insert text-only agent responses into home view
+                    appState.addRecentMessage(streamedText)
                 }
 
                 scheduleCompletionToast(streamedText: streamedText, applied: allApplied, failures: allFailures)

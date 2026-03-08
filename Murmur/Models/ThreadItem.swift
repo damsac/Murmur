@@ -66,6 +66,8 @@ struct AppliedActionInfo: Identifiable {
             case .archive: return .archived
             case .updateMemory: return .updated
             case .confirm: return .updated
+            case .layoutRead: return .updated
+            case .layoutUpdate: return .updated
             }
         }
     }

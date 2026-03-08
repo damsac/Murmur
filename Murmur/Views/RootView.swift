@@ -19,10 +19,10 @@ struct RootView: View {
     @State private var isLoadingTopUpProducts = false
     @State private var topUpPacks: [CreditPack] = []
     @State private var topUpProductIDByCredits: [Int64: String] = [:]
+    @AppStorage("homeVariant") private var homeVariant: String = "sac"
     @State private var showCardHints = false
     @State private var pendingDeleteEntry: Entry?
     @State private var pendingDeleteTask: Task<Void, Never>?
-    @State private var focusRefreshTask: Task<Void, Never>?
     @State private var snoozeEntry: Entry?
     @State private var showSnoozeDialog = false
     @State private var showCustomSnoozeSheet = false
@@ -186,9 +186,12 @@ struct RootView: View {
         .toast($toastConfig)
         #if DEBUG
         .sheet(isPresented: $showDevMode, onDismiss: {
-            if appState.dailyFocus == nil && !appState.isFocusLoading {
+            if appState.homeComposition == nil && !appState.isHomeCompositionLoading {
                 Task { @MainActor in
-                    await appState.requestDailyFocus(entries: activeEntries)
+                    await appState.requestHomeComposition(
+                        entries: activeEntries,
+                        variant: currentVariant
+                    )
                 }
             }
         }) {
@@ -254,15 +257,40 @@ struct RootView: View {
                 await appState.refreshCreditBalance()
             }
             Task { @MainActor in
-                await appState.requestDailyFocus(entries: activeEntries)
+                await appState.requestHomeComposition(
+                    entries: activeEntries,
+                    variant: currentVariant
+                )
             }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 wakeUpSnoozedEntries()
-                Task { @MainActor in
-                    await appState.requestFocusIfStale(entries: activeEntries)
+                appState.startNewSession()
+                if appState.homeComposition != nil {
+                    appState.requestLayoutRefresh(
+                        entries: activeEntries,
+                        variant: currentVariant
+                    )
+                } else {
+                    Task { @MainActor in
+                        await appState.requestHomeComposition(
+                            entries: activeEntries,
+                            variant: currentVariant
+                        )
+                    }
                 }
+            }
+        }
+        .onChange(of: homeVariant) { _, _ in
+            appState.refreshTask?.cancel()
+            appState.invalidateHomeComposition()
+            appState.resetConversation()
+            Task { @MainActor in
+                await appState.requestHomeComposition(
+                    entries: activeEntries,
+                    variant: currentVariant
+                )
             }
         }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
@@ -304,44 +332,67 @@ struct RootView: View {
 
     // MARK: - Home Content
 
-    @ViewBuilder
-    private var homeContent: some View {
+    private func toggleRecording() {
         let conversation = appState.conversation
-        HomeView(
-            inputText: $inputText,
-            entries: activeEntries,
-            onMicTap: {
-                if conversation.isRecording {
-                    conversation.stopRecording(
-                        entries: entries,
-                        modelContext: modelContext,
-                        preferences: notifPrefs
-                    )
-                } else {
-                    conversation.startRecording()
-                }
-            },
-            onSubmit: {
-                conversation.inputText = inputText
-                inputText = ""
-                conversation.submitText(
-                    entries: entries,
-                    modelContext: modelContext,
-                    preferences: notifPrefs
-                )
-            },
-            onEntryTap: { entry in selectedEntry = entry },
-            onKeyboardTap: { showTextInputBar = true },
-            onSettingsTap: { showSettings = true },
-            onAction: { entry, action in
-                handleEntryAction(entry, action)
-            }
+        if conversation.isRecording {
+            conversation.stopRecording(
+                entries: entries,
+                modelContext: modelContext,
+                preferences: notifPrefs
+            )
+        } else {
+            conversation.startRecording()
+        }
+    }
+
+    private func submitInput() {
+        let conversation = appState.conversation
+        conversation.inputText = inputText
+        inputText = ""
+        conversation.submitText(
+            entries: entries,
+            modelContext: modelContext,
+            preferences: notifPrefs
         )
     }
 
-    // MARK: - Actions
+    @ViewBuilder
+    private var homeContent: some View {
+        if homeVariant == "dam" {
+            DamHomeView(
+                inputText: $inputText,
+                entries: activeEntries,
+                onMicTap: toggleRecording,
+                onSubmit: submitInput,
+                onEntryTap: { selectedEntry = $0 },
+                onSettingsTap: { showSettings = true },
+                onAction: { handleEntryAction($0, $1) }
+            )
+        } else {
+            SacHomeView(
+                inputText: $inputText,
+                entries: activeEntries,
+                onMicTap: toggleRecording,
+                onSubmit: submitInput,
+                onEntryTap: { selectedEntry = $0 },
+                onKeyboardTap: { showTextInputBar = true },
+                onSettingsTap: { showSettings = true },
+                onAction: { handleEntryAction($0, $1) }
+            )
+        }
+    }
 
-    private func handleTopUpPurchase(_ pack: CreditPack) {
+}
+
+// MARK: - Actions & Helpers
+
+private extension RootView {
+
+    var currentVariant: CompositionVariant {
+        homeVariant == "dam" ? .scanner : .navigator
+    }
+
+    func handleTopUpPurchase(_ pack: CreditPack) {
         guard !isPurchasingTopUp else { return }
 
         isPurchasingTopUp = true
@@ -373,19 +424,17 @@ struct RootView: View {
         }
     }
 
-    private func handleEntryAction(_ entry: Entry, _ action: EntryAction) {
+    func handleEntryAction(_ entry: Entry, _ action: EntryAction) {
         switch action {
         case .complete:
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             entry.perform(.complete, in: modelContext, preferences: notifPrefs)
             showToast("Completed")
-            scheduleFocusRefresh()
 
         case .archive:
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             entry.perform(.archive, in: modelContext, preferences: notifPrefs)
             showToast("Archived", type: .info)
-            scheduleFocusRefresh()
 
         case .unarchive:
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -422,7 +471,7 @@ struct RootView: View {
         }
     }
 
-    private func showToast(
+    func showToast(
         _ message: String,
         type: ToastView.ToastType = .success,
         actionLabel: String? = nil,
@@ -437,11 +486,6 @@ struct RootView: View {
         )
     }
 
-}
-
-// MARK: - Helpers
-
-private extension RootView {
     var activeEntries: [Entry] {
         let pendingReveal = appState.conversation.pendingRevealEntryIDs
         return entries.filter {
@@ -484,17 +528,6 @@ private extension RootView {
             for entry in woken {
                 NotificationService.shared.sync(entry, preferences: notifPrefs)
             }
-        }
-    }
-
-    /// Debounced focus refresh — waits 1.5 s then regenerates (no staleness gate on action-triggered refresh).
-    func scheduleFocusRefresh() {
-        focusRefreshTask?.cancel()
-        focusRefreshTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1.5))
-            guard !Task.isCancelled else { return }
-            appState.invalidateDailyFocus()
-            await appState.requestDailyFocus(entries: activeEntries)
         }
     }
 
