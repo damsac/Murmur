@@ -852,3 +852,93 @@ struct LayoutOperationTests {
         #expect(decoded.sections[2].items.count == 1)
     }
 }
+
+// MARK: - CompositionVariant + Unified Fields
+
+@Suite("CompositionVariant")
+struct CompositionVariantTests {
+
+    @Test("CompositionVariant Codable round-trip — scanner")
+    func variantScannerRoundTrip() throws {
+        let variant = CompositionVariant.scanner
+        let data = try JSONEncoder().encode(variant)
+        let decoded = try JSONDecoder().decode(CompositionVariant.self, from: data)
+        #expect(decoded == .scanner)
+        #expect(String(data: data, encoding: .utf8) == "\"scanner\"")
+    }
+
+    @Test("CompositionVariant Codable round-trip — navigator")
+    func variantNavigatorRoundTrip() throws {
+        let variant = CompositionVariant.navigator
+        let data = try JSONEncoder().encode(variant)
+        let decoded = try JSONDecoder().decode(CompositionVariant.self, from: data)
+        #expect(decoded == .navigator)
+        #expect(String(data: data, encoding: .utf8) == "\"navigator\"")
+    }
+
+    @Test("HomeComposition with briefing + variant round-trip")
+    func compositionWithBriefingAndVariant() throws {
+        let composition = HomeComposition(
+            sections: [
+                ComposedSection(
+                    title: "todo",
+                    density: .relaxed,
+                    items: [
+                        .entry(ComposedEntry(id: "abc123", emphasis: .standard, badge: "Due today")),
+                    ]
+                ),
+            ],
+            composedAt: Date(),
+            briefing: "You have one thing due today.",
+            variant: .navigator
+        )
+
+        let data = try JSONEncoder().encode(composition)
+        let decoded = try JSONDecoder().decode(HomeComposition.self, from: data)
+
+        #expect(decoded.briefing == "You have one thing due today.")
+        #expect(decoded.variant == .navigator)
+        #expect(decoded.sections.count == 1)
+    }
+
+    @Test("Backward compat — JSON without briefing/variant decodes to nil")
+    func backwardCompatMissingFields() throws {
+        // Simulate old cached JSON without briefing or variant fields
+        let json = Data("""
+        {
+            "sections": [],
+            "composedAt": 0
+        }
+        """.utf8)
+
+        let decoded = try JSONDecoder().decode(HomeComposition.self, from: json)
+        #expect(decoded.briefing == nil)
+        #expect(decoded.variant == nil)
+        #expect(decoded.sections.isEmpty)
+    }
+
+    @Test("Scanner composition has nil briefing")
+    func scannerNilBriefing() throws {
+        let composition = HomeComposition(
+            sections: [],
+            composedAt: Date(),
+            variant: .scanner
+        )
+
+        let data = try JSONEncoder().encode(composition)
+        let decoded = try JSONDecoder().decode(HomeComposition.self, from: data)
+
+        #expect(decoded.briefing == nil)
+        #expect(decoded.variant == .scanner)
+    }
+
+    @Test("Variant comparison is type-safe enum")
+    func variantComparison() {
+        let scanner = CompositionVariant.scanner
+        let navigator = CompositionVariant.navigator
+
+        #expect(scanner != navigator)
+        #expect(scanner == .scanner)
+        #expect(navigator == .navigator)
+    }
+}
