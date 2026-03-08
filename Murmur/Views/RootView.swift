@@ -23,7 +23,6 @@ struct RootView: View {
     @State private var showCardHints = false
     @State private var pendingDeleteEntry: Entry?
     @State private var pendingDeleteTask: Task<Void, Never>?
-    @State private var focusRefreshTask: Task<Void, Never>?
     @State private var snoozeEntry: Entry?
     @State private var showSnoozeDialog = false
     @State private var showCustomSnoozeSheet = false
@@ -187,14 +186,12 @@ struct RootView: View {
         .toast($toastConfig)
         #if DEBUG
         .sheet(isPresented: $showDevMode, onDismiss: {
-            if appState.dailyFocus == nil && !appState.isFocusLoading {
+            if appState.homeComposition == nil && !appState.isHomeCompositionLoading {
                 Task { @MainActor in
-                    await appState.requestDailyFocus(entries: activeEntries)
-                }
-            }
-            if homeVariant == "dam" && appState.homeComposition == nil && !appState.isHomeCompositionLoading {
-                Task { @MainActor in
-                    await appState.requestHomeComposition(entries: activeEntries)
+                    await appState.requestHomeComposition(
+                        entries: activeEntries,
+                        variant: currentVariant
+                    )
                 }
             }
         }) {
@@ -260,15 +257,40 @@ struct RootView: View {
                 await appState.refreshCreditBalance()
             }
             Task { @MainActor in
-                await appState.requestDailyFocus(entries: activeEntries)
+                await appState.requestHomeComposition(
+                    entries: activeEntries,
+                    variant: currentVariant
+                )
             }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 wakeUpSnoozedEntries()
-                Task { @MainActor in
-                    await appState.requestFocusIfStale(entries: activeEntries)
+                appState.startNewSession()
+                if appState.homeComposition != nil {
+                    appState.requestLayoutRefresh(
+                        entries: activeEntries,
+                        variant: currentVariant
+                    )
+                } else {
+                    Task { @MainActor in
+                        await appState.requestHomeComposition(
+                            entries: activeEntries,
+                            variant: currentVariant
+                        )
+                    }
                 }
+            }
+        }
+        .onChange(of: homeVariant) { _, _ in
+            appState.refreshTask?.cancel()
+            appState.invalidateHomeComposition()
+            appState.resetConversation()
+            Task { @MainActor in
+                await appState.requestHomeComposition(
+                    entries: activeEntries,
+                    variant: currentVariant
+                )
             }
         }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
@@ -367,6 +389,10 @@ struct RootView: View {
 
 private extension RootView {
 
+    var currentVariant: CompositionVariant {
+        homeVariant == "dam" ? .scanner : .navigator
+    }
+
     func handleTopUpPurchase(_ pack: CreditPack) {
         guard !isPurchasingTopUp else { return }
 
@@ -405,13 +431,11 @@ private extension RootView {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             entry.perform(.complete, in: modelContext, preferences: notifPrefs)
             showToast("Completed")
-            scheduleFocusRefresh()
 
         case .archive:
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             entry.perform(.archive, in: modelContext, preferences: notifPrefs)
             showToast("Archived", type: .info)
-            scheduleFocusRefresh()
 
         case .unarchive:
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -505,17 +529,6 @@ private extension RootView {
             for entry in woken {
                 NotificationService.shared.sync(entry, preferences: notifPrefs)
             }
-        }
-    }
-
-    /// Debounced focus refresh — waits 1.5 s then regenerates (no staleness gate on action-triggered refresh).
-    func scheduleFocusRefresh() {
-        focusRefreshTask?.cancel()
-        focusRefreshTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1.5))
-            guard !Task.isCancelled else { return }
-            appState.invalidateDailyFocus()
-            await appState.requestDailyFocus(entries: activeEntries)
         }
     }
 
