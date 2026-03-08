@@ -16,6 +16,9 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
     /// Persistent memory content injected into the system prompt.
     public var agentMemory: String?
 
+    /// Active layout variant. Set by AppState before composition/agent calls.
+    public var compositionVariant: CompositionVariant = .scanner
+
     private static let endpoint = URL(string: "https://api.ppq.ai/chat/completions")!
 
     public init(
@@ -113,86 +116,53 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
         return LLMResult(entries: parseResult.actions.compactMap(\.createdEntry), usage: turn.usage)
     }
 
-    // MARK: - Daily Focus
-
-    /// One-shot LLM call to compose the daily focus briefing.
-    /// Uses a separate conversation (not the ongoing agent conversation).
-    public func composeDailyFocus(entries: [AgentContextEntry]) async throws -> DailyFocus {
-        sseLog.info("[SSE] composeDailyFocus() called — NON-STREAMING path (runTurn), \(entries.count) entries")
-        let userContent = buildBriefingUserContent(entries: entries)
-        let conversation = LLMConversation()
-
-        let turn = try await runTurn(
-            userContent: userContent,
-            prompt: .dailyBriefing,
-            conversation: conversation
-        )
-
-        let focus = try parseDailyFocus(from: turn.assistantMessage)
-        sseLog.info("[SSE] composeDailyFocus() complete — \(focus.items.count) items, message=\(focus.message)")
-        return focus
-    }
-
-    private func buildBriefingUserContent(entries: [AgentContextEntry]) -> String {
-        guard !entries.isEmpty else {
-            return "[BRIEFING] No entries."
-        }
-
-        let sortedEntries = entries.sorted { lhs, rhs in
-            let leftPriority = lhs.priority ?? 6
-            let rightPriority = rhs.priority ?? 6
-            if leftPriority != rightPriority {
-                return leftPriority < rightPriority
-            }
-            return lhs.createdAt > rhs.createdAt
-        }
-
-        var lines: [String] = ["[BRIEFING] Group up to 7 entries into thematic clusters for today's focus.", "", "## Current Entries", ""]
-        lines.append(contentsOf: sortedEntries.map(formatContextLine(for:)))
-        return lines.joined(separator: "\n")
-    }
-
-    private func parseDailyFocus(from assistantMessage: [String: Any]) throws -> DailyFocus {
-        guard let toolCalls = assistantMessage["tool_calls"] as? [[String: Any]],
-              let firstCall = toolCalls.first,
-              let function = firstCall["function"] as? [String: Any],
-              let name = function["name"] as? String, name == "compose_focus",
-              let argsString = function["arguments"] as? String,
-              let argsData = argsString.data(using: .utf8)
-        else {
-            throw PPQError.noToolCalls
-        }
-
-        let args = try JSONDecoder().decode(ComposeFocusArguments.self, from: argsData)
-        return DailyFocus(
-            clusters: args.clusters.map { rawCluster in
-                FocusCluster(
-                    message: rawCluster.message,
-                    items: rawCluster.items.map { FocusItem(id: $0.id, reason: $0.reason) }
-                )
-            },
-            message: args.message
-        )
-    }
-
     // MARK: - Home Composition
 
     /// One-shot LLM call to compose the home view layout.
     /// Uses a separate conversation (not the ongoing agent conversation).
-    public func composeHomeView(entries: [AgentContextEntry]) async throws -> HomeComposition {
-        sseLog.info("[SSE] composeHomeView() called — NON-STREAMING path (runTurn), \(entries.count) entries")
+    public func composeHomeView(
+        entries: [AgentContextEntry],
+        variant: CompositionVariant = .scanner
+    ) async throws -> HomeComposition {
+        sseLog.info("[SSE] composeHomeView(\(variant.rawValue)) called — \(entries.count) entries")
         let userContent = buildCompositionUserContent(entries: entries)
         let conversation = LLMConversation()
+        let prompt: LLMPrompt = variant == .scanner ? .homeComposition : .navigatorComposition
 
         let turn = try await runTurn(
             userContent: userContent,
-            prompt: .homeComposition,
+            prompt: prompt,
             conversation: conversation
         )
 
-        let composition = try parseHomeComposition(from: turn.assistantMessage)
-        sseLog.info("[SSE] composeHomeView() complete — \(composition.sections.count) sections")
+        var composition = try parseHomeComposition(from: turn.assistantMessage)
+        composition.variant = variant
+        sseLog.info("[SSE] composeHomeView() complete — \(composition.sections.count) sections, briefing=\(composition.briefing != nil)")
         return composition
+    }
+
+    // MARK: - Layout Refresh
+
+    /// Diff-only refresh: compare current layout against entries, return operations.
+    /// One-shot isolated call — does not affect the agent conversation.
+    public func refreshLayout(
+        entries: [AgentContextEntry],
+        currentLayout: HomeComposition,
+        variant: CompositionVariant
+    ) async throws -> [LayoutOperation] {
+        sseLog.info("[SSE] refreshLayout(\(variant.rawValue)) called — \(entries.count) entries")
+        let conversation = LLMConversation()
+        let userContent = buildRefreshUserContent(entries: entries, layout: currentLayout, variant: variant)
+
+        let turn = try await runTurn(
+            userContent: userContent,
+            prompt: .layoutRefresh,
+            conversation: conversation
+        )
+
+        let operations = parseLayoutOperations(from: turn.assistantMessage)
+        sseLog.info("[SSE] refreshLayout() complete — \(operations.count) operations")
+        return operations
     }
 
     private func buildCompositionUserContent(entries: [AgentContextEntry]) -> String {
@@ -246,7 +216,82 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
             )
         }
 
-        return HomeComposition(sections: sections)
+        return HomeComposition(sections: sections, briefing: args.briefing)
+    }
+
+    // MARK: - Refresh Parsing
+
+    private func parseLayoutOperations(from assistantMessage: [String: Any]) -> [LayoutOperation] {
+        guard let toolCalls = assistantMessage["tool_calls"] as? [[String: Any]],
+              let firstCall = toolCalls.first,
+              let function = firstCall["function"] as? [String: Any],
+              let name = function["name"] as? String, name == "update_layout",
+              let argsString = function["arguments"] as? String,
+              let argsData = argsString.data(using: .utf8),
+              let wrapper = try? JSONDecoder().decode(UpdateLayoutArguments.self, from: argsData)
+        else {
+            return []
+        }
+        return wrapper.operations.compactMap { $0.asOperation }
+    }
+
+    private func buildRefreshUserContent(
+        entries: [AgentContextEntry],
+        layout: HomeComposition,
+        variant: CompositionVariant
+    ) -> String {
+        var lines: [String] = []
+
+        lines.append("## Current Layout")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .prettyPrinted
+        if let layoutJSON = try? encoder.encode(layout),
+           let layoutString = String(data: layoutJSON, encoding: .utf8) {
+            lines.append(layoutString)
+        } else {
+            lines.append("{}")
+        }
+
+        lines.append("")
+        lines.append("## Layout Instructions")
+        lines.append(Self.layoutInstructions(for: variant))
+
+        lines.append("")
+        lines.append("## Current Entries")
+        if entries.isEmpty {
+            lines.append("No entries.")
+        } else {
+            let sorted = entries.sorted { lhs, rhs in
+                let lp = lhs.priority ?? 6
+                let rp = rhs.priority ?? 6
+                if lp != rp { return lp < rp }
+                return lhs.createdAt > rhs.createdAt
+            }
+            lines.append(contentsOf: sorted.map(formatContextLine(for:)))
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Layout Instructions
+
+    /// Variant-specific layout constraints. Used by both agent user content and refresh.
+    static func layoutInstructions(for variant: CompositionVariant) -> String {
+        switch variant {
+        case .scanner:
+            return """
+                Group by urgency/context, not category. 3-5 sections, 5-15 items. \
+                Hero for urgent (1-2 max), compact for low-priority. \
+                Badges: Overdue, Today, Stale, P1, New.
+                """
+        case .navigator:
+            return """
+                Sections named by category (todo, reminder, habit, idea, list, note, question). \
+                Standard emphasis for all. Relaxed density. 7 items max total. \
+                No inline message items. \
+                Badge = short reason for attention (Overdue, Due today, High priority, New, Stale).
+                """
+        }
     }
 
     // MARK: - Turn Execution
@@ -723,6 +768,9 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
         var lines: [String] = ["## Current Entries", ""]
         lines.append(contentsOf: sortedEntries.map(formatContextLine(for:)))
         lines.append("")
+        lines.append("## Layout Instructions")
+        lines.append(Self.layoutInstructions(for: compositionVariant))
+        lines.append("")
         lines.append("## User Transcript")
         lines.append(transcript)
 
@@ -918,23 +966,9 @@ struct RawUpdateFields: Decodable {
     }
 }
 
-private struct ComposeFocusArguments: Decodable {
-    let clusters: [RawFocusCluster]
-    let message: String
-}
-
-private struct RawFocusCluster: Decodable {
-    let message: String
-    let items: [RawFocusItem]
-}
-
-private struct RawFocusItem: Decodable {
-    let id: String
-    let reason: String
-}
-
 private struct ComposeViewArguments: Decodable {
     let sections: [RawComposedSection]
+    let briefing: String?
 }
 
 private struct RawComposedSection: Decodable {
