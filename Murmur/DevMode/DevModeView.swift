@@ -73,8 +73,8 @@ struct DevModeView: View {
                                     Spacer()
 
                                     Picker("", selection: $homeVariant) {
-                                        Text("sac").tag("sac")
-                                        Text("dam").tag("dam")
+                                        Text("Navigator").tag("sac")
+                                        Text("Scanner").tag("dam")
                                     }
                                     .pickerStyle(.segmented)
                                     .frame(width: 140)
@@ -122,33 +122,6 @@ struct DevModeView: View {
 
                         Divider()
                             .background(Theme.Colors.borderSubtle)
-
-                        // Regenerate Daily Focus
-                        Button {
-                            appState.invalidateDailyFocus()
-                            dismiss()
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "sparkles")
-                                    .font(.body.weight(.semibold))
-
-                                Text("Regenerate Daily Focus")
-                                    .font(.body.weight(.semibold))
-                            }
-                            .foregroundStyle(Theme.Colors.accentPurple)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .fill(Theme.Colors.accentPurple.opacity(0.1))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 14)
-                                            .stroke(Theme.Colors.accentPurple.opacity(0.2), lineWidth: 1)
-                                    )
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, Theme.Spacing.screenPadding)
 
                         // Recompose Home
                         Button {
