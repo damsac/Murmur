@@ -111,14 +111,12 @@ public struct LLMPrompt: @unchecked Sendable {
             - Replace full content each time. Only update when you learn something new.
 
             Layout tools:
-            - After creating/completing/updating entries, call get_current_layout to see the current home screen.
-            - Then call update_layout to place new entries or remove completed ones from the layout.
-            - If the layout is empty (cold start), compose a full layout with add_section + insert_entry operations.
-            - Keep the layout focused: 3-5 sections, 5-15 items total.
-            - Use insert_entry to add new entries to the appropriate section.
-            - Use remove_entry after completing/archiving entries.
-            - Use move_entry when an entry's urgency changes (e.g., becomes overdue).
-            - Calling update_layout is optional — entries without placement appear in a "recent" area above the layout.
+            - get_current_layout reads the current home screen layout as JSON.
+            - update_layout applies incremental changes as an animated batch.
+            - After entry operations, call get_current_layout then update_layout to reflect changes.
+            - If the layout is empty (cold start), build it with add_section + insert_entry.
+            - Calling update_layout is optional — entries without placement appear above the layout.
+            - See ## Layout Instructions in the user message for the active layout style.
             """,
         tools: [
             createEntriesToolSchema(),
@@ -180,16 +178,22 @@ public struct LLMPrompt: @unchecked Sendable {
         toolChoice: .function(name: "compose_view")
     )
 
-    /// Daily briefing prompt: groups up to 7 focus entries into thematic clusters.
-    public static let dailyBriefing = LLMPrompt(
+    /// Navigator composition prompt: category-grouped, up to 7 items, with briefing.
+    public static let navigatorComposition = LLMPrompt(
         systemPrompt: """
-            You are Murmur's daily briefing system.
+            You are composing a home screen for a personal voice assistant app.
+            You receive the user's current entries. Select up to 7 entries that deserve attention today.
 
-            You receive the user's current entries. Your job is to:
-            1. Select up to 7 entries that deserve attention today
-            2. Group them into thematic clusters (1–4 clusters) based on shared topic or context
-            3. Write a short, natural intro sentence for each cluster (under 15 words)
-            4. Write an overall briefing message (under 12 words)
+            Rules:
+            - One section per category (section title = category name lowercase: todo, reminder, habit, note, idea, list, question).
+            - Only include categories that have selected entries — don't create empty sections.
+            - Use relaxed density for all sections.
+            - Use standard emphasis for all entries.
+            - Badge = short human-readable reason this entry needs attention: "Overdue", "Due today", "High priority", "New", "Stale".
+            - Produce a briefing: one friendly sentence summarizing what the day looks like.
+              Example: "You have 3 things due today and a habit to maintain."
+            - No inline message items — use the briefing field instead.
+            - If nothing deserves focus, return zero sections and a calm briefing like "All clear — nothing pressing today."
 
             Selection criteria (in priority order):
             1. Overdue entries (due date has passed)
@@ -197,84 +201,33 @@ public struct LLMPrompt: @unchecked Sendable {
             3. High priority (P1, P2)
             4. Stale entries (created long ago, never updated)
             5. Habits not yet done for the current period
-
-            For each selected entry, provide a 1-word reason: Overdue, Today, Urgent, Stale, Due, etc.
-
-            Cluster grouping rules:
-            - Group entries with a shared theme: home tasks, work, errands, health, finances, etc.
-            - A cluster can contain just 1 entry if it stands alone thematically
-            - Aim for 1–4 clusters total
-            - Never mix TODO and REMINDER entries in the same cluster. They have different
-              semantics: todos are tasks the user chooses to do; reminders are time-bound events
-              they must not forget. Keep them in separate clusters even if they share a theme.
-            - Cluster messages must accurately reflect the entry types present. Only use the word
-              "habit" or "habits" if the cluster contains entries with category HABIT. Never call
-              a TODO or REMINDER a habit, even if it sounds like one.
-
-            Cluster message tone — conversational and motivating:
-            - "Looks like you have some home chores to knock out"
-            - "A couple of work items need your attention"
-            - "One errand you shouldn't forget today"
-
-            Overall message tone — brief and energetic:
-            - "Busy day — tackle these in order."
-            - "Light load today — one thing needs you."
-            - "All clear — nothing pressing today."
-
-            Always call compose_focus. If nothing deserves focus, call with empty clusters and
-            a message like "All clear — nothing pressing today."
             """,
-        tools: [composeFocusToolSchema()],
-        toolChoice: .function(name: "compose_focus")
+        tools: [composeViewToolSchema()],
+        toolChoice: .function(name: "compose_view")
     )
-}
 
-// MARK: - Daily Focus Types
+    /// Layout refresh prompt: compare current layout against entries, output diffs only.
+    public static let layoutRefresh = LLMPrompt(
+        systemPrompt: """
+            You are refreshing a home screen layout for a voice assistant app.
+            You receive the current layout (JSON) and the current entries.
+            Compare them and output update_layout operations to bring the layout up to date.
 
-public struct FocusItem: Codable, Sendable, Identifiable {
-    public let id: String      // entry short ID
-    public let reason: String  // 1-word LLM reason
+            Rules:
+            - Remove entries no longer active (completed, archived, deleted).
+            - Add entries that deserve attention but are missing from the layout.
+            - Update badges based on current dates: "Overdue" if past due, "Today" if due today, etc.
+            - Move entries whose urgency or context has changed.
+            - Update emphasis if priority has shifted.
+            - Preserve the overall layout structure — minimize churn.
+            - If no changes are needed, call update_layout with an empty operations array.
+            - See ## Layout Instructions for the active layout style constraints.
 
-    public init(id: String, reason: String) {
-        self.id = id
-        self.reason = reason
-    }
-}
-
-public struct FocusCluster: Codable, Sendable {
-    public let message: String   // LLM-generated intro sentence for this cluster
-    public let items: [FocusItem]
-
-    public init(message: String, items: [FocusItem]) {
-        self.message = message
-        self.items = items
-    }
-}
-
-public struct DailyFocus: Codable, Sendable {
-    public let clusters: [FocusCluster]
-    public let message: String
-    public let composedAt: Date
-
-    public var isFromToday: Bool {
-        Calendar.current.isDateInToday(composedAt)
-    }
-
-    /// Flat list of all items across clusters (convenience accessor)
-    public var items: [FocusItem] { clusters.flatMap(\.items) }
-
-    public init(clusters: [FocusCluster], message: String, composedAt: Date = Date()) {
-        self.clusters = clusters
-        self.message = message
-        self.composedAt = composedAt
-    }
-
-    /// Convenience init: wraps flat items into a single anonymous cluster
-    public init(items: [FocusItem], message: String, composedAt: Date = Date()) {
-        self.clusters = items.isEmpty ? [] : [FocusCluster(message: "", items: items)]
-        self.message = message
-        self.composedAt = composedAt
-    }
+            Always call update_layout exactly once.
+            """,
+        tools: [updateLayoutToolSchema()],
+        toolChoice: .function(name: "update_layout")
+    )
 }
 
 /// Agent-facing status for context snapshots and update fields.
@@ -901,60 +854,12 @@ private extension LLMPrompt {
                                 "required": ["items"],
                             ] as [String: Any],
                         ] as [String: Any],
+                        "briefing": [
+                            "type": "string",
+                            "description": "One friendly sentence summarizing the day",
+                        ] as [String: Any],
                     ],
                     "required": ["sections"],
-                ] as [String: Any],
-            ] as [String: Any],
-        ]
-    }
-
-    static func composeFocusToolSchema() -> [String: Any] {
-        [
-            "type": "function",
-            "function": [
-                "name": "compose_focus",
-                "description": "Group up to 7 entries into thematic clusters with a contextual intro for each",
-                "parameters": [
-                    "type": "object",
-                    "properties": [
-                        "clusters": [
-                            "type": "array",
-                            "description": "1–4 thematic groups of related focus entries",
-                            "items": [
-                                "type": "object",
-                                "properties": [
-                                    "message": [
-                                        "type": "string",
-                                        "description": "Short encouraging intro for this cluster, under 15 words",
-                                    ],
-                                    "items": [
-                                        "type": "array",
-                                        "description": "Entries in this cluster",
-                                        "items": [
-                                            "type": "object",
-                                            "properties": [
-                                                "id": [
-                                                    "type": "string",
-                                                    "description": "Entry short ID from the context list",
-                                                ],
-                                                "reason": [
-                                                    "type": "string",
-                                                    "description": "1-word reason: Overdue, Today, Urgent, Stale, Due, etc.",
-                                                ],
-                                            ] as [String: Any],
-                                            "required": ["id", "reason"],
-                                        ] as [String: Any],
-                                    ] as [String: Any],
-                                ] as [String: Any],
-                                "required": ["message", "items"],
-                            ] as [String: Any],
-                        ] as [String: Any],
-                        "message": [
-                            "type": "string",
-                            "description": "Overall briefing message, under 12 words",
-                        ],
-                    ] as [String: Any],
-                    "required": ["clusters", "message"],
                 ] as [String: Any],
             ] as [String: Any],
         ]
