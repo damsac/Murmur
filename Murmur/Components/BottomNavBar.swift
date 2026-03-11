@@ -81,13 +81,14 @@ struct BottomNavBar: View {
             // Keyboard button — floats at top-right of the mic
             Button { onKeyboardTap?() } label: {
                 Image(systemName: "keyboard")
-                    .font(.system(size: 16, weight: .regular))
+                    .font(.system(size: 20, weight: .regular))
                     .foregroundStyle(Theme.Colors.textSecondary)
-                    .frame(width: 32, height: 32)
+                    .frame(width: 56, height: 56)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Type a note")
-            .offset(x: 54, y: -28)
+            .offset(x: 60, y: -24)
             .opacity(!isRecording && !isProcessing ? 1 : 0)
             .animation(.easeInOut(duration: 0.2), value: isRecording)
             .animation(.easeInOut(duration: 0.2), value: isProcessing)
@@ -100,7 +101,7 @@ struct BottomNavBar: View {
         Button { onTabChange?(tab) } label: {
             VStack(spacing: 6) {
                 Text(label)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(isSelected ? Theme.Colors.textPrimary : Theme.Colors.textSecondary)
                 Capsule()
                     .fill(isSelected ? Theme.Colors.accentPurple : Color.clear)
@@ -116,17 +117,6 @@ struct BottomNavBar: View {
     @ViewBuilder
     private var textInputMode: some View {
         HStack(spacing: 10) {
-            // Dismiss button
-            Button {
-                onDismissTextInput?()
-            } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Theme.Colors.textSecondary)
-                    .frame(width: 32, height: 32)
-            }
-            .buttonStyle(.plain)
-
             // Text field pill
             HStack(spacing: 8) {
                 TextField("Type something...", text: $inputText, axis: .vertical)

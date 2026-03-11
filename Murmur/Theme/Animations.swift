@@ -30,4 +30,7 @@ enum Animations {
 
     // MARK: - Overlay Dismiss
     static let overlayDismiss = Animation.easeOut(duration: 0.25)
+
+    // MARK: - Layout Spring (for home composition reordering)
+    static let layoutSpring = Animation.spring(response: 0.45, dampingFraction: 0.75)
 }
