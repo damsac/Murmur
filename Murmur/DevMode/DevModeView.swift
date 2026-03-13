@@ -75,9 +75,10 @@ struct DevModeView: View {
                                     Picker("", selection: $homeVariant) {
                                         Text("Navigator").tag("sac")
                                         Text("Scanner").tag("dam")
+                                        Text("Zones").tag("sac2")
                                     }
                                     .pickerStyle(.segmented)
-                                    .frame(width: 140)
+                                    .frame(width: 210)
                                 }
                             }
                         }

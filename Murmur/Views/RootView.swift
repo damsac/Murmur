@@ -139,6 +139,17 @@ struct RootView: View {
                 .zIndex(55)
             }
 
+            // Tap-to-dismiss overlay when text input is open
+            if showTextInputBar {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        showTextInputBar = false
+                        inputText = ""
+                    }
+                    .zIndex(49)
+            }
+
             // Bottom nav bar — always above overlays
             if !appState.showOnboarding {
                 VStack {
@@ -178,6 +189,7 @@ struct RootView: View {
                             inputText = ""
                         }
                     )
+                    .padding(.bottom, 16)
                 }
                 .zIndex(50)
             }
@@ -315,8 +327,8 @@ struct RootView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Theme.Colors.bgDeep)
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                // Spacer matching BottomNavBar height so content scrolls above it
-                Color.clear.frame(height: Theme.Spacing.micButtonSize)
+                // Spacer matching BottomNavBar height (+ 16pt lift off home indicator)
+                Color.clear.frame(height: Theme.Spacing.micButtonSize + 16)
             }
             .ignoresSafeArea(.keyboard)
             .sheet(isPresented: $showSettings) {
@@ -365,6 +377,17 @@ struct RootView: View {
                 onMicTap: toggleRecording,
                 onSubmit: submitInput,
                 onEntryTap: { selectedEntry = $0 },
+                onSettingsTap: { showSettings = true },
+                onAction: { handleEntryAction($0, $1) }
+            )
+        } else if homeVariant == "sac2" {
+            ZonedFocusHomeView(
+                inputText: $inputText,
+                entries: activeEntries,
+                onMicTap: toggleRecording,
+                onSubmit: submitInput,
+                onEntryTap: { selectedEntry = $0 },
+                onKeyboardTap: { showTextInputBar = true },
                 onSettingsTap: { showSettings = true },
                 onAction: { handleEntryAction($0, $1) }
             )

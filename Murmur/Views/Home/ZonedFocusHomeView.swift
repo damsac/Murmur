@@ -1,7 +1,7 @@
 import SwiftUI
 import MurmurCore
 
-struct SacHomeView: View {
+struct ZonedFocusHomeView: View {
     @Environment(AppState.self) private var appState
     @Binding var inputText: String
     let entries: [Entry]
@@ -12,7 +12,6 @@ struct SacHomeView: View {
     let onSettingsTap: () -> Void
     let onAction: (Entry, EntryAction) -> Void
 
-    // Empty state pulse animations
     @State private var pulseScale1: CGFloat = 1.0
     @State private var pulseScale2: CGFloat = 1.0
     @State private var pulseScale3: CGFloat = 1.0
@@ -57,7 +56,6 @@ struct SacHomeView: View {
     private var emptyState: some View {
         VStack(spacing: 0) {
             Spacer()
-
             VStack(spacing: 40) {
                 ZStack {
                     Circle()
@@ -65,19 +63,16 @@ struct SacHomeView: View {
                         .frame(width: 136, height: 136)
                         .scaleEffect(pulseScale3)
                         .opacity(pulseOpacity3)
-
                     Circle()
                         .stroke(Theme.Colors.accentPurple.opacity(0.1), lineWidth: 1)
                         .frame(width: 112, height: 112)
                         .scaleEffect(pulseScale2)
                         .opacity(pulseOpacity2)
-
                     Circle()
                         .stroke(Theme.Colors.accentPurple.opacity(0.3), lineWidth: 2)
                         .frame(width: 88, height: 88)
                         .scaleEffect(pulseScale1)
                         .opacity(pulseOpacity1)
-
                     Button(action: onMicTap) {
                         Image(systemName: "mic")
                             .font(.largeTitle)
@@ -93,57 +88,38 @@ struct SacHomeView: View {
                         .font(Theme.Typography.title)
                         .tracking(-0.5)
                         .foregroundStyle(Theme.Colors.textPrimary)
-
                     Text("Murmur remembers so you don't have to.")
                         .font(Theme.Typography.body)
                         .foregroundStyle(Theme.Colors.textSecondary)
                         .lineSpacing(2)
-                        .devModeActivator()
                 }
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
             }
-
             Spacer()
             Spacer()
         }
     }
 
     private func startPulseAnimation() {
-        withAnimation(
-            .easeInOut(duration: 3)
-            .repeatForever(autoreverses: true)
-        ) {
-            pulseScale1 = 1.05
-            pulseOpacity1 = 0.8
+        withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true)) {
+            pulseScale1 = 1.05; pulseOpacity1 = 0.8
         }
-
-        withAnimation(
-            .easeInOut(duration: 3)
-            .repeatForever(autoreverses: true)
-            .delay(0.5)
-        ) {
-            pulseScale2 = 1.05
-            pulseOpacity2 = 0.5
+        withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true).delay(0.5)) {
+            pulseScale2 = 1.05; pulseOpacity2 = 0.5
         }
-
-        withAnimation(
-            .easeInOut(duration: 3)
-            .repeatForever(autoreverses: true)
-            .delay(1.0)
-        ) {
-            pulseScale3 = 1.05
-            pulseOpacity3 = 0.3
+        withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true).delay(1.0)) {
+            pulseScale3 = 1.05; pulseOpacity3 = 0.3
         }
     }
 
-    // MARK: - Populated State (tab switcher)
+    // MARK: - Populated State
 
     @ViewBuilder
     private var populatedState: some View {
         ZStack {
             if appState.selectedTab == .focus {
-                FocusTabView(
+                ZonedFocusTabView(
                     isLoading: appState.isHomeCompositionLoading,
                     composition: appState.homeComposition,
                     isProcessing: appState.conversation.isProcessing,
@@ -190,21 +166,33 @@ struct SacHomeView: View {
 
     private func swipeActions(for entry: Entry) -> [CardSwipeAction] {
         [
-            CardSwipeAction(
-                icon: "checkmark.circle.fill", label: "Done",
-                color: Theme.Colors.accentGreen
-            ) { onAction(entry, .complete) },
-            CardSwipeAction(
-                icon: "moon.zzz.fill", label: "Snooze",
-                color: Theme.Colors.accentYellow
-            ) { onAction(entry, .snooze(until: nil)) }
+            CardSwipeAction(icon: "checkmark.circle.fill", label: "Done", color: Theme.Colors.accentGreen) {
+                onAction(entry, .complete)
+            },
+            CardSwipeAction(icon: "moon.zzz.fill", label: "Snooze", color: Theme.Colors.accentYellow) {
+                onAction(entry, .snooze(until: nil))
+            }
         ]
     }
 }
 
-// MARK: - Focus Tab (full-page focus dashboard)
+// MARK: - Shared data types (file-private)
 
-private struct FocusTabView: View {
+private struct ZonedFocusItem {
+    let entry: Entry
+    let reason: String
+    let globalIndex: Int
+}
+
+private struct ZonedItems {
+    let hero: ZonedFocusItem?
+    let standard: [ZonedFocusItem]
+    let habits: [Entry]
+}
+
+// MARK: - Zoned Focus Tab
+
+private struct ZonedFocusTabView: View {
     let isLoading: Bool
     let composition: HomeComposition?
     let isProcessing: Bool
@@ -216,67 +204,61 @@ private struct FocusTabView: View {
     let swipeActionsProvider: (Entry) -> [CardSwipeAction]
     let onAction: (Entry, EntryAction) -> Void
 
-    private struct FocusItemResolved {
-        let entry: Entry
-        let reason: String
-        let globalIndex: Int
-    }
-
-    private struct ResolvedCluster {
-        let items: [FocusItemResolved]
-
-        var dominantCategory: EntryCategory {
-            items.first?.entry.category ?? .todo
-        }
-    }
-
     private static let maxFocusItems = 7
 
-    /// Flatten composition items and re-group by entry category client-side.
-    private func resolvedClusters(composition: HomeComposition) -> [ResolvedCluster] {
-        var byCategory: [EntryCategory: [(entry: Entry, badge: String?)]] = [:]
+    private func urgencyScore(_ entry: Entry) -> Int {
+        var score = 0
+        if let due = entry.dueDate, due < Date(), entry.status == .active { score += 100 }
+        if let p = entry.priority { score += p == 1 ? 60 : p == 2 ? 40 : 0 }
+        if let due = entry.dueDate, Calendar.current.isDateInToday(due) { score += 25 }
+        return score
+    }
+
+    private func zoneItems(composition: HomeComposition) -> ZonedItems {
+        var tasks: [(entry: Entry, badge: String?)] = []
+        var habits: [Entry] = []
         var total = 0
+
         for section in composition.sections {
             for item in section.items {
                 guard total < Self.maxFocusItems,
                       case .entry(let composed) = item,
                       let entry = Entry.resolve(shortID: composed.id, in: allEntries) else { continue }
-                byCategory[entry.category, default: []].append((entry, composed.badge))
+                if entry.category == .habit {
+                    habits.append(entry)
+                } else {
+                    tasks.append((entry, composed.badge))
+                }
                 total += 1
             }
         }
-        let order: [EntryCategory] = [.todo, .reminder, .habit, .idea, .list, .note, .question]
+
+        let sorted = tasks.sorted { urgencyScore($0.entry) > urgencyScore($1.entry) }
         var globalIndex = 0
-        var result: [ResolvedCluster] = []
-        for category in order {
-            guard let pairs = byCategory[category], !pairs.isEmpty else { continue }
-            let items = pairs.map { pair -> FocusItemResolved in
-                let item = FocusItemResolved(
-                    entry: pair.entry,
-                    reason: pair.badge ?? "",
-                    globalIndex: globalIndex
-                )
-                globalIndex += 1
-                return item
-            }
-            result.append(ResolvedCluster(items: items))
+        let items: [ZonedFocusItem] = sorted.map { pair in
+            defer { globalIndex += 1 }
+            return ZonedFocusItem(entry: pair.entry, reason: pair.badge ?? "", globalIndex: globalIndex)
         }
-        return result
+
+        return ZonedItems(
+            hero: items.first,
+            standard: items.count > 1 ? Array(items.dropFirst()) : [],
+            habits: habits.filter { $0.appliesToday }
+        )
     }
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
+            VStack(spacing: 0) {
                 if isLoading && composition == nil {
                     FocusLoadingView()
                         .transition(.opacity)
                 } else if let composition {
-                    // Greeting + briefing header
+                    // Greeting + briefing
                     VStack(alignment: .leading, spacing: 4) {
                         Text(Greeting.current + ".")
                             .font(.title3.weight(.semibold))
                             .foregroundStyle(Theme.Colors.textPrimary)
-
                         if let briefing = composition.briefing {
                             Text(briefing)
                                 .font(Theme.Typography.caption)
@@ -286,71 +268,55 @@ private struct FocusTabView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .opacity(messageVisible ? 1 : 0)
                     .offset(y: messageVisible ? 0 : 6)
+                    .padding(.bottom, 20)
 
-                    // Focus clusters
-                    let clusters = resolvedClusters(composition: composition)
-                    if !clusters.isEmpty {
-                        VStack(spacing: 24) {
-                            ForEach(clusters.indices, id: \.self) { i in
-                                let cluster = clusters[i]
-                                VStack(alignment: .leading, spacing: 12) {
-                                    let dominantCat = cluster.dominantCategory
-                                    let accentColor = Theme.categoryColor(dominantCat)
-                                    HStack(spacing: 0) {
-                                        HStack(spacing: 8) {
-                                            Circle()
-                                                .fill(accentColor)
-                                                .frame(width: 8, height: 8)
-                                                .shadow(color: accentColor.opacity(0.6), radius: 4)
-                                            Text(dominantCat.displayName.uppercased())
-                                                .font(Theme.Typography.badge)
-                                                .foregroundStyle(Theme.Colors.textSecondary)
-                                                .tracking(0.8)
-                                        }
-                                        Spacer()
-                                        Text("\(cluster.items.count)")
-                                            .font(Theme.Typography.badge)
-                                            .foregroundStyle(Theme.Colors.textTertiary)
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 3)
-                                            .background(
-                                                Capsule()
-                                                    .fill(Theme.Colors.bgCard)
-                                                    .overlay(Capsule().stroke(Theme.Colors.borderSubtle, lineWidth: 1))
-                                            )
-                                    }
-                                    VStack(spacing: 10) {
-                                        ForEach(cluster.items, id: \.entry.id) { item in
-                                            if item.globalIndex < visibleCardCount {
-                                                FocusCardExpandedView(
-                                                    entry: item.entry,
-                                                    reason: item.reason,
-                                                    activeSwipeEntryID: $activeSwipeEntryID,
-                                                    swipeActionsProvider: swipeActionsProvider,
-                                                    onAction: onAction,
-                                                    onTap: { onEntryTap(item.entry) }
-                                                )
-                                                .transition(
-                                                    .asymmetric(
-                                                        insertion: .opacity
-                                                            .combined(with: .offset(y: 8))
-                                                            .combined(with: .scale(scale: 0.97, anchor: .top)),
-                                                        removal: .opacity
-                                                    )
-                                                )
-                                            }
-                                        }
-                                    }
+                    let zones = zoneItems(composition: composition)
+
+                    // Zone 1 — Hero card
+                    if let hero = zones.hero, 0 < visibleCardCount {
+                        HeroCardView(
+                            item: hero,
+                            activeSwipeEntryID: $activeSwipeEntryID,
+                            swipeActionsProvider: swipeActionsProvider,
+                            onAction: onAction,
+                            onTap: { onEntryTap(hero.entry) }
+                        )
+                        .transition(cardTransition)
+                        .padding(.bottom, 10)
+                    }
+
+                    // Zone 2 — Standard cards
+                    if !zones.standard.isEmpty {
+                        VStack(spacing: 8) {
+                            ForEach(zones.standard, id: \.entry.id) { item in
+                                if item.globalIndex < visibleCardCount {
+                                    StandardFocusCard(
+                                        entry: item.entry,
+                                        reason: item.reason,
+                                        activeSwipeEntryID: $activeSwipeEntryID,
+                                        swipeActionsProvider: swipeActionsProvider,
+                                        onAction: onAction,
+                                        onTap: { onEntryTap(item.entry) }
+                                    )
+                                    .transition(cardTransition)
                                 }
                             }
                         }
+                        .padding(.bottom, zones.habits.isEmpty ? 0 : 20)
                     }
 
-                    // Processing indicator below focus cards
-                    if isProcessing {
-                        SharedProcessingDotsView()
-                            .transition(.opacity)
+                    // Zone 3 — Habits strip
+                    if !zones.habits.isEmpty {
+                        HabitsStripView(habits: zones.habits, onAction: onAction)
+                            .opacity(messageVisible ? 1 : 0)
+                            .offset(y: messageVisible ? 0 : 6)
                     }
+                }
+
+                if isProcessing {
+                    SharedProcessingDotsView()
+                        .transition(.opacity)
+                        .padding(.top, 16)
                 }
             }
             .padding(.horizontal, Theme.Spacing.screenPadding)
@@ -360,24 +326,33 @@ private struct FocusTabView: View {
         .scrollIndicators(.hidden)
         .onAppear {
             guard visibleCardCount == 0, let composition else { return }
-            let count = resolvedClusters(composition: composition).reduce(0) { $0 + $1.items.count }
-            staggerIn(count: count)
+            staggerIn(composition: composition)
         }
         .onChange(of: composition?.composedAt) { _, _ in
             guard let composition else { return }
             messageVisible = false
             visibleCardCount = 0
-            let count = resolvedClusters(composition: composition).reduce(0) { $0 + $1.items.count }
-            staggerIn(count: count)
+            staggerIn(composition: composition)
         }
     }
 
-    private func staggerIn(count: Int) {
+    private var cardTransition: AnyTransition {
+        .asymmetric(
+            insertion: .opacity
+                .combined(with: .offset(y: 8))
+                .combined(with: .scale(scale: 0.97, anchor: .top)),
+            removal: .opacity
+        )
+    }
+
+    private func staggerIn(composition: HomeComposition) {
+        let zones = zoneItems(composition: composition)
+        let count = (zones.hero != nil ? 1 : 0) + zones.standard.count
         withAnimation(.easeOut(duration: 0.4)) {
             messageVisible = true
         }
         for i in 0..<count {
-            let delay = 0.2 + Double(i) * 0.25
+            let delay = 0.2 + Double(i) * 0.22
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) {
                     visibleCardCount = i + 1
@@ -387,17 +362,121 @@ private struct FocusTabView: View {
     }
 }
 
-// MARK: - Focus Card (compact — matches SmartListRow dimensions)
+// MARK: - Hero Card
 
-private struct FocusCardExpandedView: View {
+private struct HeroCardView: View {
+    let item: ZonedFocusItem
+    @Binding var activeSwipeEntryID: UUID?
+    let swipeActionsProvider: (Entry) -> [CardSwipeAction]
+    let onAction: (Entry, EntryAction) -> Void
+    let onTap: () -> Void
+
+    private var accent: Color { Theme.categoryColor(item.entry.category) }
+
+    private var isOverdue: Bool {
+        guard let due = item.entry.dueDate else { return false }
+        return due < Date() && item.entry.status == .active
+    }
+
+    private var isDueToday: Bool {
+        guard let due = item.entry.dueDate, !isOverdue else { return false }
+        return Calendar.current.isDateInToday(due)
+    }
+
+    var body: some View {
+        SwipeableCard(
+            actions: swipeActionsProvider(item.entry),
+            activeSwipeID: $activeSwipeEntryID,
+            entryID: item.entry.id,
+            onTap: onTap
+        ) {
+            HStack(spacing: 0) {
+                // Left accent stripe
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(accent)
+                    .frame(width: 3)
+                    .padding(.vertical, 6)
+                    .padding(.leading, 14)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    // Top row: category + urgency chip
+                    HStack(spacing: 0) {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(accent)
+                                .frame(width: 7, height: 7)
+                            Text(item.entry.category.displayName.uppercased())
+                                .font(Theme.Typography.badge)
+                                .foregroundStyle(Theme.Colors.textTertiary)
+                                .tracking(0.8)
+                        }
+                        Spacer()
+                        if isOverdue {
+                            Text("Overdue")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(Theme.Colors.accentRed)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Theme.Colors.accentRed.opacity(0.12), in: Capsule())
+                        } else if isDueToday {
+                            Text("Due today")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(Theme.Colors.accentYellow)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Theme.Colors.accentYellow.opacity(0.12), in: Capsule())
+                        } else if let p = item.entry.priority, p <= 2 {
+                            Text("P\(p)")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(accent)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(accent.opacity(0.12), in: Capsule())
+                        }
+                    }
+
+                    // Summary — 3 lines, slightly heavier
+                    Text(item.entry.summary)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(
+                            item.entry.isDoneForPeriod || item.entry.isCompletedToday
+                                ? Theme.Colors.textTertiary
+                                : Theme.Colors.textPrimary
+                        )
+                        .lineLimit(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    // Reason sentence from LLM
+                    if !item.reason.isEmpty {
+                        Text(item.reason)
+                            .font(.caption)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                    }
+                }
+                .padding(.leading, 12)
+                .padding(.trailing, 14)
+                .padding(.vertical, 14)
+            }
+            .background(accent.opacity(0.06), in: RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius)
+                    .stroke(accent.opacity(0.18), lineWidth: 1)
+            )
+            .opacity(item.entry.isDoneForPeriod || item.entry.isCompletedToday ? 0.4 : 1.0)
+            .animation(.easeInOut(duration: 0.2), value: item.entry.isCompletedToday)
+        }
+    }
+}
+
+// MARK: - Standard Focus Card
+
+private struct StandardFocusCard: View {
     let entry: Entry
     let reason: String
     @Binding var activeSwipeEntryID: UUID?
     let swipeActionsProvider: (Entry) -> [CardSwipeAction]
     let onAction: (Entry, EntryAction) -> Void
     let onTap: () -> Void
-
-    @State private var glowIntensity: Double = 1.0
 
     private var accentColor: Color { Theme.categoryColor(entry.category) }
 
@@ -455,9 +534,7 @@ private struct FocusCardExpandedView: View {
                         Image(systemName: entry.isCompletedToday ? "checkmark.circle.fill" : "circle")
                             .font(.system(size: 24))
                             .foregroundStyle(
-                                entry.isCompletedToday
-                                    ? Theme.categoryColor(entry.category)
-                                    : Theme.Colors.textTertiary
+                                entry.isCompletedToday ? accentColor : Theme.Colors.textTertiary
                             )
                             .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
                             .frame(width: 44)
@@ -467,26 +544,82 @@ private struct FocusCardExpandedView: View {
                 }
             }
             .cardStyle()
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius)
-                    .stroke(accentColor.opacity(0.45 * glowIntensity), lineWidth: 1.5)
-            )
-            .shadow(color: accentColor.opacity(0.25 * glowIntensity), radius: 14, y: 0)
             .opacity(entry.isDoneForPeriod || entry.isCompletedToday ? 0.5 : 1.0)
             .animation(.easeInOut(duration: 0.2), value: entry.isCompletedToday)
-        }
-        .onAppear {
-            withAnimation(.easeOut(duration: 1.8)) {
-                glowIntensity = 0
-            }
         }
     }
 }
 
-// AllTabView, CategorySectionView, SmartListRow, ProcessingDotsView
-// extracted to AllEntriesView.swift (shared by both home variants)
+// MARK: - Habits Strip
 
-// MARK: - Focus Loading State
+private struct HabitsStripView: View {
+    let habits: [Entry]
+    let onAction: (Entry, EntryAction) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("TODAY'S HABITS")
+                .font(Theme.Typography.badge)
+                .foregroundStyle(Theme.Colors.textTertiary)
+                .tracking(0.8)
+
+            VStack(spacing: 8) {
+                ForEach(habits) { habit in
+                    HabitRowView(habit: habit, onAction: onAction)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct HabitRowView: View {
+    let habit: Entry
+    let onAction: (Entry, EntryAction) -> Void
+
+    private var accent: Color { Theme.categoryColor(habit.category) }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button {
+                onAction(habit, .checkOffHabit)
+            } label: {
+                Image(systemName: habit.isCompletedToday ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 22))
+                    .foregroundStyle(habit.isCompletedToday ? accent : Theme.Colors.textTertiary)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.65), value: habit.isCompletedToday)
+                    .frame(width: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(habit.summary)
+                    .font(.subheadline)
+                    .foregroundStyle(habit.isCompletedToday ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
+                    .lineLimit(1)
+                if let cadence = habit.cadence {
+                    Text(cadence.displayName)
+                        .font(.caption)
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.trailing, 14)
+        .padding(.vertical, 10)
+        .background(Theme.Colors.bgCard, in: RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius)
+                .stroke(Theme.Colors.borderSubtle, lineWidth: 1)
+        )
+        .opacity(habit.isDoneForPeriod ? 0.45 : 1.0)
+        .animation(.easeInOut(duration: 0.2), value: habit.isCompletedToday)
+    }
+}
+
+// MARK: - Focus Loading
 
 private struct FocusLoadingView: View {
     @State private var isPulsing = false
@@ -511,22 +644,22 @@ private struct FocusLoadingView: View {
     }
 }
 
-// CategorySectionView, GlowingEntryRow, SmartListRow, ProcessingDotsView
-// are defined in AllEntriesView.swift (shared by both home variants)
+// MARK: - Preview
 
-#Preview("Home - Category Sections") {
+#Preview("Zoned Focus — With Data") {
     @Previewable @State var appState = AppState()
     @Previewable @State var inputText = ""
 
-    SacHomeView(
+    ZonedFocusHomeView(
         inputText: $inputText,
         entries: [
             Entry(
                 transcript: "",
-                content: "DMV appointment Thursday",
-                category: .reminder,
+                content: "Submit quarterly report to finance team",
+                category: .todo,
                 sourceText: "",
-                summary: "DMV appointment Thursday",
+                summary: "Submit quarterly report to finance team",
+                priority: 1,
                 dueDate: Calendar.current.date(byAdding: .day, value: -1, to: Date())
             ),
             Entry(
@@ -535,13 +668,13 @@ private struct FocusLoadingView: View {
                 category: .todo,
                 sourceText: "",
                 summary: "Review design system and provide feedback",
-                priority: 1,
+                priority: 2,
                 dueDate: Date()
             ),
             Entry(
                 transcript: "",
                 content: "Call dentist about appointment",
-                category: .todo,
+                category: .reminder,
                 sourceText: "",
                 summary: "Call dentist about appointment",
                 priority: 3
@@ -551,29 +684,24 @@ private struct FocusLoadingView: View {
                 content: "Meditate for 10 minutes",
                 category: .habit,
                 sourceText: "",
-                summary: "Meditate for 10 minutes"
+                summary: "Meditate for 10 minutes",
+                cadenceRawValue: "daily"
             ),
             Entry(
                 transcript: "",
-                content: "Voice-controlled home garden watering system",
-                category: .idea,
+                content: "Exercise",
+                category: .habit,
                 sourceText: "",
-                summary: "Voice-controlled home garden watering system"
-            ),
-            Entry(
-                transcript: "",
-                content: "App that turns grocery receipts into meal plans",
-                category: .idea,
-                sourceText: "",
-                summary: "App that turns grocery receipts into meal plans"
+                summary: "Exercise 30 min",
+                cadenceRawValue: "daily"
             )
         ],
-        onMicTap: { print("Mic tapped") },
-        onSubmit: { print("Submit:", inputText) },
-        onEntryTap: { print("Entry tapped:", $0.summary) },
-        onKeyboardTap: { print("Keyboard tapped") },
-        onSettingsTap: { print("Settings tapped") },
-        onAction: { entry, action in print("Action:", action, entry.summary) }
+        onMicTap: { print("Mic") },
+        onSubmit: {},
+        onEntryTap: { print("Tap:", $0.summary) },
+        onKeyboardTap: { print("Keyboard") },
+        onSettingsTap: { print("Settings") },
+        onAction: { e, a in print("Action:", a, e.summary) }
     )
     .environment(appState)
     .background(Theme.Colors.bgDeep)
