@@ -6,25 +6,24 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-Three-zone focus screen (ZonedFocusHomeView) + keyboard UX fixes from parallel ux session.
+TestFlight launch readiness — wrote the full checklist (`meta/TESTFLIGHT_CHECKLIST.md`) covering blockers, high-priority items, and nice-to-haves. Also shipped several frontend features leading up to this: launch screen, color palette tightening, inline entry editing, calendar view, tab swipe, and wave visualizer polish.
 
 ## Recent decisions
 
-- **Three-zone focus layout (sac2 variant)** — New `ZonedFocusHomeView` adds a third home screen variant: Hero zone (single highest-urgency item, tinted bg + accent stripe), Standard zone (urgency-sorted flat cards), Habits strip (compact checkable rows, today-only). Accessible via DevMode → Zones. Does not replace sac/dam variants — additive.
-- **Urgency-first ordering** — Research showed urgency-first beats category-first for personal productivity dashboards. `urgencyScore()` client-side: overdue +100, P1 +60, P2 +40, due today +25. Categories are still visible via badge chips, not used for grouping.
-- **Habits as a dedicated zone** — Pulled habits out of the urgency stack into their own strip. Habits compete differently than tasks — they're time-boxed rituals, not "work to finish." Showing them separately prevents a P1 todo from being buried by 3 habit items.
-- **Keyboard button larger hit target** — Hit area bumped from 32×32 to 56×56pt with `contentShape(Rectangle())`. Was the UX pain point from the ux session — too easy to miss.
-- **Removed dismiss chevron from text input** — The down-chevron before the text field was redundant (tapping mic already exits text mode) and cluttered the bar. Removed.
-- **7-item cap on SacHomeView** — Added `maxFocusItems = 7` guard to `resolvedClusters()` in the existing navigator view. Previously uncapped.
+- **TestFlight checklist in `meta/`** — Wrote a structured doc covering 14 items across blocker/high-priority/nice-to-have. Assigned ownership per item (sac vs dam vs both). Easier to track than a GitHub issue and lives next to STATE.md.
+- **Calendar view in `CalendarView.swift`** — Monthly calendar, entries grouped by due date, opens from home top bar. Additive to existing tabs.
+- **Inline editing in EntryDetailView** — Replaced the separate `EntryEditSheet` with in-place editing directly on the detail view. Simpler UX, less navigation overhead.
+- **TabView page style for swipe** — Swipe between Focus and All tabs using `TabView(.page)`. Fixed `SwipeableCard` drag conflict by using `minimumDistance: .infinity` when no swipe actions present.
+- **Wave visualizer + processing glow** — Reactive amplitude-based waveform during recording, purple glow during LLM processing.
 
 ## Open questions
 
-- Is the three-zone layout the direction we want to pursue, or keep iterating on the two-tab navigator?
-- Urgency scoring is client-side — should the LLM rank items for us instead (pass ordering hints in composition)?
-- Weekly and monthly habits: `appliesToday` always returns true for these. Intentional?
-- Individual card reveal tasks can't be cancelled mid-reveal. (Carried.)
+- Tab swipe needs real-device verification — UIPageViewController behavior differs from simulator (blocker #2 on checklist).
+- API key distribution for testers unresolved — dam needs to confirm which PPQ key to bake into the archive build (blocker #3).
+- Is the three-zone layout (ZonedFocusHomeView) still on the roadmap, or do we move forward with two-tab navigator?
 
 ## What I need from dam
 
-- Review the LLM prompt bump (3 → 7) in `LLMService.swift` and `PPQLLMService.swift` — does the system prompt need other tuning to handle 7 items well?
-- Feedback on three-zone layout direction — should this replace the two-tab navigator, or are we keeping both?
+- Confirm API key plan for TestFlight archive build (checklist #3) — document or add a Makefile target.
+- Real token counts from PPQ responses (checklist #4) — MurmurCore side, needed before credits display is trustworthy.
+- Review the TestFlight checklist and adjust any dam-owned items or estimated priorities.
