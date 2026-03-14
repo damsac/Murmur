@@ -10,9 +10,12 @@ struct MurmurApp: App {
     @State private var notificationPreferences = NotificationPreferences()
     @Environment(\.scenePhase) private var scenePhase
 
+    @AppStorage("colorPalette") private var colorPalette: String = "classic"
+
     var body: some Scene {
         WindowGroup {
             RootView()
+                .id(colorPalette)
                 .environment(appState)
                 .environment(notificationPreferences)
                 .preferredColorScheme(.dark)

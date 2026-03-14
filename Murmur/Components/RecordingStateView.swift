@@ -70,9 +70,13 @@ struct RecordingStateView: View {
                         .frame(height: bottomPad)
 
                     // Reactive wave line at bottom — extends into unsafe area
-                    waveView(width: screen.size.width)
-                        .frame(height: 50)
-                        .padding(.horizontal, 16)
+                    // TimelineView drives continuous phase animation without a Timer
+                    TimelineView(.animation) { timeline in
+                        let phase = timeline.date.timeIntervalSinceReferenceDate
+                        waveView(width: screen.size.width, phase: phase)
+                    }
+                    .frame(height: 90)
+                    .padding(.horizontal, 0)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -85,20 +89,56 @@ struct RecordingStateView: View {
     // MARK: - Wave
 
     @ViewBuilder
-    private func waveView(width w: CGFloat) -> some View {
-        let amplitude = CGFloat(avgLevel) * 30
+    private func waveView(width w: CGFloat, phase: Double) -> some View {
+        // Audio level drives amplitude: loud speech = very tall waves, silence = calm baseline
+        let level = CGFloat(avgLevel)
+        // Minimum amplitude keeps a gentle idle wave even in silence
+        let idleAmplitude: CGFloat = 6
+        // At full audio level the wave reaches ~70pt peak-to-trough
+        let peakAmplitude: CGFloat = 70
+        let amplitude = idleAmplitude + level * (peakAmplitude - idleAmplitude)
 
-        Path { path in
-            let steps = 60
+        // Wave speed: faster when speaking loudly (audio level scales 0→1)
+        // Idle: ~0.8 cycles/sec. Loud: ~3 cycles/sec.
+        let speed = 0.8 + Double(level) * 2.2
+
+        // Number of full sine cycles across the width.
+        // More cycles = more peaks visible = more energetic visualizer feel.
+        // Idle: 3 cycles. Loud: 5 cycles.
+        let cycles = 3.0 + Double(level) * 2.0
+
+        // Second harmonic layer (half the amplitude, offset phase, slightly different frequency)
+        // adds complexity and breaks the mechanical single-sine look.
+        let cycles2 = cycles * 1.6
+        let speed2 = speed * 0.75
+
+        // Line width also breathes with audio level
+        let lineWidth = 2.0 + level * 3.0
+
+        Canvas { context, size in
+            let h = size.height
+            let midY = h * 0.55   // Sit slightly below center so wave has room to peak upward
+            let steps = 120       // More steps = smoother curve
+
+            var path = Path()
             for i in 0...steps {
-                let x = w * CGFloat(i) / CGFloat(steps)
-                let bufIdx = Int(
-                    Float(i) / Float(steps) * Float(max(audioLevels.count - 1, 1))
-                )
+                let t = CGFloat(i) / CGFloat(steps)
+                let x = t * size.width
+
+                // Primary wave
+                let primary = sin(t * CGFloat(cycles) * 2 * .pi - CGFloat(phase * speed))
+
+                // Secondary harmonic (adds texture, partially out of phase)
+                let secondary = sin(t * CGFloat(cycles2) * 2 * .pi - CGFloat(phase * speed2) + 1.2)
+
+                // Per-sample audio modulation: map buffer index → local level
+                let bufIdx = Int(t * CGFloat(max(audioLevels.count - 1, 1)))
                 let localLevel = bufIdx < audioLevels.count
-                    ? CGFloat(audioLevels[bufIdx]) : 0
-                let y: CGFloat = 25
-                    + sin(CGFloat(i) * .pi / 8) * amplitude * localLevel
+                    ? CGFloat(audioLevels[bufIdx]) : level
+
+                // Blend: 80% primary, 20% secondary harmonic for richness
+                let wave = (primary * 0.8 + secondary * 0.2) * amplitude * max(localLevel, 0.08)
+                let y = midY - wave   // subtract so positive audio → wave peaks upward
 
                 if i == 0 {
                     path.move(to: CGPoint(x: x, y: y))
@@ -106,21 +146,23 @@ struct RecordingStateView: View {
                     path.addLine(to: CGPoint(x: x, y: y))
                 }
             }
+
+            context.stroke(
+                path,
+                with: .linearGradient(
+                    Gradient(colors: [
+                        Theme.Colors.accentPurple.opacity(0.2),
+                        Theme.Colors.accentPurple.opacity(0.85),
+                        Theme.Colors.accentPurpleLight,
+                        Theme.Colors.accentPurple.opacity(0.85),
+                        Theme.Colors.accentPurple.opacity(0.2)
+                    ]),
+                    startPoint: CGPoint(x: 0, y: midY),
+                    endPoint: CGPoint(x: w, y: midY)
+                ),
+                lineWidth: lineWidth
+            )
         }
-        .stroke(
-            LinearGradient(
-                colors: [
-                    Theme.Colors.accentPurple.opacity(0.3),
-                    Theme.Colors.accentPurple,
-                    Theme.Colors.accentPurpleLight,
-                    Theme.Colors.accentPurple,
-                    Theme.Colors.accentPurple.opacity(0.3)
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            ),
-            lineWidth: 2
-        )
     }
 }
 

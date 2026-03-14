@@ -261,7 +261,7 @@ private struct ZonedFocusTabView: View {
                             .foregroundStyle(Theme.Colors.textPrimary)
                         if let briefing = composition.briefing {
                             Text(briefing)
-                                .font(Theme.Typography.caption)
+                                .font(.subheadline)
                                 .foregroundStyle(Theme.Colors.textSecondary)
                         }
                     }

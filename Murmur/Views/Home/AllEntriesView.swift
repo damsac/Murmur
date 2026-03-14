@@ -181,7 +181,7 @@ struct CategorySectionView: View {
                     glowAccent: color,
                     glowIntensity: 1.0
                 )
-                .padding(.horizontal, Theme.Spacing.screenPadding)
+                .padding(.horizontal, 12)
                 .transition(.opacity.combined(with: .move(edge: .top)))
                 .onTapGesture {
                     // Expand section, cancel retract
@@ -219,7 +219,7 @@ struct CategorySectionView: View {
                         ))
                     }
                 }
-                .padding(.horizontal, Theme.Spacing.screenPadding)
+                .padding(.horizontal, 12)
                 .transition(.opacity.combined(with: .move(edge: .top)))
                 .animation(Animations.cardAppear, value: entries.map(\.id))
             }
@@ -307,10 +307,10 @@ private struct GlowingEntryRow: View {
             return
         }
         glowIntensity = 1.0
-        withAnimation(.easeOut(duration: 2.0)) {
+        withAnimation(.easeOut(duration: 3.5)) {
             glowIntensity = 0
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
             onGlowComplete()
         }
     }
@@ -329,6 +329,18 @@ struct SmartListRow: View {
         return dueDate < Date()
     }
 
+    private var listItems: [String] {
+        guard entry.category == .list else { return [] }
+        return entry.content
+            .components(separatedBy: "\n")
+            .map { line -> String in
+                var s = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                if s.hasPrefix("- ") { s = String(s.dropFirst(2)) } else if s.hasPrefix("• ") { s = String(s.dropFirst(2)) } else if s.hasPrefix("* ") { s = String(s.dropFirst(2)) }
+                return s
+            }
+            .filter { !$0.isEmpty }
+    }
+
     private var dueText: String? {
         guard entry.category == .todo || entry.category == .reminder else { return nil }
         guard let dueDate = entry.dueDate else { return nil }
@@ -342,6 +354,24 @@ struct SmartListRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
+            if entry.category == .habit && entry.appliesToday {
+                Button {
+                    onAction(entry, .checkOffHabit)
+                } label: {
+                    Image(systemName: entry.isCompletedToday ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 24))
+                        .foregroundStyle(
+                            entry.isCompletedToday
+                                ? Theme.categoryColor(entry.category)
+                                : Theme.Colors.textTertiary
+                        )
+                        .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
+                        .frame(width: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
             VStack(alignment: .leading, spacing: 3) {
                 Text(entry.summary)
                     .font(.subheadline)
@@ -357,26 +387,33 @@ struct SmartListRow: View {
                         .font(.caption)
                         .foregroundStyle(isOverdue ? Theme.Colors.accentRed : Theme.Colors.textTertiary)
                 }
+
+                if !listItems.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        let displayItems = Array(listItems.prefix(3))
+                        let remaining = listItems.count - displayItems.count
+                        ForEach(displayItems, id: \.self) { item in
+                            HStack(alignment: .center, spacing: 5) {
+                                Circle()
+                                    .fill(Theme.Colors.textMuted)
+                                    .frame(width: 3, height: 3)
+                                Text(item)
+                                    .font(.caption2)
+                                    .foregroundStyle(Theme.Colors.textSecondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        if remaining > 0 {
+                            Text("+\(remaining) more")
+                                .font(.caption2)
+                                .foregroundStyle(Theme.Colors.textTertiary)
+                                .padding(.leading, 8)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
             }
             .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-
-            if entry.category == .habit && entry.appliesToday {
-                Button {
-                    onAction(entry, .checkOffHabit)
-                } label: {
-                    Image(systemName: entry.isCompletedToday ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 24))
-                        .foregroundStyle(
-                            entry.isCompletedToday
-                                ? Theme.categoryColor(entry.category)
-                                : Theme.Colors.textTertiary
-                        )
-                        .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
-                        .frame(width: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
         }
         .cardStyle(accent: glowAccent, intensity: glowIntensity)
         .opacity(entry.isDoneForPeriod || entry.isCompletedToday ? 0.5 : 1.0)
@@ -392,13 +429,13 @@ struct SharedProcessingDotsView: View {
     @State private var phase: Int = 0
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 7) {
             ForEach(0..<3, id: \.self) { i in
                 Circle()
                     .fill(Theme.Colors.accentPurple)
-                    .frame(width: 5, height: 5)
-                    .scaleEffect(phase == i ? 1.4 : 0.8)
-                    .opacity(phase == i ? 1.0 : 0.3)
+                    .frame(width: 7, height: 7)
+                    .scaleEffect(phase == i ? 1.5 : 0.7)
+                    .opacity(phase == i ? 1.0 : 0.25)
             }
         }
         .frame(maxWidth: .infinity)
@@ -406,8 +443,8 @@ struct SharedProcessingDotsView: View {
         .accessibilityLabel("Processing")
         .task {
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(400))
-                withAnimation(.easeInOut(duration: 0.3)) {
+                try? await Task.sleep(for: .milliseconds(350))
+                withAnimation(.easeInOut(duration: 0.25)) {
                     phase = (phase + 1) % 3
                 }
             }
