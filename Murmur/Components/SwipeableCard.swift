@@ -75,7 +75,7 @@ struct SwipeableCard<Content: View>: View {
                 .contentShape(Rectangle())
                 .offset(x: dragOffset)
                 .simultaneousGesture(
-                    DragGesture(minimumDistance: 10, coordinateSpace: .local)
+                    DragGesture(minimumDistance: actions.isEmpty ? .infinity : 10, coordinateSpace: .local)
                         .onChanged { value in
                             guard !actions.isEmpty else { return }
                             let dx = value.translation.width

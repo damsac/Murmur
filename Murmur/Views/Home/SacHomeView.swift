@@ -153,7 +153,10 @@ struct SacHomeView: View {
 
     @ViewBuilder
     private var populatedState: some View {
-        ZStack {
+        TabView(selection: Binding(
+            get: { appState.selectedTab },
+            set: { appState.selectedTab = $0 }
+        )) {
             FocusTabView(
                 isLoading: appState.isHomeCompositionLoading,
                 composition: appState.homeComposition,
@@ -166,7 +169,7 @@ struct SacHomeView: View {
                 swipeActionsProvider: swipeActions(for:),
                 onAction: onAction
             )
-            .opacity(appState.selectedTab == .focus ? 1 : 0)
+            .tag(AppState.Tab.focus)
 
             AllEntriesView(
                 entries: entries,
@@ -178,9 +181,9 @@ struct SacHomeView: View {
                 onAction: onAction,
                 onGlowComplete: { id in appState.conversation.arrivedEntryIDs.remove(id) }
             )
-            .opacity(appState.selectedTab == .all ? 1 : 0)
+            .tag(AppState.Tab.all)
         }
-        .animation(Animations.smoothSlide, value: appState.selectedTab)
+        .tabViewStyle(.page(indexDisplayMode: .never))
         .mask(
             VStack(spacing: 0) {
                 Color.black
