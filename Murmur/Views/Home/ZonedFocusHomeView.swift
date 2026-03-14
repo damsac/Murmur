@@ -10,6 +10,7 @@ struct ZonedFocusHomeView: View {
     let onEntryTap: (Entry) -> Void
     let onKeyboardTap: () -> Void
     let onSettingsTap: () -> Void
+    let onCalendarTap: () -> Void
     let onAction: (Entry, EntryAction) -> Void
 
     @State private var pulseScale1: CGFloat = 1.0
@@ -37,7 +38,18 @@ struct ZonedFocusHomeView: View {
 
     private var topBar: some View {
         HStack {
+            Button(action: onCalendarTap) {
+                Image(systemName: "calendar")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Calendar")
+            .padding(.leading, Theme.Spacing.screenPadding - 10)
+
             Spacer()
+
             Button(action: onSettingsTap) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 17, weight: .medium))
@@ -117,42 +129,37 @@ struct ZonedFocusHomeView: View {
 
     @ViewBuilder
     private var populatedState: some View {
-        ZStack {
-            if appState.selectedTab == .focus {
-                ZonedFocusTabView(
-                    isLoading: appState.isHomeCompositionLoading,
-                    composition: appState.homeComposition,
-                    isProcessing: appState.conversation.isProcessing,
-                    allEntries: entries,
-                    activeSwipeEntryID: $activeSwipeEntryID,
-                    messageVisible: $focusMessageVisible,
-                    visibleCardCount: $focusVisibleCardCount,
-                    onEntryTap: onEntryTap,
-                    swipeActionsProvider: swipeActions(for:),
-                    onAction: onAction
-                )
-                .transition(.asymmetric(
-                    insertion: .move(edge: .leading),
-                    removal: .move(edge: .trailing)
-                ))
-            } else {
-                AllEntriesView(
-                    entries: entries,
-                    isProcessing: appState.conversation.isProcessing,
-                    arrivedEntryIDs: appState.conversation.arrivedEntryIDs,
-                    activeSwipeEntryID: $activeSwipeEntryID,
-                    onEntryTap: onEntryTap,
-                    swipeActionsProvider: swipeActions(for:),
-                    onAction: onAction,
-                    onGlowComplete: { id in appState.conversation.arrivedEntryIDs.remove(id) }
-                )
-                .transition(.asymmetric(
-                    insertion: .move(edge: .trailing),
-                    removal: .move(edge: .leading)
-                ))
-            }
+        TabView(selection: Binding(
+            get: { appState.selectedTab },
+            set: { appState.selectedTab = $0 }
+        )) {
+            ZonedFocusTabView(
+                isLoading: appState.isHomeCompositionLoading,
+                composition: appState.homeComposition,
+                isProcessing: appState.conversation.isProcessing,
+                allEntries: entries,
+                activeSwipeEntryID: $activeSwipeEntryID,
+                messageVisible: $focusMessageVisible,
+                visibleCardCount: $focusVisibleCardCount,
+                onEntryTap: onEntryTap,
+                swipeActionsProvider: swipeActions(for:),
+                onAction: onAction
+            )
+            .tag(AppState.Tab.focus)
+
+            AllEntriesView(
+                entries: entries,
+                isProcessing: appState.conversation.isProcessing,
+                arrivedEntryIDs: appState.conversation.arrivedEntryIDs,
+                activeSwipeEntryID: $activeSwipeEntryID,
+                onEntryTap: onEntryTap,
+                swipeActionsProvider: swipeActions(for:),
+                onAction: onAction,
+                onGlowComplete: { id in appState.conversation.arrivedEntryIDs.remove(id) }
+            )
+            .tag(AppState.Tab.all)
         }
-        .animation(Animations.smoothSlide, value: appState.selectedTab == .focus)
+        .tabViewStyle(.page(indexDisplayMode: .never))
         .mask(
             VStack(spacing: 0) {
                 Color.black
@@ -701,6 +708,7 @@ private struct FocusLoadingView: View {
         onEntryTap: { print("Tap:", $0.summary) },
         onKeyboardTap: { print("Keyboard") },
         onSettingsTap: { print("Settings") },
+        onCalendarTap: { print("Calendar") },
         onAction: { e, a in print("Action:", a, e.summary) }
     )
     .environment(appState)
