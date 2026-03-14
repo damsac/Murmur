@@ -9,16 +9,24 @@ struct EntryDetailView: View {
     let onBack: () -> Void
     let onAction: (EntryAction) -> Void
 
-    @State private var showNotesSheet = false
+    // Inline draft state — seeded on appear, saved on every change
+    @State private var draftSummary: String = ""
     @State private var draftNotes: String = ""
+    @State private var draftCategory: EntryCategory = .note
+    @State private var draftPriority: Int?
+
+    // Sheets that remain separate (date/time pickers, snooze)
     @State private var showSnoozeDialog = false
     @State private var showCustomSnoozeSheet = false
     @State private var showDueDateSheet = false
     @State private var draftDueDate: Date = Date()
-    @State private var showEditSheet = false
-    @State private var draftSummary: String = ""
-    @State private var draftCategory: EntryCategory = .note
-    @State private var draftPriority: Int?
+
+    @FocusState private var summaryFocused: Bool
+    @FocusState private var notesFocused: Bool
+
+    private static let editableCategories: [EntryCategory] = [
+        .todo, .reminder, .idea, .habit, .note, .question, .list
+    ]
 
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -33,85 +41,175 @@ struct EntryDetailView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Nav header
+                // Nav header — no edit button; editing is inline
                 NavHeader(
                     title: "Entry",
                     showBackButton: true,
                     backAction: onBack,
-                    trailingButtons: [
-                        NavHeader.NavButton(
-                            icon: "square.and.pencil",
-                            isProminent: true,
-                            action: {
-                                draftSummary = entry.summary
-                                draftCategory = entry.category
-                                draftPriority = entry.priority
-                                showEditSheet = true
-                            }
-                        )
-                    ]
+                    trailingButtons: []
                 )
 
-                // Detail content
+                // Detail + edit content
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        // Category badge
-                        CategoryBadge(category: entry.category, size: .medium)
-                            .padding(.bottom, 24)
 
-                        // Content text
-                        Text(entry.content.isEmpty ? entry.summary : entry.content)
+                        // MARK: Category picker (inline, always visible)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(Self.editableCategories, id: \.self) { cat in
+                                    let color = Theme.categoryColor(cat)
+                                    let isSelected = draftCategory == cat
+                                    Button {
+                                        draftCategory = cat
+                                        entry.category = cat
+                                        entry.updatedAt = Date()
+                                        save()
+                                        NotificationService.shared.sync(entry, preferences: notifPrefs)
+                                    } label: {
+                                        HStack(spacing: 6) {
+                                            Circle()
+                                                .fill(color)
+                                                .frame(width: 7, height: 7)
+                                            Text(cat.displayName)
+                                                .font(Theme.Typography.label)
+                                                .fontWeight(.medium)
+                                        }
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 7)
+                                        .background(isSelected ? color.opacity(0.15) : Theme.Colors.bgCard)
+                                        .foregroundStyle(isSelected ? color : Theme.Colors.textSecondary)
+                                        .clipShape(Capsule())
+                                        .overlay(
+                                            Capsule().stroke(
+                                                isSelected ? color.opacity(0.4) : Theme.Colors.borderFaint,
+                                                lineWidth: 1
+                                            )
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        .padding(.bottom, 20)
+
+                        // MARK: Summary / title (inline TextEditor)
+                        Text("Summary")
+                            .font(Theme.Typography.label)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .padding(.bottom, 6)
+
+                        TextEditor(text: $draftSummary)
                             .font(.title3)
                             .tracking(-0.01)
-                            .lineSpacing(6)
                             .foregroundStyle(Theme.Colors.textPrimary)
-                            .padding(.bottom, 32)
-
-                        // Existing notes (shown when non-empty)
-                        if !entry.notes.isEmpty {
-                            Text(entry.notes)
-                                .font(Theme.Typography.body)
-                                .foregroundStyle(Theme.Colors.textSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.bottom, 24)
-                        }
-
-                        // Tell me more / Edit notes button
-                        Button {
-                            draftNotes = entry.notes
-                            showNotesSheet = true
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "plus.circle")
-                                    .font(Theme.Typography.bodyMedium)
-                                Text(entry.notes.isEmpty ? "Tell me more" : "Edit notes")
-                                    .font(.subheadline.weight(.medium))
-                            }
-                            .foregroundStyle(Theme.Colors.accentPurpleLight)
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 10)
+                            .scrollContentBackground(.hidden)
+                            .frame(minHeight: 72)
+                            .focused($summaryFocused)
+                            .padding(12)
                             .background(
                                 RoundedRectangle(cornerRadius: 12)
-                                    .fill(Theme.Colors.accentPurple.opacity(0.1))
+                                    .fill(summaryFocused
+                                        ? Theme.Colors.bgCard
+                                        : Theme.Colors.bgCard.opacity(0.5))
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 12)
-                                            .stroke(Theme.Colors.accentPurple.opacity(0.2), lineWidth: 1)
+                                            .stroke(
+                                                summaryFocused
+                                                    ? Theme.Colors.accentPurple.opacity(0.3)
+                                                    : Theme.Colors.borderFaint,
+                                                lineWidth: 1
+                                            )
                                     )
                             )
+                            .onChange(of: draftSummary) { _, newValue in
+                                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                                guard !trimmed.isEmpty else { return }
+                                entry.summary = trimmed
+                                entry.updatedAt = Date()
+                                save()
+                            }
+                            .padding(.bottom, 24)
+
+                        // MARK: Notes (inline TextEditor, always visible)
+                        Text("Notes")
+                            .font(Theme.Typography.label)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .padding(.bottom, 6)
+
+                        ZStack(alignment: .topLeading) {
+                            if draftNotes.isEmpty && !notesFocused {
+                                Text("Add a note…")
+                                    .font(Theme.Typography.body)
+                                    .foregroundStyle(Theme.Colors.textMuted)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 16)
+                                    .allowsHitTesting(false)
+                            }
+                            TextEditor(text: $draftNotes)
+                                .font(Theme.Typography.body)
+                                .foregroundStyle(Theme.Colors.textPrimary)
+                                .scrollContentBackground(.hidden)
+                                .frame(minHeight: 80)
+                                .focused($notesFocused)
+                                .padding(12)
+                                .onChange(of: draftNotes) { _, newValue in
+                                    if entry.category == .list {
+                                        entry.content = newValue
+                                    } else {
+                                        entry.notes = newValue
+                                    }
+                                    entry.updatedAt = Date()
+                                    save()
+                                }
                         }
-                        .buttonStyle(.plain)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(notesFocused
+                                    ? Theme.Colors.bgCard
+                                    : Theme.Colors.bgCard.opacity(0.5))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(
+                                            notesFocused
+                                                ? Theme.Colors.accentPurple.opacity(0.3)
+                                                : Theme.Colors.borderFaint,
+                                            lineWidth: 1
+                                        )
+                                )
+                        )
+                        .padding(.bottom, 24)
+
+                        // MARK: Priority picker (inline, always visible)
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Priority")
+                                    .font(Theme.Typography.label)
+                                    .foregroundStyle(Theme.Colors.textSecondary)
+                                Spacer()
+                                Text("1 = highest")
+                                    .font(Theme.Typography.caption)
+                                    .foregroundStyle(Theme.Colors.textMuted)
+                            }
+
+                            HStack(spacing: 8) {
+                                priorityPill(label: "None", value: nil)
+                                ForEach(1...5, id: \.self) { p in
+                                    priorityPill(label: "\(p)", value: p)
+                                }
+                            }
+                        }
                         .padding(.bottom, 28)
 
-                        // Due date row (todos and reminders only)
-                        if entry.category == .todo || entry.category == .reminder {
+                        // MARK: Due date row (todos and reminders only)
+                        if draftCategory == .todo || draftCategory == .reminder {
                             DueDateRow(entry: entry) {
                                 draftDueDate = entry.dueDate ?? Date()
                                 showDueDateSheet = true
                             }
                         }
 
-                        // Cadence pill row (habits only)
-                        if entry.category == .habit {
+                        // MARK: Cadence pill row (habits only)
+                        if draftCategory == .habit {
                             CadencePicker(entry: entry) { cadence in
                                 entry.cadence = entry.cadence == cadence ? nil : cadence
                                 entry.updatedAt = Date()
@@ -135,8 +233,6 @@ struct EntryDetailView: View {
                         // Footer row (metadata)
                         HStack(alignment: .center) {
                             Spacer()
-
-                            // Metadata
                             HStack(spacing: 6) {
                                 Text(formattedDate)
                                     .font(Theme.Typography.caption)
@@ -170,42 +266,12 @@ struct EntryDetailView: View {
                     onDelete: { onAction(.delete) }
                 )
             }
-
         }
-        .sheet(isPresented: $showEditSheet) {
-            EntryEditSheet(
-                summary: $draftSummary,
-                category: $draftCategory,
-                priority: $draftPriority,
-                onSave: {
-                    let trimmed = draftSummary.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { return }
-                    entry.summary = trimmed
-                    entry.category = draftCategory
-                    entry.priority = draftPriority
-                    entry.updatedAt = Date()
-                    save()
-                    NotificationService.shared.sync(entry, preferences: notifPrefs)
-                    showEditSheet = false
-                },
-                onDismiss: { showEditSheet = false }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $showNotesSheet) {
-            NotesEditSheet(
-                notes: $draftNotes,
-                onSave: {
-                    entry.notes = draftNotes
-                    entry.updatedAt = Date()
-                    save()
-                    showNotesSheet = false
-                },
-                onDismiss: { showNotesSheet = false }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+        .onAppear {
+            draftSummary = entry.summary
+            draftNotes = entry.category == .list ? entry.content : entry.notes
+            draftCategory = entry.category
+            draftPriority = entry.priority
         }
         .sheet(isPresented: $showDueDateSheet) {
             DueDateEditSheet(
@@ -257,6 +323,35 @@ struct EntryDetailView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
+    }
+
+    // MARK: - Priority Pill
+
+    @ViewBuilder
+    private func priorityPill(label: String, value: Int?) -> some View {
+        let isSelected = draftPriority == value
+        Button {
+            draftPriority = value
+            entry.priority = value
+            entry.updatedAt = Date()
+            save()
+        } label: {
+            Text(label)
+                .font(Theme.Typography.label)
+                .fontWeight(.medium)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(isSelected ? Theme.Colors.accentPurple.opacity(0.15) : Theme.Colors.bgCard)
+                .foregroundStyle(isSelected ? Theme.Colors.accentPurple : Theme.Colors.textSecondary)
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule().stroke(
+                        isSelected ? Theme.Colors.accentPurple.opacity(0.4) : Theme.Colors.borderFaint,
+                        lineWidth: 1
+                    )
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Helpers
@@ -598,40 +693,6 @@ private struct CustomSnoozeSheet: View {
             }
         }
         .background(Theme.Colors.bgDeep)
-    }
-}
-
-// MARK: - Notes Edit Sheet
-
-private struct NotesEditSheet: View {
-    @Binding var notes: String
-    let onSave: () -> Void
-    let onDismiss: () -> Void
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        NavigationStack {
-            TextEditor(text: $notes)
-                .font(Theme.Typography.body)
-                .foregroundStyle(Theme.Colors.textPrimary)
-                .scrollContentBackground(.hidden)
-                .background(Theme.Colors.bgDeep)
-                .padding(.horizontal, Theme.Spacing.screenPadding)
-                .focused($focused)
-                .navigationTitle("Notes")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Save", action: onSave)
-                            .fontWeight(.semibold)
-                    }
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel", action: onDismiss)
-                    }
-                }
-        }
-        .background(Theme.Colors.bgDeep)
-        .onAppear { focused = true }
     }
 }
 
