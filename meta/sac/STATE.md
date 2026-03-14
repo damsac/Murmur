@@ -6,16 +6,16 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-Calendar button + horizontal tab swiping in home views (Navigator + Zones).
+Starting new session — picking up TestFlight checklist work.
 
 ## Recent decisions
 
-- **TestFlight checklist in `meta/`** — Wrote a structured doc covering 14 items across blocker/high-priority/nice-to-have. Assigned ownership per item (sac vs dam vs both). Easier to track than a GitHub issue and lives next to STATE.md.
-- **Calendar view in `CalendarView.swift`** — Monthly calendar, entries grouped by due date, opens from home top bar. Additive to existing tabs.
-- **Inline editing in EntryDetailView** — Replaced the separate `EntryEditSheet` with in-place editing directly on the detail view. Simpler UX, less navigation overhead.
-- **TabView page style for swipe** — Swipe between Focus and All tabs using `TabView(.page)`. Fixed `SwipeableCard` drag conflict by using `minimumDistance: .infinity` when no swipe actions present.
-- **Calendar button in ZonedFocusHomeView** — Added calendar icon (top-left) to `ZonedFocusHomeView`. Wired to `showCalendar` sheet in RootView. Matches the gear icon style (17pt medium, textSecondary, 44pt hit area).
-- **Horizontal swipe in ZonedFocusHomeView** — Added `simultaneousGesture(DragGesture)` to the tab ZStack. Threshold: 50pt horizontal, 1.5× horizontal > vertical (to not conflict with vertical scrolling). Uses existing `appState.selectedTab` + existing slide transitions.
+- **TestFlight checklist in `meta/`** — Wrote a structured doc covering 14 items across blocker/high-priority/nice-to-have. Assigned ownership per item (sac vs dam vs both).
+- **Calendar view in `CalendarView.swift`** — Monthly calendar, entries grouped by due date, opens from home top bar. Habits shown by cadence (daily/weekdays/weekly/monthly).
+- **Inline editing in EntryDetailView** — Replaced the separate `EntryEditSheet` with in-place editing directly on the detail view.
+- **TabView page style for swipe** — Both Navigator (SacHomeView) and Zones (ZonedFocusHomeView) now use `TabView(.page)` for native swipe physics.
+- **Wave visualizer + processing glow** — Reactive amplitude-based waveform during recording, purple glow during LLM processing.
+- **Calendar button in ZonedFocusHomeView** — Calendar icon top-left, wired to showCalendar sheet in RootView.
 
 ## Open questions
 
