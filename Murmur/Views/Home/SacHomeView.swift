@@ -26,6 +26,7 @@ struct SacHomeView: View {
     var body: some View {
         VStack(spacing: 0) {
             topBar
+                .background(Theme.Colors.bgDeep)
             if entries.isEmpty {
                 emptyState
             } else {
@@ -41,9 +42,8 @@ struct SacHomeView: View {
             Button(action: onCalendarTap) {
                 Image(systemName: "calendar")
                     .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(Color.red)
+                    .foregroundStyle(Theme.Colors.textSecondary)
                     .frame(width: 44, height: 44)
-                    .background(Color.yellow.opacity(0.5))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Calendar")
@@ -184,13 +184,6 @@ struct SacHomeView: View {
             .tag(AppState.Tab.all)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
-        .mask(
-            VStack(spacing: 0) {
-                Color.black
-                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 110)
-            }
-        )
     }
 
     // MARK: - Swipe Actions

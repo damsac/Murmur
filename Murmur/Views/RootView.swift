@@ -393,6 +393,7 @@ struct RootView: View {
                 onEntryTap: { selectedEntry = $0 },
                 onKeyboardTap: { showTextInputBar = true },
                 onSettingsTap: { showSettings = true },
+                onCalendarTap: { showCalendar = true },
                 onAction: { handleEntryAction($0, $1) }
             )
         } else {

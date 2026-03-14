@@ -10,6 +10,7 @@ struct ZonedFocusHomeView: View {
     let onEntryTap: (Entry) -> Void
     let onKeyboardTap: () -> Void
     let onSettingsTap: () -> Void
+    let onCalendarTap: () -> Void
     let onAction: (Entry, EntryAction) -> Void
 
     @State private var pulseScale1: CGFloat = 1.0
@@ -37,7 +38,18 @@ struct ZonedFocusHomeView: View {
 
     private var topBar: some View {
         HStack {
+            Button(action: onCalendarTap) {
+                Image(systemName: "calendar")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Calendar")
+            .padding(.leading, Theme.Spacing.screenPadding - 10)
+
             Spacer()
+
             Button(action: onSettingsTap) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 17, weight: .medium))
@@ -153,6 +165,19 @@ struct ZonedFocusHomeView: View {
             }
         }
         .animation(Animations.smoothSlide, value: appState.selectedTab == .focus)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 30)
+                .onEnded { value in
+                    let h = value.translation.width
+                    let v = value.translation.height
+                    guard abs(h) > abs(v) * 1.5, abs(h) > 50 else { return }
+                    if h < 0, appState.selectedTab == .focus {
+                        appState.selectedTab = .all
+                    } else if h > 0, appState.selectedTab == .all {
+                        appState.selectedTab = .focus
+                    }
+                }
+        )
         .mask(
             VStack(spacing: 0) {
                 Color.black
@@ -701,6 +726,7 @@ private struct FocusLoadingView: View {
         onEntryTap: { print("Tap:", $0.summary) },
         onKeyboardTap: { print("Keyboard") },
         onSettingsTap: { print("Settings") },
+        onCalendarTap: { print("Calendar") },
         onAction: { e, a in print("Action:", a, e.summary) }
     )
     .environment(appState)
