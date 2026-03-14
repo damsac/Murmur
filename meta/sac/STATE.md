@@ -6,7 +6,7 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-TestFlight launch readiness — wrote the full checklist (`meta/TESTFLIGHT_CHECKLIST.md`) covering blockers, high-priority items, and nice-to-haves. Also shipped several frontend features leading up to this: launch screen, color palette tightening, inline entry editing, calendar view, tab swipe, and wave visualizer polish.
+Calendar button + horizontal tab swiping in home views (Navigator + Zones).
 
 ## Recent decisions
 
@@ -14,7 +14,8 @@ TestFlight launch readiness — wrote the full checklist (`meta/TESTFLIGHT_CHECK
 - **Calendar view in `CalendarView.swift`** — Monthly calendar, entries grouped by due date, opens from home top bar. Additive to existing tabs.
 - **Inline editing in EntryDetailView** — Replaced the separate `EntryEditSheet` with in-place editing directly on the detail view. Simpler UX, less navigation overhead.
 - **TabView page style for swipe** — Swipe between Focus and All tabs using `TabView(.page)`. Fixed `SwipeableCard` drag conflict by using `minimumDistance: .infinity` when no swipe actions present.
-- **Wave visualizer + processing glow** — Reactive amplitude-based waveform during recording, purple glow during LLM processing.
+- **Calendar button in ZonedFocusHomeView** — Added calendar icon (top-left) to `ZonedFocusHomeView`. Wired to `showCalendar` sheet in RootView. Matches the gear icon style (17pt medium, textSecondary, 44pt hit area).
+- **Horizontal swipe in ZonedFocusHomeView** — Added `simultaneousGesture(DragGesture)` to the tab ZStack. Threshold: 50pt horizontal, 1.5× horizontal > vertical (to not conflict with vertical scrolling). Uses existing `appState.selectedTab` + existing slide transitions.
 
 ## Open questions
 
