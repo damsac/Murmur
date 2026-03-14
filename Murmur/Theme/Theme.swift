@@ -25,14 +25,14 @@ enum Theme {
         private static var p: ColorPalette { .active }
 
         // Backgrounds
-        static var bgDeep: Color { p == .research ? Color(hex: "12121A") : Color(hex: "0A0A0F") }
-        static var bgBody: Color { p == .research ? Color(hex: "1A1A26") : Color(hex: "1A1A2E") }
-        static var bgCard: Color { p == .research ? Color(hex: "1D1D28") : Color(hex: "1A1A24") }
+        static var bgDeep: Color { p == .research ? Color(hex: "16161F") : Color(hex: "111118") }
+        static var bgBody: Color { p == .research ? Color(hex: "1E1E2E") : Color(hex: "1E1E30") }
+        static var bgCard: Color { p == .research ? Color(hex: "232332") : Color(hex: "222230") }
 
         // Text — unchanged across palettes
         static let textPrimary    = Color(hex: "F5F5F7")
-        static let textSecondary  = Color(hex: "8E8E9A")
-        static let textTertiary   = Color(hex: "5C5C6A")
+        static let textSecondary  = Color(hex: "A0A0B0")
+        static let textTertiary   = Color(hex: "707080")
         static let textMuted      = Color(hex: "3A3A48")
 
         // Accents
@@ -57,9 +57,9 @@ enum Theme {
     enum Typography {
         static let title = Font.title.weight(.bold)
         static let navTitle = Font.title2.weight(.semibold)
-        static let body = Font.body
+        static let body = Font.body.weight(.regular)
         static let bodyMedium = Font.body.weight(.medium)
-        static let caption = Font.caption
+        static let caption = Font.footnote
         static let label = Font.caption2.weight(.medium)
         static let badge = Font.caption2.weight(.semibold)
         static let navLabel = Font.caption2.weight(.medium)

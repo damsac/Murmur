@@ -14,13 +14,13 @@ struct CardStyleModifier: ViewModifier {
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius)
                     .stroke(
-                        accent?.opacity(0.30 * intensity) ?? Theme.Colors.borderSubtle,
+                        accent?.opacity(0.55 * intensity) ?? Theme.Colors.borderSubtle,
                         lineWidth: accent != nil ? 1.5 : 1
                     )
             )
             .shadow(
-                color: accent?.opacity(0.12 * intensity) ?? .clear,
-                radius: 10,
+                color: accent?.opacity(0.25 * intensity) ?? .clear,
+                radius: 18,
                 y: 3
             )
     }
