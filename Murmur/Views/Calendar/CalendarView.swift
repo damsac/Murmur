@@ -20,14 +20,38 @@ struct CalendarView: View {
         allEntries.filter { $0.dueDate != nil && $0.status == .active }
     }
 
+    // Active habits with a cadence
+    private var habitEntries: [Entry] {
+        allEntries.filter { $0.category == .habit && $0.status == .active && $0.cadence != nil }
+    }
+
     // Keyed by start-of-day for fast lookup
     private var entriesByDay: [Date: [Entry]] {
         Dictionary(grouping: datedEntries) { cal.startOfDay(for: $0.dueDate!) }
     }
 
+    private func habitApplies(_ entry: Entry, on date: Date) -> Bool {
+        switch entry.cadence ?? .daily {
+        case .daily:
+            return true
+        case .weekdays:
+            let weekday = cal.component(.weekday, from: date)
+            return weekday != 1 && weekday != 7
+        case .weekly:
+            return cal.component(.weekday, from: date) == cal.component(.weekday, from: entry.createdAt)
+        case .monthly:
+            return cal.component(.day, from: date) == cal.component(.day, from: entry.createdAt)
+        }
+    }
+
+    private func habits(for date: Date) -> [Entry] {
+        habitEntries.filter { habitApplies($0, on: date) }
+    }
+
     private var selectedDayEntries: [Entry] {
         let key = cal.startOfDay(for: selectedDate)
-        return (entriesByDay[key] ?? []).sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
+        let dated = (entriesByDay[key] ?? []).sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
+        return dated + habits(for: selectedDate)
     }
 
     // Flat array of optional Dates — nil = leading empty cell
@@ -200,7 +224,8 @@ struct CalendarView: View {
     // Up to 3 distinct category colors for a given day, in category order
     private func dotColors(for date: Date) -> [Color] {
         let key = cal.startOfDay(for: date)
-        guard let entries = entriesByDay[key] else { return [] }
+        let entries = (entriesByDay[key] ?? []) + habits(for: date)
+        guard !entries.isEmpty else { return [] }
         var seen = Set<String>()
         var colors: [Color] = []
         for entry in entries {
@@ -269,8 +294,8 @@ private struct CalendarEntryRow: View {
                     .foregroundStyle(Theme.Colors.textPrimary)
                     .lineLimit(1)
 
-                if let dueDate = entry.dueDate {
-                    Text(timeLabel(for: dueDate))
+                if let label = rowSubtitle {
+                    Text(label)
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Theme.Colors.textTertiary)
                 }
@@ -286,10 +311,14 @@ private struct CalendarEntryRow: View {
         .padding(.vertical, 14)
     }
 
-    private func timeLabel(for date: Date) -> String {
-        let comps = Calendar.current.dateComponents([.hour, .minute], from: date)
+    private var rowSubtitle: String? {
+        if entry.category == .habit {
+            return entry.cadence?.displayName
+        }
+        guard let dueDate = entry.dueDate else { return nil }
+        let comps = Calendar.current.dateComponents([.hour, .minute], from: dueDate)
         if comps.hour == 0 && comps.minute == 0 { return "All day" }
-        return date.formatted(date: .omitted, time: .shortened)
+        return dueDate.formatted(date: .omitted, time: .shortened)
     }
 }
 

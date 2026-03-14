@@ -129,55 +129,37 @@ struct ZonedFocusHomeView: View {
 
     @ViewBuilder
     private var populatedState: some View {
-        ZStack {
-            if appState.selectedTab == .focus {
-                ZonedFocusTabView(
-                    isLoading: appState.isHomeCompositionLoading,
-                    composition: appState.homeComposition,
-                    isProcessing: appState.conversation.isProcessing,
-                    allEntries: entries,
-                    activeSwipeEntryID: $activeSwipeEntryID,
-                    messageVisible: $focusMessageVisible,
-                    visibleCardCount: $focusVisibleCardCount,
-                    onEntryTap: onEntryTap,
-                    swipeActionsProvider: swipeActions(for:),
-                    onAction: onAction
-                )
-                .transition(.asymmetric(
-                    insertion: .move(edge: .leading),
-                    removal: .move(edge: .trailing)
-                ))
-            } else {
-                AllEntriesView(
-                    entries: entries,
-                    isProcessing: appState.conversation.isProcessing,
-                    arrivedEntryIDs: appState.conversation.arrivedEntryIDs,
-                    activeSwipeEntryID: $activeSwipeEntryID,
-                    onEntryTap: onEntryTap,
-                    swipeActionsProvider: swipeActions(for:),
-                    onAction: onAction,
-                    onGlowComplete: { id in appState.conversation.arrivedEntryIDs.remove(id) }
-                )
-                .transition(.asymmetric(
-                    insertion: .move(edge: .trailing),
-                    removal: .move(edge: .leading)
-                ))
-            }
+        TabView(selection: Binding(
+            get: { appState.selectedTab },
+            set: { appState.selectedTab = $0 }
+        )) {
+            ZonedFocusTabView(
+                isLoading: appState.isHomeCompositionLoading,
+                composition: appState.homeComposition,
+                isProcessing: appState.conversation.isProcessing,
+                allEntries: entries,
+                activeSwipeEntryID: $activeSwipeEntryID,
+                messageVisible: $focusMessageVisible,
+                visibleCardCount: $focusVisibleCardCount,
+                onEntryTap: onEntryTap,
+                swipeActionsProvider: swipeActions(for:),
+                onAction: onAction
+            )
+            .tag(AppState.Tab.focus)
+
+            AllEntriesView(
+                entries: entries,
+                isProcessing: appState.conversation.isProcessing,
+                arrivedEntryIDs: appState.conversation.arrivedEntryIDs,
+                activeSwipeEntryID: $activeSwipeEntryID,
+                onEntryTap: onEntryTap,
+                swipeActionsProvider: swipeActions(for:),
+                onAction: onAction,
+                onGlowComplete: { id in appState.conversation.arrivedEntryIDs.remove(id) }
+            )
+            .tag(AppState.Tab.all)
         }
-        .animation(Animations.smoothSlide, value: appState.selectedTab == .focus)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 30)
-                .onEnded { value in
-                    let h = value.translation.width
-                    let v = value.translation.height
-                    guard abs(h) > abs(v) * 1.5, abs(h) > 50 else { return }
-                    if h < 0, appState.selectedTab == .focus {
-                        appState.selectedTab = .all
-                    } else if h > 0, appState.selectedTab == .all {
-                        appState.selectedTab = .focus
-                    }
-                }
-        )
+        .tabViewStyle(.page(indexDisplayMode: .never))
         .mask(
             VStack(spacing: 0) {
                 Color.black
