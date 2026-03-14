@@ -5,6 +5,7 @@ struct DevModeView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @AppStorage("homeVariant") private var homeVariant: String = "sac"
+    @AppStorage("colorPalette") private var colorPalette: String = "classic"
 
     var body: some View {
         @Bindable var appState = appState
@@ -22,6 +23,14 @@ struct DevModeView: View {
                                 .foregroundStyle(Theme.Colors.textPrimary)
 
                             VStack(spacing: 8) {
+                                StateToggleRow(
+                                    label: "Research Colors",
+                                    isOn: Binding(
+                                        get: { colorPalette == "research" },
+                                        set: { colorPalette = $0 ? "research" : "classic" }
+                                    )
+                                )
+
                                 StateToggleRow(
                                     label: "Show Onboarding",
                                     isOn: $appState.showOnboarding

@@ -1,35 +1,56 @@
 import SwiftUI
 import MurmurCore
 
+// MARK: - Color Palette
+
+enum ColorPalette: String, CaseIterable {
+    case classic
+    case research
+
+    static var active: ColorPalette {
+        ColorPalette(rawValue: UserDefaults.standard.string(forKey: "colorPalette") ?? "") ?? .classic
+    }
+
+    var displayName: String {
+        switch self {
+        case .classic:  return "Classic"
+        case .research: return "Research"
+        }
+    }
+}
+
 enum Theme {
     // MARK: - Colors
     enum Colors {
-        // Backgrounds
-        static let bgDeep = Color(hex: "0A0A0F")
-        static let bgBody = Color(hex: "1A1A2E")
-        static let bgCard = Color(hex: "1A1A24")
+        private static var p: ColorPalette { .active }
 
-        // Text
-        static let textPrimary = Color(hex: "F5F5F7")
-        static let textSecondary = Color(hex: "8E8E9A")
-        static let textTertiary = Color(hex: "5C5C6A")
-        static let textMuted = Color(hex: "3A3A48")
+        // Backgrounds
+        static var bgDeep: Color { p == .research ? Color(hex: "12121A") : Color(hex: "0A0A0F") }
+        static var bgBody: Color { p == .research ? Color(hex: "1A1A26") : Color(hex: "1A1A2E") }
+        static var bgCard: Color { p == .research ? Color(hex: "1D1D28") : Color(hex: "1A1A24") }
+
+        // Text — unchanged across palettes
+        static let textPrimary    = Color(hex: "F5F5F7")
+        static let textSecondary  = Color(hex: "8E8E9A")
+        static let textTertiary   = Color(hex: "5C5C6A")
+        static let textMuted      = Color(hex: "3A3A48")
 
         // Accents
-        static let accentPurple = Color(hex: "7C6FF7")
-        static let accentPurpleLight = Color(hex: "9D93F9")
-        static let accentGreen = Color(hex: "34D399")
+        static var accentPurple: Color { p == .research ? Color(hex: "8177F5") : Color(hex: "7C6FF7") }
+        static var accentPurpleLight: Color { p == .research ? Color(hex: "A49CF7") : Color(hex: "9D93F9") }
+        static var accentFuchsia: Color { p == .research ? Color(hex: "C026D3") : Color(hex: "E879F9") }
+
+        static let accentGreen  = Color(hex: "34D399")
         static let accentYellow = Color(hex: "FBBF24")
-        static let accentRed = Color(hex: "EF4444")
-        static let accentBlue = Color(hex: "60A5FA")
+        static let accentRed    = Color(hex: "EF4444")
+        static let accentBlue   = Color(hex: "60A5FA")
         static let accentOrange = Color(hex: "F97316")
-        static let accentFuchsia = Color(hex: "E879F9")
-        static let accentTeal = Color(hex: "2DD4BF")
-        static let accentSlate = Color(hex: "94A3B8")
+        static let accentTeal   = Color(hex: "2DD4BF")
+        static let accentSlate  = Color(hex: "94A3B8")
 
         // Borders
         static let borderSubtle = Color.white.opacity(0.06)
-        static let borderFaint = Color.white.opacity(0.04)
+        static let borderFaint  = Color.white.opacity(0.04)
     }
 
     // MARK: - Typography (Dynamic Type-aware)
