@@ -10,8 +10,8 @@ struct SacHomeView: View {
     let onEntryTap: (Entry) -> Void
     let onKeyboardTap: () -> Void
     let onSettingsTap: () -> Void
+    let onCalendarTap: () -> Void
     let onAction: (Entry, EntryAction) -> Void
-
     // Empty state pulse animations
     @State private var pulseScale1: CGFloat = 1.0
     @State private var pulseScale2: CGFloat = 1.0
@@ -38,7 +38,19 @@ struct SacHomeView: View {
 
     private var topBar: some View {
         HStack {
+            Button(action: onCalendarTap) {
+                Image(systemName: "calendar")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Color.red)
+                    .frame(width: 44, height: 44)
+                    .background(Color.yellow.opacity(0.5))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Calendar")
+            .padding(.leading, Theme.Spacing.screenPadding - 10)
+
             Spacer()
+
             Button(action: onSettingsTap) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 17, weight: .medium))
@@ -142,41 +154,33 @@ struct SacHomeView: View {
     @ViewBuilder
     private var populatedState: some View {
         ZStack {
-            if appState.selectedTab == .focus {
-                FocusTabView(
-                    isLoading: appState.isHomeCompositionLoading,
-                    composition: appState.homeComposition,
-                    isProcessing: appState.conversation.isProcessing,
-                    allEntries: entries,
-                    activeSwipeEntryID: $activeSwipeEntryID,
-                    messageVisible: $focusMessageVisible,
-                    visibleCardCount: $focusVisibleCardCount,
-                    onEntryTap: onEntryTap,
-                    swipeActionsProvider: swipeActions(for:),
-                    onAction: onAction
-                )
-                .transition(.asymmetric(
-                    insertion: .move(edge: .leading),
-                    removal: .move(edge: .trailing)
-                ))
-            } else {
-                AllEntriesView(
-                    entries: entries,
-                    isProcessing: appState.conversation.isProcessing,
-                    arrivedEntryIDs: appState.conversation.arrivedEntryIDs,
-                    activeSwipeEntryID: $activeSwipeEntryID,
-                    onEntryTap: onEntryTap,
-                    swipeActionsProvider: swipeActions(for:),
-                    onAction: onAction,
-                    onGlowComplete: { id in appState.conversation.arrivedEntryIDs.remove(id) }
-                )
-                .transition(.asymmetric(
-                    insertion: .move(edge: .trailing),
-                    removal: .move(edge: .leading)
-                ))
-            }
+            FocusTabView(
+                isLoading: appState.isHomeCompositionLoading,
+                composition: appState.homeComposition,
+                isProcessing: appState.conversation.isProcessing,
+                allEntries: entries,
+                activeSwipeEntryID: $activeSwipeEntryID,
+                messageVisible: $focusMessageVisible,
+                visibleCardCount: $focusVisibleCardCount,
+                onEntryTap: onEntryTap,
+                swipeActionsProvider: swipeActions(for:),
+                onAction: onAction
+            )
+            .opacity(appState.selectedTab == .focus ? 1 : 0)
+
+            AllEntriesView(
+                entries: entries,
+                isProcessing: appState.conversation.isProcessing,
+                arrivedEntryIDs: appState.conversation.arrivedEntryIDs,
+                activeSwipeEntryID: $activeSwipeEntryID,
+                onEntryTap: onEntryTap,
+                swipeActionsProvider: swipeActions(for:),
+                onAction: onAction,
+                onGlowComplete: { id in appState.conversation.arrivedEntryIDs.remove(id) }
+            )
+            .opacity(appState.selectedTab == .all ? 1 : 0)
         }
-        .animation(Animations.smoothSlide, value: appState.selectedTab == .focus)
+        .animation(Animations.smoothSlide, value: appState.selectedTab)
         .mask(
             VStack(spacing: 0) {
                 Color.black
@@ -430,6 +434,24 @@ private struct FocusCardExpandedView: View {
             onTap: onTap
         ) {
             HStack(alignment: .center, spacing: 12) {
+                if entry.category == .habit && entry.appliesToday {
+                    Button {
+                        onAction(entry, .checkOffHabit)
+                    } label: {
+                        Image(systemName: entry.isCompletedToday ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 24))
+                            .foregroundStyle(
+                                entry.isCompletedToday
+                                    ? Theme.categoryColor(entry.category)
+                                    : Theme.Colors.textTertiary
+                            )
+                            .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
+                            .frame(width: 36)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+
                 VStack(alignment: .leading, spacing: 3) {
                     Text(entry.summary)
                         .font(.subheadline)
@@ -447,24 +469,6 @@ private struct FocusCardExpandedView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-
-                if entry.category == .habit && entry.appliesToday {
-                    Button {
-                        onAction(entry, .checkOffHabit)
-                    } label: {
-                        Image(systemName: entry.isCompletedToday ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 24))
-                            .foregroundStyle(
-                                entry.isCompletedToday
-                                    ? Theme.categoryColor(entry.category)
-                                    : Theme.Colors.textTertiary
-                            )
-                            .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
-                            .frame(width: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
             }
             .cardStyle()
             .overlay(
@@ -573,6 +577,7 @@ private struct FocusLoadingView: View {
         onEntryTap: { print("Entry tapped:", $0.summary) },
         onKeyboardTap: { print("Keyboard tapped") },
         onSettingsTap: { print("Settings tapped") },
+        onCalendarTap: { print("Calendar tapped") },
         onAction: { entry, action in print("Action:", action, entry.summary) }
     )
     .environment(appState)
