@@ -6,35 +6,36 @@ What dam is working on right now. Updated with every PR.
 
 ## Current focus
 
-- **Layout diff system** — Phase 1 (data model) and Phase 2 (tool schemas + agent integration) complete. Next: Phase 3 (DamHomeView animations) and Phase 4 (settings toggle).
+- **TestFlight polish** — export compliance, portrait lock, error handling hardening, credit system fixes, UI polish across the board
+- **Error handling design** — spec written at `docs/superpowers/specs/2026-03-14-error-handling-hardening-design.md`, not yet implemented
 
 ## What happened last session
 
-- Layout diff system Phase 1: LayoutOperation enum (7 cases), LayoutDiff return type, mutable HomeComposition with apply(operations:), findSection helper, 27 new unit tests
-- Layout diff system Phase 2: get_current_layout and update_layout tool schemas, AgentAction cases, parsing in both streaming (ToolCallParser) and non-streaming (PPQLLMService) paths, AgentActionExecutor layout handling with appState, ToolResultBuilder formatting, ConversationState recentInserts clearing
-- All 51 HomeComposition/LayoutOperations tests pass, full app builds clean
+- Switched LLM from Sonnet to Haiku for cost sustainability, wired real token usage into credit deduction
+- Deduplicated home composition refresh (was firing twice on foreground)
+- TestFlight prep: added `ITSAppUsesNonExemptEncryption` = false, portrait-only orientation lock
+- Error handling hardening design spec: user-facing toasts for mic denied / pipeline unavailable, improved error messages with HTTP status mapping, crash safety (force-unwrap calendar math), structured logging (os.log over print)
+- Due date formatting, layout animations, UI polish
+- Studio analytics design spec written
+- Various docs: brainstorms, plans, reviews, screenshots from prior sessions
 
 ## Recent decisions
 
-- Layout tools added to entryManager prompt (not separate prompt) — agent can read/update layout during normal conversation
-- RawLayoutOperation decodes from snake_case JSON (entry_id, to_section, etc.) to Swift LayoutOperation enum
-- Agent sees layout as JSON via get_current_layout, returns diff confirmation via update_layout
-- homeCompositionStore changed from private to private(set) so executor can persist layout updates
-- Layout actions don't produce Entry objects — new ActionOutcome cases (layoutRead, layoutUpdated) handle them
-- compose_view one-shot path preserved as cold start; update_layout is additive
+- Haiku over Sonnet for all agent calls (cost, quality validated)
+- Export compliance flag in Info.plist (no encryption = exempt)
+- Portrait lock (no landscape support planned)
+- Error bridging via `ErrorPresentation` enum on ConversationState, observed by RootView (matches existing `completionText` pattern)
+- Force-unwrap calendar math to be replaced with safe nil-coalescing
 
 ## Open questions
 
-- Card design direction: inline row vs slim card vs multi-column grid?
-- LLM model switch: when to move from Sonnet to Haiku? Need to validate quality with core-scenarios
 - Credit value redefinition: $0.001 → $0.0005 per credit to make packs profitable
 - Conversation reset: timer, explicit button, or N seconds of silence?
 - Token budget for context window
-- Phase 3 matchedGeometryEffect: known to be finicky — may need fallback to simple opacity transitions
+- Home view default for testers: which variant ships?
 
 ## What I need from sac
 
-- Sign off on onboarding demo transcript and 3 vs 1 demo entries
-- Category color palette approval
-- Read the design psychology doc — does "Navigator" resonate?
-- Thoughts on "Focus / Browse" as the settings toggle labels
+- Help wiring error views (MicDenied, OutOfCredits, APIError) — on roadmap as shared task
+- Empty state fix for SacHomeView FocusTabView
+- Sign off on onboarding demo transcript

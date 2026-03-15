@@ -26,10 +26,7 @@ struct EntryCard: View {
         entry.status == .completed
     }
 
-    private var isOverdue: Bool {
-        guard let dueDate = entry.dueDate else { return false }
-        return dueDate < Date() && !isCompleted
-    }
+    private var isOverdue: Bool { entry.isOverdue }
 
     private var hasActiveDue: Bool {
         guard let dueDate = entry.dueDate else { return false }

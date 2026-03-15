@@ -435,8 +435,8 @@ private struct ComposedEntryView: View {
     let onTap: () -> Void
     let onAction: (EntryAction) -> Void
 
-    private var categoryColor: Color { Theme.categoryColor(entry.category) }
-    private var isDone: Bool { entry.isDoneForPeriod || entry.isCompletedToday }
+    private var dotColor: Color { Theme.Colors.textTertiary }
+    private var isDone: Bool { entry.isDone }
 
     var body: some View {
         switch emphasis {
@@ -462,7 +462,7 @@ private struct ComposedEntryView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .center, spacing: 8) {
                     Circle()
-                        .fill(categoryColor)
+                        .fill(dotColor)
                         .frame(width: 6, height: 6)
 
                     Text(entry.summary)
@@ -501,7 +501,7 @@ private struct ComposedEntryView: View {
             ) {
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(categoryColor)
+                        .fill(dotColor)
                         .frame(width: 6, height: 6)
 
                     Text(entry.summary)
@@ -515,7 +515,7 @@ private struct ComposedEntryView: View {
                     if let priority = entry.priority, priority <= 2 {
                         Text("P\(priority)")
                             .font(Theme.Typography.badge)
-                            .foregroundStyle(Theme.Colors.accentRed)
+                            .foregroundStyle(Theme.Colors.accentPurple)
                     }
 
                     badgeLabel
@@ -541,7 +541,7 @@ private struct ComposedEntryView: View {
         Button(action: onTap) {
             HStack(spacing: 4) {
                 Circle()
-                    .fill(categoryColor)
+                    .fill(dotColor)
                     .frame(width: 5, height: 5)
 
                 Text(entry.summary)
@@ -579,7 +579,7 @@ private struct ComposedEntryView: View {
                     .font(.system(size: 16))
                     .foregroundStyle(
                         entry.isCompletedToday
-                            ? Theme.categoryColor(entry.category)
+                            ? Theme.Colors.accentPurple
                             : Theme.Colors.textTertiary
                     )
                     .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
@@ -593,11 +593,10 @@ private struct ComposedEntryView: View {
     private var badgeColor: Color {
         guard let badge else { return Theme.Colors.textSecondary }
         let lower = badge.lowercased()
-        if lower == "overdue" { return Theme.Colors.accentRed }
-        if lower == "today" { return Theme.Colors.accentYellow }
-        if lower == "stale" { return Theme.Colors.accentOrange }
-        if lower == "new" { return Theme.Colors.accentGreen }
-        if lower.hasPrefix("p") { return Theme.Colors.accentRed }
+        // Purple for anything urgent/actionable, neutral for the rest
+        if lower == "overdue" || lower == "today" || lower == "stale" || lower.hasPrefix("p") {
+            return Theme.Colors.accentPurple
+        }
         return Theme.Colors.textSecondary
     }
 }

@@ -2,6 +2,9 @@ import Foundation
 import Observation
 import SwiftUI
 import MurmurCore
+import os.log
+
+private let pipelineLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "Pipeline")
 
 enum RecordingState {
     case idle
@@ -71,25 +74,27 @@ final class AppState {
         set { UserDefaults.standard.set(newValue, forKey: "hasCompletedOnboarding") }
     }
 
+    /// Pricing used for credit charges — Haiku 4.5 via PPQ ($1.05/$5.25 per 1M tokens).
+    static let defaultPricing = ServicePricing(
+        inputUSDPer1MMicros: 1_050_000,
+        outputUSDPer1MMicros: 5_250_000,
+        minimumChargeCredits: 1
+    )
+
     init() {}
 
     /// Configure the real MurmurCore pipeline — no persistence dependency.
     func configurePipeline() {
         guard let apiKey = APIKeyProvider.ppqAPIKey else {
             pipelineError = "No PPQ API key configured"
-            print("⚠️ Pipeline not configured — missing PPQ_API_KEY")
+            pipelineLog.warning("Pipeline not configured — missing PPQ_API_KEY")
             return
         }
 
         let transcriber = AppleSpeechTranscriber()
         let llm = PPQLLMService(apiKey: apiKey)
         let gate = LocalCreditGate(starterCredits: 1_000)
-        let pricing = ServicePricing(
-            // Claude Haiku style baseline pricing; replaced with model catalog later.
-            inputUSDPer1MMicros: 1_000_000,
-            outputUSDPer1MMicros: 5_000_000,
-            minimumChargeCredits: 1
-        )
+        let pricing = Self.defaultPricing
         pipeline = Pipeline(
             transcriber: transcriber,
             llm: llm,
@@ -106,7 +111,7 @@ final class AppState {
         homeCompositionStore = HomeCompositionStore()
 
         // One-time cleanup of orphaned DailyFocus cache
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         try? FileManager.default.removeItem(at: docs.appendingPathComponent("daily-focus.json"))
 
         Task { @MainActor in
@@ -187,25 +192,20 @@ final class AppState {
         do {
             let authorization = try await creditGate.authorize()
             let agentEntries = entries.map { $0.toAgentContext() }
-            let composition = try await llmService.composeHomeView(
+            let result = try await llmService.composeHomeView(
                 entries: agentEntries,
                 variant: variant
             )
 
-            let pricing = ServicePricing(
-                inputUSDPer1MMicros: 1_000_000,
-                outputUSDPer1MMicros: 5_000_000,
-                minimumChargeCredits: 1
-            )
             _ = try await creditGate.charge(
                 authorization,
-                usage: TokenUsage(inputTokens: 200, outputTokens: 100),
-                pricing: pricing
+                usage: result.usage,
+                pricing: pipeline?.llmPricing ?? Self.defaultPricing
             )
             await refreshCreditBalance()
 
-            try? homeCompositionStore?.save(composition)
-            homeComposition = composition
+            try? homeCompositionStore?.save(result.composition)
+            homeComposition = result.composition
         } catch {
             homeComposition = buildDeterministicComposition(entries: entries, variant: variant)
         }
@@ -213,18 +213,26 @@ final class AppState {
 
     // MARK: - Layout Refresh
 
+    private var isRefreshing = false
+
     func requestLayoutRefresh(entries: [Entry], variant: CompositionVariant) {
+        guard !isRefreshing else { return }
         refreshTask?.cancel()
+        isRefreshing = true
         refreshTask = Task { @MainActor [weak self] in
             guard let self,
                   let llmService = self.llmService,
                   let creditGate = self.creditGate,
-                  let currentComposition = self.homeComposition else { return }
+                  let currentComposition = self.homeComposition else {
+                self?.isRefreshing = false
+                return
+            }
+            defer { self.isRefreshing = false }
 
             do {
                 let authorization = try await creditGate.authorize()
                 let agentEntries = entries.map { $0.toAgentContext() }
-                let operations = try await llmService.refreshLayout(
+                let result = try await llmService.refreshLayout(
                     entries: agentEntries,
                     currentLayout: currentComposition,
                     variant: variant
@@ -232,22 +240,17 @@ final class AppState {
 
                 try Task.checkCancellation()
 
-                guard !operations.isEmpty else { return }
+                guard !result.operations.isEmpty else { return }
 
-                let pricing = ServicePricing(
-                    inputUSDPer1MMicros: 1_000_000,
-                    outputUSDPer1MMicros: 5_000_000,
-                    minimumChargeCredits: 1
-                )
                 _ = try await creditGate.charge(
                     authorization,
-                    usage: TokenUsage(inputTokens: 300, outputTokens: 50),
-                    pricing: pricing
+                    usage: result.usage,
+                    pricing: self.pipeline?.llmPricing ?? Self.defaultPricing
                 )
                 await self.refreshCreditBalance()
 
                 _ = withAnimation(Animations.layoutSpring) {
-                    self.homeComposition!.apply(operations: operations)
+                    self.homeComposition!.apply(operations: result.operations)
                 }
                 try? self.homeCompositionStore?.save(self.homeComposition!)
             } catch is CancellationError {

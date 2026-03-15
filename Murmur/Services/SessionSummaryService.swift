@@ -32,7 +32,8 @@ enum SessionSummaryService {
     static func compute(entries: [Entry], now: Date = Date()) -> SessionSummary {
         let calendar = Calendar.current
         let startOfToday = calendar.startOfDay(for: now)
-        let endOfToday = calendar.date(byAdding: .day, value: 1, to: startOfToday)!
+        let endOfToday = calendar.date(byAdding: .day, value: 1, to: startOfToday)
+            ?? startOfToday.addingTimeInterval(86400)
 
         var dueToday = 0
         var overdue = 0

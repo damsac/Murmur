@@ -1,6 +1,10 @@
 import Foundation
+import SwiftUI
 import SwiftData
 import MurmurCore
+import os.log
+
+private let actionLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "Actions")
 
 /// Executes agent actions against SwiftData entries, producing an undoable transaction.
 /// Best-effort: each action is independent. Failures are reported but don't block others.
@@ -79,7 +83,7 @@ struct AgentActionExecutor {
         }
 
         do { try ctx.modelContext.save() } catch {
-            print("Failed to save after agent actions: \(error.localizedDescription)")
+            actionLog.error("Failed to save after agent actions: \(error.localizedDescription)")
         }
 
         return ExecutionResult(
@@ -207,7 +211,9 @@ struct AgentActionExecutor {
         if appState.homeComposition == nil {
             appState.homeComposition = HomeComposition(sections: [])
         }
-        let diff = appState.homeComposition!.apply(operations: operations)
+        let diff = withAnimation(Animations.layoutSpring) {
+            appState.homeComposition!.apply(operations: operations)
+        }
         try? appState.homeCompositionStore?.save(appState.homeComposition!)
         return .layoutUpdated(diff: diff)
     }
@@ -266,7 +272,7 @@ struct UndoTransaction {
             item.undo(entries: entries, context: context, preferences: preferences)
         }
         do { try context.save() } catch {
-            print("Failed to save undo: \(error.localizedDescription)")
+            actionLog.error("Failed to save undo: \(error.localizedDescription)")
         }
     }
 }

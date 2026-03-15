@@ -1,6 +1,9 @@
 import Foundation
 import SwiftData
 import MurmurCore
+import os.log
+
+private let entryLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "Entries")
 
 /// The atomic unit — every voice input is interpreted, categorized, and stored as an Entry.
 @Model
@@ -208,17 +211,40 @@ extension Entry {
 
         let streak = category == .habit && currentStreak > 0 ? currentStreak : nil
 
+        // Format resolved dueDate as absolute string so the LLM sees "Mar 8" not "tomorrow".
+        // Falls back to raw dueDateDescription if dueDate was never resolved.
+        let formattedDue: String? = if let dueDate {
+            Self.formatDueDateForContext(dueDate)
+        } else {
+            dueDateDescription
+        }
+
         return AgentContextEntry(
             id: shortID,
             summary: summary,
             category: category,
             priority: priority,
-            dueDateDescription: dueDateDescription,
+            dueDateDescription: formattedDue,
             cadence: cadence,
             status: agentStatus,
             createdAt: createdAt,
             currentStreak: streak
         )
+    }
+
+    /// Format a due date as a compact absolute string for LLM context.
+    private static let shortDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
+
+    private static func formatDueDateForContext(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInYesterday(date) { return "yesterday" }
+        if calendar.isDateInToday(date) { return "today" }
+        if calendar.isDateInTomorrow(date) { return "tomorrow" }
+        return shortDateFormatter.string(from: date)
     }
 
     /// Resolve a short ID prefix back to an Entry from a list.
@@ -234,6 +260,17 @@ extension Entry {
 // MARK: - Habit Period Tracking
 
 extension Entry {
+    /// True if this entry is past due and still active.
+    public var isOverdue: Bool {
+        guard let dueDate else { return false }
+        return dueDate < Date() && status == .active
+    }
+
+    /// True if this habit is done for its current period, or was completed today.
+    public var isDone: Bool {
+        isDoneForPeriod || isCompletedToday
+    }
+
     /// True if this habit was checked off today (regardless of cadence).
     public var isCompletedToday: Bool {
         guard let lastCompleted = lastHabitCompletionDate else { return false }
@@ -341,16 +378,16 @@ extension Entry {
         let period = periodStart(for: date, cadence: cadence, calendar: calendar)
         switch cadence {
         case .daily:
-            return calendar.date(byAdding: .day, value: -1, to: period)!
+            return calendar.date(byAdding: .day, value: -1, to: period) ?? period
         case .weekdays:
             // Monday → Friday (skip weekend)
             let weekday = calendar.component(.weekday, from: period)
             let daysBack = weekday == 2 ? 3 : 1
-            return calendar.date(byAdding: .day, value: -daysBack, to: period)!
+            return calendar.date(byAdding: .day, value: -daysBack, to: period) ?? period
         case .weekly:
-            return calendar.date(byAdding: .weekOfYear, value: -1, to: period)!
+            return calendar.date(byAdding: .weekOfYear, value: -1, to: period) ?? period
         case .monthly:
-            return calendar.date(byAdding: .month, value: -1, to: period)!
+            return calendar.date(byAdding: .month, value: -1, to: period) ?? period
         }
     }
 }
@@ -420,7 +457,7 @@ extension Entry {
         do {
             try context.save()
         } catch {
-            print("Failed to save entry: \(error.localizedDescription)")
+            entryLog.error("Failed to save entry: \(error.localizedDescription)")
         }
     }
 }

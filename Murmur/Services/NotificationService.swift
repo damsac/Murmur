@@ -1,5 +1,8 @@
 import UserNotifications
 import Foundation
+import os.log
+
+private let notifLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "Notifications")
 
 /// Central service for scheduling, rescheduling, and canceling entry-triggered notifications.
 /// Pure logic — no SwiftData dependency, no UI coupling.
@@ -20,7 +23,7 @@ final class NotificationService: NSObject {
         do {
             _ = try await center.requestAuthorization(options: [.alert, .sound])
         } catch {
-            print("Notification permission error: \(error)")
+            notifLog.error("Notification permission error: \(error.localizedDescription)")
         }
     }
 
@@ -154,4 +157,5 @@ extension NotificationService: UNUserNotificationCenterDelegate {
 
 extension Notification.Name {
     static let murmurOpenEntry = Notification.Name("murmurOpenEntry")
+    static let murmurShowError = Notification.Name("murmurShowError")
 }

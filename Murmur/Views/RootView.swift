@@ -1,6 +1,9 @@
 import SwiftUI
 import SwiftData
 import MurmurCore
+import os.log
+
+private let entryLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "Entries")
 
 struct RootView: View {
     @Environment(AppState.self) private var appState
@@ -27,6 +30,7 @@ struct RootView: View {
     @State private var snoozeEntry: Entry?
     @State private var showSnoozeDialog = false
     @State private var showCustomSnoozeSheet = false
+    @State private var hasAppeared = false
     private let topUpService = StoreKitTopUpService()
 
     var body: some View {
@@ -161,30 +165,11 @@ struct RootView: View {
                         isProcessing: conversation.isProcessing,
                         showTextInput: showTextInputBar,
                         inputText: $inputText,
-                        onMicTap: {
-                            if conversation.isRecording {
-                                conversation.stopRecording(
-                                    entries: entries,
-                                    modelContext: modelContext,
-                                    preferences: notifPrefs
-                                )
-                            } else {
-                                conversation.startRecording()
-                            }
-                        },
+                        onMicTap: { toggleRecording() },
                         onKeyboardTap: { showTextInputBar = true },
                         selectedTab: appState.selectedTab,
                         onTabChange: { appState.selectedTab = $0 },
-                        onTextSubmit: {
-                            conversation.inputText = inputText
-                            inputText = ""
-                            showTextInputBar = false
-                            conversation.submitText(
-                                entries: entries,
-                                modelContext: modelContext,
-                                preferences: notifPrefs
-                            )
-                        },
+                        onTextSubmit: { submitInput() },
                         onDismissTextInput: {
                             showTextInputBar = false
                             inputText = ""
@@ -274,9 +259,11 @@ struct RootView: View {
                     entries: activeEntries,
                     variant: currentVariant
                 )
+                hasAppeared = true
             }
         }
         .onChange(of: scenePhase) { _, phase in
+            guard hasAppeared else { return }
             if phase == .active {
                 wakeUpSnoozedEntries()
                 appState.startNewSession()
@@ -317,6 +304,30 @@ struct RootView: View {
             guard let text, !text.isEmpty else { return }
             showToast(text, type: .info)
             appState.conversation.completionText = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .murmurShowError)) { notification in
+            guard let info = notification.userInfo,
+                  let kind = info["kind"] as? String else { return }
+            switch kind {
+            case "micDenied":
+                showToast(
+                    "Microphone access needed",
+                    type: .error,
+                    actionLabel: "Settings"
+                ) {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+            case "pipelineUnavailable":
+                showToast("Voice processing unavailable", type: .error)
+            case "processingFailed":
+                let message = info["message"] as? String ?? "Couldn't process — try again."
+                let isWarning = info["isWarning"] as? Bool ?? false
+                showToast(message, type: isWarning ? .warning : .error)
+            default:
+                break
+            }
         }
     }
 
@@ -365,6 +376,7 @@ struct RootView: View {
         let conversation = appState.conversation
         conversation.inputText = inputText
         inputText = ""
+        showTextInputBar = false
         conversation.submitText(
             entries: entries,
             modelContext: modelContext,
@@ -552,7 +564,7 @@ private extension RootView {
             do {
                 try modelContext.save()
             } catch {
-                print("Failed to save woken entries: \(error.localizedDescription)")
+                entryLog.error("Failed to save woken entries: \(error.localizedDescription)")
             }
             for entry in woken {
                 NotificationService.shared.sync(entry, preferences: notifPrefs)

@@ -58,6 +58,9 @@ targets:
         NSMicrophoneUsageDescription: "Murmur uses the microphone to capture your voice notes and turn them into organized entries."
         NSSpeechRecognitionUsageDescription: "Murmur uses speech recognition to transcribe your voice notes."
         PPQAPIKey: "$(PPQ_API_KEY)"
+        ITSAppUsesNonExemptEncryption: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
     entitlements:
       path: Murmur/Murmur.entitlements
       properties:

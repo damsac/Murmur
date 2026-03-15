@@ -9,6 +9,27 @@ import os.log
 
 private let sseLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "SSE")
 
+enum ErrorPresentation: Equatable {
+    case micDenied
+    case pipelineUnavailable
+    case processingFailed(String, ToastView.ToastType)
+
+    func post() {
+        var info: [String: Any] = [:]
+        switch self {
+        case .micDenied:
+            info["kind"] = "micDenied"
+        case .pipelineUnavailable:
+            info["kind"] = "pipelineUnavailable"
+        case .processingFailed(let message, let toastType):
+            info["kind"] = "processingFailed"
+            info["message"] = message
+            info["isWarning"] = (toastType == .warning)
+        }
+        NotificationCenter.default.post(name: .murmurShowError, object: nil, userInfo: info)
+    }
+}
+
 // swiftlint:disable type_body_length
 /// Manages conversation thread state, input lifecycle, and agent pipeline interaction.
 /// Lazy-initialized from AppState on first conversation open.
@@ -84,6 +105,10 @@ final class ConversationState {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         guard case .idle = inputState else { return }
+        guard appState?.pipeline != nil else {
+            ErrorPresentation.pipelineUnavailable.post()
+            return
+        }
 
         // Cap input length
         let cappedText = String(text.prefix(1000))
@@ -104,7 +129,10 @@ final class ConversationState {
 
     func startRecording() {
         guard case .idle = inputState else { return }
-        guard let pipeline = appState?.pipeline else { return }
+        guard let pipeline = appState?.pipeline else {
+            ErrorPresentation.pipelineUnavailable.post()
+            return
+        }
 
         arrivedEntryIDs.removeAll()
         pendingRevealEntryIDs.removeAll()
@@ -139,11 +167,13 @@ final class ConversationState {
             if !granted {
                 inputState = .idle
                 removeStatusItem()
+                ErrorPresentation.micDenied.post()
                 return false
             }
         } else if recordPermission == .denied {
             inputState = .idle
             removeStatusItem()
+            ErrorPresentation.micDenied.post()
             return false
         }
         return true
@@ -281,6 +311,7 @@ final class ConversationState {
             guard let appState, let pipeline = appState.pipeline else {
                 inputState = .idle
                 removeStatusItem()
+                ErrorPresentation.pipelineUnavailable.post()
                 return
             }
 
@@ -309,7 +340,9 @@ final class ConversationState {
                 guard !Task.isCancelled else { return }
                 removeStatusItem()
                 sseLog.error("[SSE] streaming agent call failed: \(error.localizedDescription)")
-                threadItems.append(.error(message: sanitizeError(error), retryText: text))
+                let (message, toastType) = sanitizeError(error)
+                threadItems.append(.error(message: message, retryText: text))
+                ErrorPresentation.processingFailed(message, toastType).post()
                 inputState = .idle
             }
         }
@@ -604,12 +637,34 @@ private func buildActionSummary(
     return parts.joined(separator: ", ")
 }
 
-private func sanitizeError(_ error: Error) -> String {
+// swiftlint:disable:next cyclomatic_complexity
+private func sanitizeError(_ error: Error) -> (String, ToastView.ToastType) {
     switch error {
-    case PipelineError.insufficientCredits: return "Out of credits."
-    case PipelineError.emptyTranscript: return "Nothing to process."
-    case PipelineError.noEntriesExtracted: return "No entries found in your input."
-    case PipelineError.extractionFailed: return "Couldn't process — network error."
-    default: return "Couldn't process — try again."
+    case PipelineError.insufficientCredits:
+        return ("Out of credits.", .warning)
+    case PipelineError.emptyTranscript:
+        return ("Nothing to process.", .warning)
+    case PipelineError.noEntriesExtracted:
+        return ("No entries found in your input.", .warning)
+    case PipelineError.extractionFailed(underlying: let underlying):
+        if let ppqError = underlying as? PPQError {
+            switch ppqError {
+            case .httpError(statusCode: let code, body: _):
+                if code == 401 || code == 403 {
+                    return ("Service authentication failed — check API key.", .error)
+                } else if code == 429 {
+                    return ("Too many requests — try again in a moment.", .warning)
+                } else if code >= 500 {
+                    return ("Service is temporarily unavailable.", .error)
+                }
+            default: break
+            }
+        }
+        if underlying is URLError {
+            return ("No internet connection.", .error)
+        }
+        return ("Couldn't process — try again.", .error)
+    default:
+        return ("Couldn't process — try again.", .error)
     }
 }
