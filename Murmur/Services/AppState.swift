@@ -2,6 +2,9 @@ import Foundation
 import Observation
 import SwiftUI
 import MurmurCore
+import os.log
+
+private let pipelineLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "Pipeline")
 
 enum RecordingState {
     case idle
@@ -84,7 +87,7 @@ final class AppState {
     func configurePipeline() {
         guard let apiKey = APIKeyProvider.ppqAPIKey else {
             pipelineError = "No PPQ API key configured"
-            print("⚠️ Pipeline not configured — missing PPQ_API_KEY")
+            pipelineLog.warning("Pipeline not configured — missing PPQ_API_KEY")
             return
         }
 
@@ -108,7 +111,7 @@ final class AppState {
         homeCompositionStore = HomeCompositionStore()
 
         // One-time cleanup of orphaned DailyFocus cache
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         try? FileManager.default.removeItem(at: docs.appendingPathComponent("daily-focus.json"))
 
         Task { @MainActor in

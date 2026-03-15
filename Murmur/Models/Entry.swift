@@ -1,6 +1,9 @@
 import Foundation
 import SwiftData
 import MurmurCore
+import os.log
+
+private let entryLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "Entries")
 
 /// The atomic unit — every voice input is interpreted, categorized, and stored as an Entry.
 @Model
@@ -360,16 +363,16 @@ extension Entry {
         let period = periodStart(for: date, cadence: cadence, calendar: calendar)
         switch cadence {
         case .daily:
-            return calendar.date(byAdding: .day, value: -1, to: period)!
+            return calendar.date(byAdding: .day, value: -1, to: period) ?? period
         case .weekdays:
             // Monday → Friday (skip weekend)
             let weekday = calendar.component(.weekday, from: period)
             let daysBack = weekday == 2 ? 3 : 1
-            return calendar.date(byAdding: .day, value: -daysBack, to: period)!
+            return calendar.date(byAdding: .day, value: -daysBack, to: period) ?? period
         case .weekly:
-            return calendar.date(byAdding: .weekOfYear, value: -1, to: period)!
+            return calendar.date(byAdding: .weekOfYear, value: -1, to: period) ?? period
         case .monthly:
-            return calendar.date(byAdding: .month, value: -1, to: period)!
+            return calendar.date(byAdding: .month, value: -1, to: period) ?? period
         }
     }
 }
@@ -439,7 +442,7 @@ extension Entry {
         do {
             try context.save()
         } catch {
-            print("Failed to save entry: \(error.localizedDescription)")
+            entryLog.error("Failed to save entry: \(error.localizedDescription)")
         }
     }
 }

@@ -5,7 +5,7 @@ final class AgentMemoryStore {
     private let fileURL: URL
 
     init() {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         self.fileURL = docs.appendingPathComponent("agent-memory.txt")
     }
 

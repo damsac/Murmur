@@ -1,5 +1,8 @@
 import SwiftUI
 import MurmurCore
+import os.log
+
+private let entryDetailLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "Entries")
 
 struct EntryDetailView: View {
     @Environment(AppState.self) private var appState
@@ -360,7 +363,7 @@ struct EntryDetailView: View {
         do {
             try modelContext.save()
         } catch {
-            print("Failed to save entry: \(error.localizedDescription)")
+            entryDetailLog.error("Failed to save entry: \(error.localizedDescription)")
         }
     }
 
