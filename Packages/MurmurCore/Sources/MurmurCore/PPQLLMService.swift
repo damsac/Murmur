@@ -23,7 +23,7 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
 
     public init(
         apiKey: String,
-        model: String = "anthropic/claude-sonnet-4.6",
+        model: String = "anthropic/claude-haiku-4.5",
         prompt: LLMPrompt = .entryManager,
         extractionPrompt: LLMPrompt = .entryCreation,
         session: URLSession = .shared
@@ -123,7 +123,7 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
     public func composeHomeView(
         entries: [AgentContextEntry],
         variant: CompositionVariant = .scanner
-    ) async throws -> HomeComposition {
+    ) async throws -> (composition: HomeComposition, usage: TokenUsage) {
         sseLog.info("[SSE] composeHomeView(\(variant.rawValue)) called — \(entries.count) entries")
         let userContent = buildCompositionUserContent(entries: entries)
         let conversation = LLMConversation()
@@ -137,8 +137,8 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
 
         var composition = try parseHomeComposition(from: turn.assistantMessage)
         composition.variant = variant
-        sseLog.info("[SSE] composeHomeView() complete — \(composition.sections.count) sections, briefing=\(composition.briefing != nil)")
-        return composition
+        sseLog.info("[SSE] composeHomeView() complete — \(composition.sections.count) sections, usage: in=\(turn.usage.inputTokens) out=\(turn.usage.outputTokens)")
+        return (composition, turn.usage)
     }
 
     // MARK: - Layout Refresh
@@ -149,7 +149,7 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
         entries: [AgentContextEntry],
         currentLayout: HomeComposition,
         variant: CompositionVariant
-    ) async throws -> [LayoutOperation] {
+    ) async throws -> (operations: [LayoutOperation], usage: TokenUsage) {
         sseLog.info("[SSE] refreshLayout(\(variant.rawValue)) called — \(entries.count) entries")
         let conversation = LLMConversation()
         let userContent = buildRefreshUserContent(entries: entries, layout: currentLayout, variant: variant)
@@ -161,8 +161,8 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
         )
 
         let operations = parseLayoutOperations(from: turn.assistantMessage)
-        sseLog.info("[SSE] refreshLayout() complete — \(operations.count) operations")
-        return operations
+        sseLog.info("[SSE] refreshLayout() complete — \(operations.count) operations, usage: in=\(turn.usage.inputTokens) out=\(turn.usage.outputTokens)")
+        return (operations, turn.usage)
     }
 
     private func buildCompositionUserContent(entries: [AgentContextEntry]) -> String {

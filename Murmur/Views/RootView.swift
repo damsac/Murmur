@@ -27,6 +27,7 @@ struct RootView: View {
     @State private var snoozeEntry: Entry?
     @State private var showSnoozeDialog = false
     @State private var showCustomSnoozeSheet = false
+    @State private var hasAppeared = false
     private let topUpService = StoreKitTopUpService()
 
     var body: some View {
@@ -274,9 +275,11 @@ struct RootView: View {
                     entries: activeEntries,
                     variant: currentVariant
                 )
+                hasAppeared = true
             }
         }
         .onChange(of: scenePhase) { _, phase in
+            guard hasAppeared else { return }
             if phase == .active {
                 wakeUpSnoozedEntries()
                 appState.startNewSession()

@@ -10,7 +10,7 @@ public final class Pipeline {
     public let transcriber: any Transcriber
     private let llm: any LLMService
     private let creditGate: (any CreditGate)?
-    private let llmPricing: ServicePricing
+    public let llmPricing: ServicePricing
 
     /// Conversation state from the most recent extraction session.
     /// Used by refine methods for multi-turn LLM context.
