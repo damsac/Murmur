@@ -133,22 +133,30 @@ pgx v5 (native interface, not database/sql). Reasons:
 
 ### Project Layout
 
-Flat single-package structure:
-
 ```
 studio-analytics/
-  main.go           # Entry point, wire dependencies
-  handler.go        # HTTP handlers
-  store.go          # PostgreSQL operations (pgx)
-  buffer.go         # In-memory event buffer + flush
-  middleware.go      # API key auth middleware
-  config.go         # Config loading (YAML/env)
-  go.mod
-  go.sum
-  Dockerfile
+  api/                     # Go ingest API (flat structure)
+    main.go                # Entry point, wire dependencies
+    handler.go             # HTTP handlers
+    store.go               # PostgreSQL operations (pgx)
+    buffer.go              # In-memory event buffer + flush
+    middleware.go           # API key auth middleware
+    config.go              # Config loading (YAML/env)
+    go.mod
+    go.sum
+    Dockerfile
+  sdk/
+    swift/                 # iOS SDK (Swift package)
+      Package.swift
+      Sources/StudioAnalytics/
+      Tests/StudioAnalyticsTests/
+  deploy/                  # Docker Compose, Caddyfile, .env.example, schema.sql
+  migrations/              # golang-migrate SQL files
+  grafana/
+    provisioning/          # Dashboard JSON, datasource config
 ```
 
-Grow structure when needed. No premature `cmd/internal/pkg`.
+Go API uses flat single-package structure. Grow when needed. No premature `cmd/internal/pkg`.
 
 ## Component 2: PostgreSQL Schema
 
@@ -191,7 +199,9 @@ Phase 1 schema is created via Docker entrypoint init (`01-schema.sql`). For subs
 
 ## Component 3: iOS SDK (StudioAnalytics)
 
-Swift package at `Packages/StudioAnalytics/` — shared across all damsac apps, not Murmur-specific.
+Swift package in the `sdk/swift/` directory of the studio-analytics repo. Pure Swift, no Rust/UniFFI for now — can be rewritten in Rust later when Android is needed. Consumed by iOS apps as a Swift package dependency (local path or git URL).
+
+**Future Rust migration path:** The public API (`StudioAnalytics.configure()`, `.track()`, etc.) is designed to be stable regardless of implementation language. If the core is later rewritten in Rust with UniFFI-generated Swift bindings, the calling code in apps does not change.
 
 ### API Surface
 
