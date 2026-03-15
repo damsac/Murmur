@@ -10,7 +10,7 @@ Updated when priorities shift. Either person can propose changes via PR.
 
 | Work | Owner | Status | Branch |
 |------|-------|--------|--------|
-| TestFlight prep (checklist items 3, 6, 13–20) | dam + sac | In progress | dam |
+| TestFlight prep (checklist items 3, 6, 13–20) | dam + sac | In progress | dam, PR pending |
 | Empty state fix (SacHomeView FocusTabView) | sac | Not started | — |
 | Wire error views (MicDenied, OutOfCredits, APIError) | sac + dam | Not started | — |
 
@@ -55,4 +55,7 @@ These need resolution. Either person can claim one and propose an answer via PR.
 | Calendar view + habits by cadence | 2026-03-07 | PR #97 |
 | Tab swipe (TabView page style for zones) | 2026-03-07 | `1931934`, `23b46a5` |
 | Real token usage for credits + switch to Haiku | 2026-03-14 | `e8a4a46` |
+| TestFlight prep: export compliance, portrait lock | 2026-03-14 | `6512f3d` |
+| Error handling hardening design spec | 2026-03-14 | `5528c59` |
+| Due date formatting, layout animations, UI polish | 2026-03-14 | `24c4430` |
 | Simplify categories (remove `thought`, down to 7) | 2026-03-01 | various |
