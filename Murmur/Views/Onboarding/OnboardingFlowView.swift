@@ -5,32 +5,46 @@ import MurmurCore
 // MARK: - Onboarding Content
 
 private enum OnboardingContent {
-    static let transcript = "Gotta call mom before the weekend. We're out of milk and eggs too. Oh — what if you could share entries with other people?"
+    // swiftlint:disable:next line_length
+    static let transcript = "Ok so I really need to get that client proposal done before Friday — the whole team is waiting on it. Oh and remind me to call the dentist at some point this week. Also I want to start doing morning runs every day."
 
     static func makeDisplayEntries() -> [Entry] {
-        [
+        let dueDate = nextFriday()
+        return [
             Entry(
                 transcript: transcript,
-                content: "Call mom before the weekend",
-                category: .reminder,
-                sourceText: "Gotta call mom before the weekend.",
-                summary: "Call mom before the weekend"
-            ),
-            Entry(
-                transcript: transcript,
-                content: "Pick up milk and eggs",
+                content: "Finish client proposal before Friday",
                 category: .todo,
-                sourceText: "We're out of milk and eggs too.",
-                summary: "Pick up milk and eggs"
+                sourceText: "I really need to get that client proposal done before Friday",
+                summary: "Finish client proposal",
+                priority: 1,
+                dueDate: dueDate
             ),
             Entry(
                 transcript: transcript,
-                content: "Let users share entries with friends",
-                category: .idea,
-                sourceText: "What if you could share entries with other people?",
-                summary: "Share entries with friends"
+                content: "Call dentist this week",
+                category: .reminder,
+                sourceText: "remind me to call the dentist at some point this week",
+                summary: "Call dentist this week"
+            ),
+            Entry(
+                transcript: transcript,
+                content: "Morning run every day",
+                category: .habit,
+                sourceText: "I want to start doing morning runs every day",
+                summary: "Morning run",
+                cadenceRawValue: "daily"
             ),
         ]
+    }
+
+    private static func nextFriday() -> Date {
+        let cal = Calendar.current
+        let today = Date()
+        let weekday = cal.component(.weekday, from: today) // 1=Sun … 7=Sat, Friday=6
+        let daysUntilFriday = (6 - weekday + 7) % 7
+        let days = daysUntilFriday == 0 ? 7 : daysUntilFriday
+        return cal.date(byAdding: .day, value: days, to: today) ?? today
     }
 }
 
