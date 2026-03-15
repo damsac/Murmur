@@ -369,9 +369,6 @@ struct RootView: View {
             )
         } else {
             conversation.startRecording()
-            if appState.pipeline == nil {
-                showToast("Voice processing unavailable", type: .error)
-            }
         }
     }
 
@@ -385,9 +382,6 @@ struct RootView: View {
             modelContext: modelContext,
             preferences: notifPrefs
         )
-        if appState.pipeline == nil {
-            showToast("Voice processing unavailable", type: .error)
-        }
     }
 
     @ViewBuilder

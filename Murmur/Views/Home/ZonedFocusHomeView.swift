@@ -380,10 +380,7 @@ private struct HeroCardView: View {
 
     private var accent: Color { Theme.categoryColor(item.entry.category) }
 
-    private var isOverdue: Bool {
-        guard let due = item.entry.dueDate else { return false }
-        return due < Date() && item.entry.status == .active
-    }
+    private var isOverdue: Bool { item.entry.isOverdue }
 
     private var isDueToday: Bool {
         guard let due = item.entry.dueDate, !isOverdue else { return false }
@@ -446,7 +443,7 @@ private struct HeroCardView: View {
                     Text(item.entry.summary)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(
-                            item.entry.isDoneForPeriod || item.entry.isCompletedToday
+                            item.entry.isDone
                                 ? Theme.Colors.textTertiary
                                 : Theme.Colors.textPrimary
                         )
@@ -469,7 +466,7 @@ private struct HeroCardView: View {
                 RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius)
                     .stroke(accent.opacity(0.18), lineWidth: 1)
             )
-            .opacity(item.entry.isDoneForPeriod || item.entry.isCompletedToday ? 0.4 : 1.0)
+            .opacity(item.entry.isDone ? 0.4 : 1.0)
             .animation(.easeInOut(duration: 0.2), value: item.entry.isCompletedToday)
         }
     }
@@ -487,10 +484,7 @@ private struct StandardFocusCard: View {
 
     private var accentColor: Color { Theme.categoryColor(entry.category) }
 
-    private var isOverdue: Bool {
-        guard let dueDate = entry.dueDate else { return false }
-        return dueDate < Date() && entry.status == .active
-    }
+    private var isOverdue: Bool { entry.isOverdue }
 
     private var detailText: String? {
         if entry.category == .habit, let cadence = entry.cadence {
@@ -519,7 +513,7 @@ private struct StandardFocusCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(entry.summary)
                         .font(.subheadline)
-                        .foregroundStyle(entry.isDoneForPeriod || entry.isCompletedToday ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
+                        .foregroundStyle(entry.isDone ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
                         .lineLimit(2)
 
                     if let detail = detailText {
@@ -551,7 +545,7 @@ private struct StandardFocusCard: View {
                 }
             }
             .cardStyle()
-            .opacity(entry.isDoneForPeriod || entry.isCompletedToday ? 0.5 : 1.0)
+            .opacity(entry.isDone ? 0.5 : 1.0)
             .animation(.easeInOut(duration: 0.2), value: entry.isCompletedToday)
         }
     }
@@ -626,30 +620,7 @@ private struct HabitRowView: View {
     }
 }
 
-// MARK: - Focus Loading
-
-private struct FocusLoadingView: View {
-    @State private var isPulsing = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(Greeting.current + ".")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(Theme.Colors.textPrimary.opacity(0.35))
-            Text("Murmur is selecting your focus…")
-                .font(Theme.Typography.caption)
-                .foregroundStyle(Theme.Colors.textTertiary)
-                .opacity(isPulsing ? 0.45 : 0.85)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 8)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
-                isPulsing = true
-            }
-        }
-    }
-}
+// FocusLoadingView is defined in AllEntriesView.swift (shared by all home variants)
 
 // MARK: - Preview
 

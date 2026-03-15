@@ -233,14 +233,18 @@ extension Entry {
     }
 
     /// Format a due date as a compact absolute string for LLM context.
+    private static let shortDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
+
     private static func formatDueDateForContext(_ date: Date) -> String {
         let calendar = Calendar.current
         if calendar.isDateInYesterday(date) { return "yesterday" }
         if calendar.isDateInToday(date) { return "today" }
         if calendar.isDateInTomorrow(date) { return "tomorrow" }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        return formatter.string(from: date)
+        return shortDateFormatter.string(from: date)
     }
 
     /// Resolve a short ID prefix back to an Entry from a list.
@@ -256,6 +260,17 @@ extension Entry {
 // MARK: - Habit Period Tracking
 
 extension Entry {
+    /// True if this entry is past due and still active.
+    public var isOverdue: Bool {
+        guard let dueDate else { return false }
+        return dueDate < Date() && status == .active
+    }
+
+    /// True if this habit is done for its current period, or was completed today.
+    public var isDone: Bool {
+        isDoneForPeriod || isCompletedToday
+    }
+
     /// True if this habit was checked off today (regardless of cadence).
     public var isCompletedToday: Bool {
         guard let lastCompleted = lastHabitCompletionDate else { return false }

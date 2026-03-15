@@ -324,10 +324,7 @@ struct SmartListRow: View {
     var glowAccent: Color?
     var glowIntensity: Double = 0
 
-    private var isOverdue: Bool {
-        guard let dueDate = entry.dueDate else { return false }
-        return dueDate < Date() && entry.status == .active
-    }
+    private var isOverdue: Bool { entry.isOverdue }
 
     private var listItems: [String] {
         guard entry.category == .list else { return [] }
@@ -375,7 +372,7 @@ struct SmartListRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(entry.summary)
                     .font(.subheadline)
-                    .foregroundStyle(entry.isDoneForPeriod || entry.isCompletedToday ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
+                    .foregroundStyle(entry.isDone ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
                     .lineLimit(2)
 
                 if entry.category == .habit, let cadence = entry.cadence {
@@ -416,10 +413,35 @@ struct SmartListRow: View {
             .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
         }
         .cardStyle(accent: glowAccent, intensity: glowIntensity)
-        .opacity(entry.isDoneForPeriod || entry.isCompletedToday ? 0.5 : 1.0)
+        .opacity(entry.isDone ? 0.5 : 1.0)
         .animation(.easeInOut(duration: 0.2), value: entry.isCompletedToday)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(entry.category.displayName): \(entry.summary)")
+    }
+}
+
+// MARK: - Focus Loading (shared by home variants)
+
+struct FocusLoadingView: View {
+    @State private var isPulsing = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(Greeting.current + ".")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Theme.Colors.textPrimary.opacity(0.35))
+            Text("Murmur is selecting your focus…")
+                .font(Theme.Typography.caption)
+                .foregroundStyle(Theme.Colors.textTertiary)
+                .opacity(isPulsing ? 0.45 : 0.85)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 8)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
+                isPulsing = true
+            }
+        }
     }
 }
 

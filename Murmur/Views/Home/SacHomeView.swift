@@ -401,10 +401,7 @@ private struct FocusCardExpandedView: View {
 
     private var accentColor: Color { Theme.categoryColor(entry.category) }
 
-    private var isOverdue: Bool {
-        guard let dueDate = entry.dueDate else { return false }
-        return dueDate < Date() && entry.status == .active
-    }
+    private var isOverdue: Bool { entry.isOverdue }
 
     private var detailText: String? {
         if entry.category == .habit, let cadence = entry.cadence {
@@ -451,7 +448,7 @@ private struct FocusCardExpandedView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(entry.summary)
                         .font(.subheadline)
-                        .foregroundStyle(entry.isDoneForPeriod || entry.isCompletedToday ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
+                        .foregroundStyle(entry.isDone ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
                         .lineLimit(2)
 
                     if let detail = detailText {
@@ -472,7 +469,7 @@ private struct FocusCardExpandedView: View {
                     .stroke(accentColor.opacity(0.45 * glowIntensity), lineWidth: 1.5)
             )
             .shadow(color: accentColor.opacity(0.25 * glowIntensity), radius: 14, y: 0)
-            .opacity(entry.isDoneForPeriod || entry.isCompletedToday ? 0.5 : 1.0)
+            .opacity(entry.isDone ? 0.5 : 1.0)
             .animation(.easeInOut(duration: 0.2), value: entry.isCompletedToday)
         }
         .onAppear {
@@ -486,30 +483,7 @@ private struct FocusCardExpandedView: View {
 // AllTabView, CategorySectionView, SmartListRow, ProcessingDotsView
 // extracted to AllEntriesView.swift (shared by both home variants)
 
-// MARK: - Focus Loading State
-
-private struct FocusLoadingView: View {
-    @State private var isPulsing = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(Greeting.current + ".")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(Theme.Colors.textPrimary.opacity(0.35))
-            Text("Murmur is selecting your focus…")
-                .font(Theme.Typography.caption)
-                .foregroundStyle(Theme.Colors.textTertiary)
-                .opacity(isPulsing ? 0.45 : 0.85)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 8)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
-                isPulsing = true
-            }
-        }
-    }
-}
+// FocusLoadingView is defined in AllEntriesView.swift (shared by all home variants)
 
 // CategorySectionView, GlowingEntryRow, SmartListRow, ProcessingDotsView
 // are defined in AllEntriesView.swift (shared by both home variants)

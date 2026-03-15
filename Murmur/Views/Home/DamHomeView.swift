@@ -436,7 +436,7 @@ private struct ComposedEntryView: View {
     let onAction: (EntryAction) -> Void
 
     private var dotColor: Color { Theme.Colors.textTertiary }
-    private var isDone: Bool { entry.isDoneForPeriod || entry.isCompletedToday }
+    private var isDone: Bool { entry.isDone }
 
     var body: some View {
         switch emphasis {
