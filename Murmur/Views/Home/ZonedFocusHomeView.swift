@@ -129,37 +129,41 @@ struct ZonedFocusHomeView: View {
 
     @ViewBuilder
     private var populatedState: some View {
-        TabView(selection: Binding(
-            get: { appState.selectedTab },
-            set: { appState.selectedTab = $0 }
-        )) {
-            ZonedFocusTabView(
-                isLoading: appState.isHomeCompositionLoading,
-                composition: appState.homeComposition,
-                isProcessing: appState.conversation.isProcessing,
-                allEntries: entries,
-                activeSwipeEntryID: $activeSwipeEntryID,
-                messageVisible: $focusMessageVisible,
-                visibleCardCount: $focusVisibleCardCount,
-                onEntryTap: onEntryTap,
-                swipeActionsProvider: swipeActions(for:),
-                onAction: onAction
-            )
-            .tag(AppState.Tab.focus)
+        GeometryReader { geo in
+            let width = geo.size.width
+            let tabIndex: CGFloat = appState.selectedTab == .focus ? 0 : 1
+            HStack(spacing: 0) {
+                ZonedFocusTabView(
+                    isLoading: appState.isHomeCompositionLoading,
+                    composition: appState.homeComposition,
+                    isProcessing: appState.conversation.isProcessing,
+                    allEntries: entries,
+                    activeSwipeEntryID: $activeSwipeEntryID,
+                    messageVisible: $focusMessageVisible,
+                    visibleCardCount: $focusVisibleCardCount,
+                    onEntryTap: onEntryTap,
+                    swipeActionsProvider: swipeActions(for:),
+                    onAction: onAction
+                )
+                .frame(width: width)
 
-            AllEntriesView(
-                entries: entries,
-                isProcessing: appState.conversation.isProcessing,
-                arrivedEntryIDs: appState.conversation.arrivedEntryIDs,
-                activeSwipeEntryID: $activeSwipeEntryID,
-                onEntryTap: onEntryTap,
-                swipeActionsProvider: swipeActions(for:),
-                onAction: onAction,
-                onGlowComplete: { id in appState.conversation.arrivedEntryIDs.remove(id) }
-            )
-            .tag(AppState.Tab.all)
+                AllEntriesView(
+                    entries: entries,
+                    isProcessing: appState.conversation.isProcessing,
+                    arrivedEntryIDs: appState.conversation.arrivedEntryIDs,
+                    activeSwipeEntryID: $activeSwipeEntryID,
+                    onEntryTap: onEntryTap,
+                    swipeActionsProvider: swipeActions(for:),
+                    onAction: onAction,
+                    onGlowComplete: { id in appState.conversation.arrivedEntryIDs.remove(id) }
+                )
+                .frame(width: width)
+            }
+            .frame(width: width, alignment: .leading)
+            .offset(x: -(tabIndex * width))
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: appState.selectedTab)
+            .clipped()
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
         .mask(
             VStack(spacing: 0) {
                 Color.black
