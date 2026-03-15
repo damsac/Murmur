@@ -7,29 +7,26 @@ Target: ship a TestFlight build within ~2 weeks.
 
 ## 🔴 Blockers — must fix before submitting
 
-### 1. Fix launch screen — **sac**
-The storyboard (`LaunchScreen.storyboard`) has a mic icon and lowercase "murmur" label centered on a dark background. Needs a visual pass on a real device to make sure it matches the current design language — correct icon weight, purple tint, font, and spacing. Likely a quick fix but highly visible to testers.
+### 1. ~~Fix launch screen~~ — ✅ DONE
+Shipped in `379f927`. Storyboard with mic icon and "murmur" label. May still want a visual polish pass on real device.
 
-### 2. Tab swipe between Focus ↔ All — **sac**
-`TabView(.page)` gesture conflicted with `SwipeableCard`'s `DragGesture`. Fix is in progress in the `tab-swipe` lane: `SwipeableCard` now uses `minimumDistance: .infinity` when no swipe actions exist, and the Focus tab passes empty actions so UIPageViewController handles the swipe.
-**Must verify on a real device** — UIPageViewController behavior differs between simulator and device. Swipe left/right should switch tabs without accidentally triggering card swipes on the All tab.
+### 2. Tab swipe between Focus ↔ All — **sac** ⚠️ NEEDS DEVICE VERIFY
+`TabView(.page)` implemented in `1931934` and `23b46a5`. `SwipeableCard` uses `minimumDistance: .infinity` when no swipe actions exist. **Must verify on a real device** — UIPageViewController behavior differs between simulator and device.
 
-### 3. API key distribution to testers — **dam 
+### 3. API key distribution to testers — **dam**
 `PPQAPIKey` in `Info.plist` is injected from `project.local.yml` at build time (gitignored). Testers don't have this file. When archiving for TestFlight, the key must be baked in.
 **dam**: Confirm which PPQ key testers will share (or provision individual keys), document the archive build process.
 **sac**: Make sure the archive step is in the Makefile or documented so the key isn't accidentally omitted.
 
-### 4. Credits: hardcoded token estimates — **dam**
-`LocalCreditGate` charges a fixed `TokenUsage(inputTokens: 200, outputTokens: 100)` instead of actual tokens from the LLM response. The credit balance display is misleading.
-**Fix**: Read the real `usage` field from PPQ API responses in `LLMService`/`PPQLLMService` and pass actual counts to the credit gate. This is purely in MurmurCore.
+### 4. ~~Credits: hardcoded token estimates~~ — ✅ DONE
+Fixed in `e8a4a46`. `composeHomeView` and `refreshLayout` now return real `TokenUsage`. AppState charges actual token counts. Switched from Sonnet 4.6 to Haiku 4.5 via PPQ. Pricing updated to PPQ Haiku rates ($1.05/$5.25 per 1M tokens).
 
 ---
 
 ## 🟡 High priority — ship this week
 
-### 5. Calendar view — **dam**
-Active work in the `calendar` lane (`Murmur/Views/Calendar/CalendarView.swift`). A calendar icon in the top-left of the home screen opens a monthly/weekly view of entries with due dates.
-**Verify**: Entries with due dates appear on the correct day. Overdue entries are visually distinct. Empty state shown when no dated entries exist. Tapping an entry navigates to the detail view.
+### 5. ~~Calendar view~~ — ✅ DONE
+Shipped in PR #97 (`abf950b`, `973a3ce`, `23b46a5`). Monthly grid, habits by cadence, day detail, calendar button in Navigator/Zoned top bars. Entry tap navigates to detail view.
 
 ### 6. Notifications end-to-end verification — **sac**
 The `NotificationService` code is complete (reminders, snooze wake-up, due-soon). Needs real-device testing — notifications don't fully fire in the simulator.
@@ -80,10 +77,11 @@ Before any external testers, each person does one full walkthrough on a real dev
 - Cold launch → home with entries (returning user)
 - Record a voice note → appears as entries
 - Type a note via keyboard input
-- Open entry detail → edit summary → save
+- Open entry detail → edit summary → save (inline editing, auto-saves)
 - Swipe an entry on the All tab → complete / snooze
 - Settings → toggle notifications → back
 - Archive → tap entry → back → unarchive
+- Calendar → tap a day → tap entry → detail opens
 
 ### 14. TestFlight metadata — **dam + sac**
 Required before the first external invite, none of it is code:
@@ -101,7 +99,7 @@ One-line addition to `project.yml` Info.plist properties. Without it, App Store 
 No explicit `UISupportedInterfaceOrientations` is set. Without it the app rotates to landscape, which will look broken. Add to `project.yml` build settings or Info.plist properties.
 
 ### 18. Gate DevMode behind `#if DEBUG` — **dam or sac**
-The 5-tap gesture opens dev tools for all users including TestFlight testers. Wrap `DevModeActivator` and `DevModeView` in `#if DEBUG` so it doesn't ship in release builds.
+The 5-tap gesture (`DevModeActivator`) still runs in release builds. The DevMode button in RootView is `#if DEBUG` gated, but the activator itself is not. Wrap `DevModeActivator` in `#if DEBUG` so the gesture handler doesn't ship.
 
 ### 19. Privacy manifest — add transcribed text as collected data — **dam**
 `PrivacyInfo.xcprivacy` declares `AudioData` collection but the app also sends transcribed text to `api.ppq.ai`. Apple reviewers may flag this. Consider adding a collected data type for user-generated text content.
@@ -125,24 +123,23 @@ IAP products (credit packs) may not exist in App Store Connect for the first bet
 
 | # | Item | Owner | Apple Req? | Status |
 |---|------|-------|-----------|--------|
-| 1 | Fix launch screen | **sac** | No (polish) | Not started |
-| 2 | Tab swipe (Focus ↔ All) | **sac** | No (UX bug) | In progress |
+| 1 | ~~Launch screen~~ | **sac** | No | ✅ Done |
+| 2 | Tab swipe (Focus ↔ All) | **sac** | No (UX) | ⚠️ Needs device verify |
 | 3 | API key distribution | **dam + sac** | No (functional) | Not started |
-| 4 | Real token counts for credits | **dam** | No (feature) | Not started |
-| 5 | Calendar view | **dam** | No (feature) | In progress |
+| 4 | ~~Real token counts~~ | **dam** | No | ✅ Done |
+| 5 | ~~Calendar view~~ | **sac** | No | ✅ Done |
 | 6 | Notifications real-device test | **sac** | No (QA) | Not started |
-| 7 | LLM cost tool (backend) | **dam** | No (feature) | Not started |
-| 7 | LLM cost tool (UI) | **sac** | No (feature) | Not started |
+| 7 | LLM cost tool (backend + UI) | **dam + sac** | No (feature) | Not started |
 | 8 | Empty state in FocusTabView | **sac** | No (UX) | Not started |
 | 9 | Wire error views | **sac + dam** | No (UX) | Not started |
 | 10 | Onboarding review | **sac** | No (polish) | Not started |
 | 11 | App icon polish | **sac** | No (polish) | Not started |
 | 12 | Settings + Archive smoke test | **sac** | No (QA) | Not started |
-| 13 | Crash-free device walkthrough | **dam + sac** | Soft (crashes = rejection) | Not started |
+| 13 | Crash-free device walkthrough | **dam + sac** | Soft | Not started |
 | 14 | TestFlight metadata + App Store Connect | **dam + sac** | **Yes** | Not started |
-| 15 | Hosted privacy policy URL | **dam** | **Yes** (external testers) | Not started |
-| 16 | `ITSAppUsesNonExemptEncryption: false` | **dam** | **Yes** | Not started |
-| 17 | Portrait orientation lock | **dam or sac** | No (but will look broken) | Not started |
-| 18 | Gate DevMode behind `#if DEBUG` | **dam or sac** | No (but exposes dev tools) | Not started |
-| 19 | Privacy manifest — transcribed text | **dam** | **Yes** (may cause rejection) | Not started |
-| 20 | Verify StoreKit graceful degradation | **sac** | Soft (crashes = rejection) | Not started |
+| 15 | Hosted privacy policy URL | **dam** | **Yes** (external) | Not started |
+| 16 | `ITSAppUsesNonExemptEncryption` | **dam** | **Yes** | Not started |
+| 17 | Portrait orientation lock | **dam or sac** | No (looks broken) | Not started |
+| 18 | Gate DevMode behind `#if DEBUG` | **dam or sac** | No (exposes tools) | Not started |
+| 19 | Privacy manifest — transcribed text | **dam** | **Yes** | Not started |
+| 20 | Verify StoreKit degradation | **sac** | Soft | Not started |
