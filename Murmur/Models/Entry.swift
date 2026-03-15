@@ -208,17 +208,36 @@ extension Entry {
 
         let streak = category == .habit && currentStreak > 0 ? currentStreak : nil
 
+        // Format resolved dueDate as absolute string so the LLM sees "Mar 8" not "tomorrow".
+        // Falls back to raw dueDateDescription if dueDate was never resolved.
+        let formattedDue: String? = if let dueDate {
+            Self.formatDueDateForContext(dueDate)
+        } else {
+            dueDateDescription
+        }
+
         return AgentContextEntry(
             id: shortID,
             summary: summary,
             category: category,
             priority: priority,
-            dueDateDescription: dueDateDescription,
+            dueDateDescription: formattedDue,
             cadence: cadence,
             status: agentStatus,
             createdAt: createdAt,
             currentStreak: streak
         )
+    }
+
+    /// Format a due date as a compact absolute string for LLM context.
+    private static func formatDueDateForContext(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInYesterday(date) { return "yesterday" }
+        if calendar.isDateInToday(date) { return "today" }
+        if calendar.isDateInTomorrow(date) { return "tomorrow" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter.string(from: date)
     }
 
     /// Resolve a short ID prefix back to an Entry from a list.

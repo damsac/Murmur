@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import SwiftData
 import MurmurCore
 
@@ -207,7 +208,9 @@ struct AgentActionExecutor {
         if appState.homeComposition == nil {
             appState.homeComposition = HomeComposition(sections: [])
         }
-        let diff = appState.homeComposition!.apply(operations: operations)
+        let diff = withAnimation(Animations.layoutSpring) {
+            appState.homeComposition!.apply(operations: operations)
+        }
         try? appState.homeCompositionStore?.save(appState.homeComposition!)
         return .layoutUpdated(diff: diff)
     }

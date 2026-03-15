@@ -87,8 +87,27 @@ Before any external testers, each person does one full walkthrough on a real dev
 
 ### 14. TestFlight metadata — **dam + sac**
 Required before the first external invite, none of it is code:
-- **dam**: App Store Connect record created under the damsac team. Bundle ID confirmed (`com.damsac.murmur`). Encryption export compliance answered (no encryption beyond HTTPS → answer "No").
+- **dam**: App Store Connect record created under the damsac team. Bundle ID confirmed (`com.damsac.murmur`). Encryption export compliance answered (no encryption beyond HTTPS → answer "No"). Register App Group `group.com.damsac.murmur.shared` as a capability on the App ID in the Developer Portal.
 - **sac**: At least 1 screenshot per required device size (can be simulator screenshots). Short beta description written for testers. Privacy nutrition labels filled in for microphone + speech recognition.
+- **dam**: Ensure a valid Apple Distribution certificate exists (not just Apple Development).
+
+### 15. Hosted privacy policy URL — **dam**
+Required for external TestFlight testers. Apple needs a live, publicly accessible URL — a GitHub Pages one-pager is fine. Without this, you cannot invite external testers.
+
+### 16. Add `ITSAppUsesNonExemptEncryption: false` — **dam**
+One-line addition to `project.yml` Info.plist properties. Without it, App Store Connect prompts for export compliance manually on every single upload. The app only uses standard HTTPS — this is exempt.
+
+### 17. Lock interface orientation to portrait — **dam or sac**
+No explicit `UISupportedInterfaceOrientations` is set. Without it the app rotates to landscape, which will look broken. Add to `project.yml` build settings or Info.plist properties.
+
+### 18. Gate DevMode behind `#if DEBUG` — **dam or sac**
+The 5-tap gesture opens dev tools for all users including TestFlight testers. Wrap `DevModeActivator` and `DevModeView` in `#if DEBUG` so it doesn't ship in release builds.
+
+### 19. Privacy manifest — add transcribed text as collected data — **dam**
+`PrivacyInfo.xcprivacy` declares `AudioData` collection but the app also sends transcribed text to `api.ppq.ai`. Apple reviewers may flag this. Consider adding a collected data type for user-generated text content.
+
+### 20. Verify StoreKit graceful degradation — **sac**
+IAP products (credit packs) may not exist in App Store Connect for the first beta. Verify the app doesn't crash or show broken UI when StoreKit returns no products. If it doesn't degrade gracefully, either fix it or remove the StoreKit scheme config for beta.
 
 ---
 
@@ -104,20 +123,26 @@ Required before the first external invite, none of it is code:
 
 ## Summary table
 
-| # | Item | Owner | Status |
-|---|------|-------|--------|
-| 1 | Fix launch screen | **sac** | Not started |
-| 2 | Tab swipe (Focus ↔ All) | **sac** | In progress |
-| 3 | API key distribution | **dam + sac** | Not started |
-| 4 | Real token counts for credits | **dam** | Not started |
-| 5 | Calendar view | **dam** | In progress |
-| 6 | Notifications real-device test | **sac** | Not started |
-| 7 | LLM cost tool (backend) | **dam** | Not started |
-| 7 | LLM cost tool (UI) | **sac** | Not started |
-| 8 | Empty state in FocusTabView | **sac** | Not started |
-| 9 | Wire error views | **sac + dam** | Not started |
-| 10 | Onboarding review | **sac** | Not started |
-| 11 | App icon polish | **sac** | Not started |
-| 12 | Settings + Archive smoke test | **sac** | Not started |
-| 13 | Crash-free device walkthrough | **dam + sac** | Not started |
-| 14 | TestFlight metadata | **dam + sac** | Not started |
+| # | Item | Owner | Apple Req? | Status |
+|---|------|-------|-----------|--------|
+| 1 | Fix launch screen | **sac** | No (polish) | Not started |
+| 2 | Tab swipe (Focus ↔ All) | **sac** | No (UX bug) | In progress |
+| 3 | API key distribution | **dam + sac** | No (functional) | Not started |
+| 4 | Real token counts for credits | **dam** | No (feature) | Not started |
+| 5 | Calendar view | **dam** | No (feature) | In progress |
+| 6 | Notifications real-device test | **sac** | No (QA) | Not started |
+| 7 | LLM cost tool (backend) | **dam** | No (feature) | Not started |
+| 7 | LLM cost tool (UI) | **sac** | No (feature) | Not started |
+| 8 | Empty state in FocusTabView | **sac** | No (UX) | Not started |
+| 9 | Wire error views | **sac + dam** | No (UX) | Not started |
+| 10 | Onboarding review | **sac** | No (polish) | Not started |
+| 11 | App icon polish | **sac** | No (polish) | Not started |
+| 12 | Settings + Archive smoke test | **sac** | No (QA) | Not started |
+| 13 | Crash-free device walkthrough | **dam + sac** | Soft (crashes = rejection) | Not started |
+| 14 | TestFlight metadata + App Store Connect | **dam + sac** | **Yes** | Not started |
+| 15 | Hosted privacy policy URL | **dam** | **Yes** (external testers) | Not started |
+| 16 | `ITSAppUsesNonExemptEncryption: false` | **dam** | **Yes** | Not started |
+| 17 | Portrait orientation lock | **dam or sac** | No (but will look broken) | Not started |
+| 18 | Gate DevMode behind `#if DEBUG` | **dam or sac** | No (but exposes dev tools) | Not started |
+| 19 | Privacy manifest — transcribed text | **dam** | **Yes** (may cause rejection) | Not started |
+| 20 | Verify StoreKit graceful degradation | **sac** | Soft (crashes = rejection) | Not started |

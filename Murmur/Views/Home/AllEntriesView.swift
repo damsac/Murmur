@@ -326,7 +326,7 @@ struct SmartListRow: View {
 
     private var isOverdue: Bool {
         guard let dueDate = entry.dueDate else { return false }
-        return dueDate < Date()
+        return dueDate < Date() && entry.status == .active
     }
 
     private var listItems: [String] {

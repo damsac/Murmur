@@ -770,9 +770,9 @@ Pass entry IDs as matched geometry IDs:
 .matchedGeometryEffect(id: "entry-\(entry.shortID)", in: layoutNamespace)
 ```
 
-- [ ] Add `@Namespace` to `DamHomeView`
-- [ ] Pass namespace to `ComposedSectionView` and `ComposedEntryView`
-- [ ] Apply `matchedGeometryEffect` to entry views using short ID
+- [x] Add `@Namespace` to `DamHomeView`
+- [x] Pass namespace to `ComposedSectionView` and `ComposedEntryView`
+- [x] Apply `matchedGeometryEffect` to entry views using short ID
 
 ### 3.2 Animation Types per Operation
 
@@ -830,9 +830,9 @@ private func staggerRevealEntries() {
 }
 ```
 
-- [ ] Add stagger reveal state tracking to `DamHomeView`
-- [ ] Implement 60ms staggered reveal for cold start batch inserts
-- [ ] Only apply stagger on initial composition (not on incremental updates)
+- [x] Add stagger reveal state tracking to `DamHomeView`
+- [x] Implement 60ms staggered reveal for cold start batch inserts
+- [x] Only apply stagger on initial composition (not on incremental updates)
 
 ### 3.4 recentInserts Fallback
 
@@ -864,20 +864,20 @@ func applyLayoutUpdate(operations: [LayoutOperation]) -> LayoutDiff {
 }
 ```
 
-- [ ] Clear recentInserts for entries placed by `update_layout`
-- [ ] Validate that entries without layout placement still appear in recentInserts area
+- [x] Clear recentInserts for entries placed by `update_layout`
+- [x] Validate that entries without layout placement still appear in recentInserts area
 
 ### Phase 3 Acceptance Criteria
 
-- [ ] Inserted entries fade in with spring animation
-- [ ] Removed entries fade out
-- [ ] Moved entries animate smoothly between sections (matchedGeometryEffect)
-- [ ] Updated entries cross-fade emphasis/badge changes
-- [ ] Cold start batch insert has staggered 60ms reveal animation
-- [ ] Sections slide in when added, collapse when removed
-- [ ] Entries without `insert_entry` placement appear in recentInserts (existing behavior preserved)
-- [ ] No animation regression on existing compose_view recomposition
-- [ ] `make build` succeeds
+- [x] Inserted entries fade in with spring animation
+- [x] Removed entries fade out
+- [x] Moved entries animate smoothly between sections (matchedGeometryEffect)
+- [x] Updated entries cross-fade emphasis/badge changes
+- [x] Cold start batch insert has staggered 60ms reveal animation
+- [x] Sections slide in when added, collapse when removed
+- [x] Entries without `insert_entry` placement appear in recentInserts (existing behavior preserved)
+- [x] No animation regression on existing compose_view recomposition
+- [x] `make build` succeeds
 
 ---
 
