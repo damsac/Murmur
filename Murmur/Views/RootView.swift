@@ -24,7 +24,7 @@ struct RootView: View {
     @State private var topUpPacks: [CreditPack] = []
     @State private var topUpProductIDByCredits: [Int64: String] = [:]
     @AppStorage("homeVariant") private var homeVariant: String = "sac"
-    @State private var showCardHints = false
+    @State private var hintStep: Int = -1
     @State private var pendingDeleteEntry: Entry?
     @State private var pendingDeleteTask: Task<Void, Never>?
     @State private var snoozeEntry: Entry?
@@ -79,7 +79,7 @@ struct RootView: View {
                         Task { @MainActor in
                             try? await Task.sleep(for: .seconds(0.6))
                             withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                                showCardHints = true
+                                hintStep = 0
                             }
                         }
                     }
@@ -112,33 +112,30 @@ struct RootView: View {
                 }
             }
 
-            // Post-onboarding card hints
-            if showCardHints {
+            // Post-onboarding sequential hints
+            if hintStep >= 0 && hintStep < onboardingHints.count {
+                let hint = onboardingHints[hintStep]
                 VStack {
                     Spacer()
-                    HStack(spacing: 20) {
-                        Label("Swipe to act", systemImage: "arrow.left.and.right")
-                        Text("·")
-                            .foregroundStyle(Theme.Colors.textMuted)
-                        Label("Tap to edit", systemImage: "hand.tap")
-                    }
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.Colors.textSecondary)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 14)
-                    .background(
-                        Capsule()
-                            .fill(Theme.Colors.bgCard)
-                            .overlay(Capsule().stroke(Theme.Colors.borderSubtle, lineWidth: 1))
-                    )
-                    .padding(.bottom, Theme.Spacing.micButtonSize + 20)
-                    .onTapGesture {
-                        withAnimation(.easeOut(duration: 0.3)) { showCardHints = false }
-                    }
-                    .task {
-                        try? await Task.sleep(for: .seconds(4))
-                        withAnimation(.easeOut(duration: 0.5)) { showCardHints = false }
-                    }
+                    Label(hint.text, systemImage: hint.icon)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 14)
+                        .background(
+                            Capsule()
+                                .fill(Theme.Colors.bgCard)
+                                .overlay(Capsule().stroke(Theme.Colors.borderSubtle, lineWidth: 1))
+                        )
+                        .padding(.bottom, Theme.Spacing.micButtonSize + 20)
+                        .shadow(color: Theme.Colors.accentPurple.opacity(0.45), radius: 16, x: 0, y: 0)
+                        .id(hintStep)
+                        .transition(.opacity.animation(.easeOut(duration: 0.25)))
+                        .onTapGesture { advanceHint() }
+                        .task(id: hintStep) {
+                            try? await Task.sleep(for: .seconds(3.5))
+                            advanceHint()
+                        }
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .zIndex(55)
@@ -428,6 +425,26 @@ struct RootView: View {
 // MARK: - Actions & Helpers
 
 private extension RootView {
+
+    struct HintItem {
+        let icon: String
+        let text: String
+    }
+
+    var onboardingHints: [HintItem] {
+        [
+            HintItem(icon: "sparkles", text: "Focus = AI's top picks · All = everything"),
+            HintItem(icon: "arrow.left", text: "Swipe left to snooze or complete"),
+            HintItem(icon: "circle", text: "Tap the circle on habits to check them off"),
+            HintItem(icon: "calendar", text: "Tap calendar to see your schedule"),
+        ]
+    }
+
+    func advanceHint() {
+        withAnimation(.easeOut(duration: 0.3)) {
+            hintStep += 1
+        }
+    }
 
     var currentVariant: CompositionVariant {
         homeVariant == "dam" ? .scanner : .navigator
