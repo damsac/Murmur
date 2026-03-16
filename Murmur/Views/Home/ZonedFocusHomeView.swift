@@ -318,7 +318,7 @@ private struct ZonedFocusTabView: View {
 
                     // Zone 3 — Habits strip
                     if !zones.habits.isEmpty {
-                        HabitsStripView(habits: zones.habits, onAction: onAction)
+                        HabitsStripView(habits: zones.habits, onEntryTap: onEntryTap, onAction: onAction)
                             .opacity(messageVisible ? 1 : 0)
                             .offset(y: messageVisible ? 0 : 6)
                     }
@@ -514,6 +514,15 @@ private struct StandardFocusCard: View {
             onTap: onTap
         ) {
             HStack(alignment: .center, spacing: 12) {
+                if entry.category != .habit {
+                    let dotColor = Theme.categoryColor(entry.category)
+                    Circle()
+                        .fill(dotColor)
+                        .frame(width: 8, height: 8)
+                        .shadow(color: dotColor.opacity(0.6), radius: 4)
+                        .padding(.leading, 2)
+                }
+
                 VStack(alignment: .leading, spacing: 3) {
                     Text(entry.summary)
                         .font(.subheadline)
@@ -532,20 +541,17 @@ private struct StandardFocusCard: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
 
-                if entry.category == .habit && entry.appliesToday {
-                    Button {
-                        onAction(entry, .checkOffHabit)
-                    } label: {
-                        Image(systemName: entry.isCompletedToday ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 24))
-                            .foregroundStyle(
-                                entry.isCompletedToday ? accentColor : Theme.Colors.textTertiary
-                            )
-                            .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
-                            .frame(width: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+                if entry.category == .habit {
+                    Image(systemName: entry.isCompletedToday ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 24))
+                        .foregroundStyle(accentColor)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
+                        .frame(width: 44)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            guard entry.appliesToday else { return }
+                            onAction(entry, .checkOffHabit)
+                        }
                 }
             }
             .cardStyle()
@@ -559,6 +565,7 @@ private struct StandardFocusCard: View {
 
 private struct HabitsStripView: View {
     let habits: [Entry]
+    let onEntryTap: (Entry) -> Void
     let onAction: (Entry, EntryAction) -> Void
 
     var body: some View {
@@ -570,7 +577,7 @@ private struct HabitsStripView: View {
 
             VStack(spacing: 8) {
                 ForEach(habits) { habit in
-                    HabitRowView(habit: habit, onAction: onAction)
+                    HabitRowView(habit: habit, onTap: { onEntryTap(habit) }, onAction: onAction)
                 }
             }
         }
@@ -580,23 +587,20 @@ private struct HabitsStripView: View {
 
 private struct HabitRowView: View {
     let habit: Entry
+    let onTap: () -> Void
     let onAction: (Entry, EntryAction) -> Void
 
     private var accent: Color { Theme.categoryColor(habit.category) }
 
     var body: some View {
         HStack(spacing: 0) {
-            Button {
-                onAction(habit, .checkOffHabit)
-            } label: {
-                Image(systemName: habit.isCompletedToday ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 22))
-                    .foregroundStyle(habit.isCompletedToday ? accent : Theme.Colors.textTertiary)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.65), value: habit.isCompletedToday)
-                    .frame(width: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+            Image(systemName: habit.isCompletedToday ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 22))
+                .foregroundStyle(accent)
+                .animation(.spring(response: 0.3, dampingFraction: 0.65), value: habit.isCompletedToday)
+                .frame(width: 44)
+                .contentShape(Rectangle())
+                .onTapGesture { onAction(habit, .checkOffHabit) }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(habit.summary)
@@ -619,6 +623,8 @@ private struct HabitRowView: View {
             RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius)
                 .stroke(Theme.Colors.borderSubtle, lineWidth: 1)
         )
+        .contentShape(Rectangle())
+        .onTapGesture { onTap() }
         .opacity(habit.isDoneForPeriod ? 0.45 : 1.0)
         .animation(.easeInOut(duration: 0.2), value: habit.isCompletedToday)
     }

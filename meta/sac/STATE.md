@@ -6,7 +6,7 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-Gesture conflict fix: card swipe actions vs tab switching. Onboarding result view polish.
+Card visual polish: category dots, habit circle indicators, section headers, tap handling.
 
 ## Recent decisions
 
@@ -17,6 +17,11 @@ Gesture conflict fix: card swipe actions vs tab switching. Onboarding result vie
 - **TestFlight checklist in `meta/`** — Wrote a structured doc covering 14 items across blocker/high-priority/nice-to-have.
 - **Calendar view in `CalendarView.swift`** — Monthly calendar, entries grouped by due date, opens from home top bar.
 - **Inline editing in EntryDetailView** — Replaced the separate `EntryEditSheet` with in-place editing.
+- **Category dots on cards** — Added glowing colored dot to all non-habit cards in All and Focus sections. Habits get circle checkbox instead. Both `SmartListRow`, `FocusCardExpandedView`, and `StandardFocusCard` updated.
+- **Habit circle always green** — Removed the `appliesToday` gate on checkbox visibility; all habits show the circle, just non-applicable ones have a no-op tap. Prevents habits from accidentally showing a dot.
+- **Button → onTapGesture for habit checkbox** — SwiftUI `Button` inside `SwipeableCard`'s ZStack blocked the outer `.onTapGesture` (navigation). Replaced with image + `.onTapGesture`; child gesture takes priority for its area, outer gesture handles card-level navigation.
+- **HabitRowView navigation wired up** — The focus tab's habits strip (`HabitRowView`) had no `onEntryTap` at all. Threaded `onEntryTap` through `HabitsStripView` → `HabitRowView` and added card-level tap.
+- **Section headers: dot + colored text + hairline** — Replaced pill/bubble (variable width, looked uneven) with dot + category-colored label + color-tinted hairline extending to the right edge.
 
 ## Open questions
 
