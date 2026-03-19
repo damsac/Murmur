@@ -15,26 +15,24 @@
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
                             <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="LaunchIcon" translatesAutoresizingMaskIntoConstraints="NO" id="img-icon">
-                                <rect key="frame" x="96.5" y="290" width="200" height="200"/>
-                                <constraints>
-                                    <constraint firstAttribute="width" constant="200" id="w-icon"/>
-                                    <constraint firstAttribute="height" constant="200" id="h-icon"/>
-                                </constraints>
+                                <rect key="frame" x="0" y="0" width="393" height="852"/>
                             </imageView>
                             <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="murmur" textAlignment="center" translatesAutoresizingMaskIntoConstraints="NO" id="lbl-name">
-                                <rect key="frame" x="96.5" y="510" width="200" height="44"/>
+                                <rect key="frame" x="96.5" y="634" width="200" height="44"/>
                                 <fontDescription key="fontDescription" type="boldSystem" pointSize="32"/>
                                 <color key="textColor" red="0.96078" green="0.96078" blue="0.96863" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                                 <nil key="highlightedColor"/>
                             </label>
                         </subviews>
                         <viewLayoutGuide key="safeAreaLayoutGuide" id="Bcu-3y-fUS"/>
-                        <color key="backgroundColor" red="0.06667" green="0.08235" blue="0.12941" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <color key="backgroundColor" red="0.02353" green="0.03529" blue="0.07059" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                         <constraints>
-                            <constraint firstItem="img-icon" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="cx-icon"/>
-                            <constraint firstItem="img-icon" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" constant="-46" id="cy-icon"/>
+                            <constraint firstItem="img-icon" firstAttribute="leading" secondItem="Ze5-6b-2t3" secondAttribute="leading" id="leading-icon"/>
+                            <constraint firstItem="img-icon" firstAttribute="trailing" secondItem="Ze5-6b-2t3" secondAttribute="trailing" id="trailing-icon"/>
+                            <constraint firstItem="img-icon" firstAttribute="top" secondItem="Ze5-6b-2t3" secondAttribute="top" id="top-icon"/>
+                            <constraint firstItem="img-icon" firstAttribute="bottom" secondItem="Ze5-6b-2t3" secondAttribute="bottom" id="bottom-icon"/>
                             <constraint firstItem="lbl-name" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="cx-lbl"/>
-                            <constraint firstItem="lbl-name" firstAttribute="top" secondItem="img-icon" secondAttribute="bottom" constant="16" id="top-lbl"/>
+                            <constraint firstItem="lbl-name" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" constant="230" id="cy-lbl"/>
                         </constraints>
                     </view>
                 </viewController>

@@ -6,7 +6,7 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-Search + UX polish: archive search, all-entries search, notification bubble label shortening, smart toast durations.
+Launch screen polish: eliminated the visible seam/box around the launch icon.
 
 ## Recent decisions
 
@@ -23,6 +23,7 @@ Search + UX polish: archive search, all-entries search, notification bubble labe
 - **Shorter notification bubble labels** — Dropped "before" suffix from lead time options (e.g. "15m before" → "15 min") since direction is implicit. Fixes squishing on small phones.
 - **Smart toast duration** — Duration scales with message length: `max(2.5, min(6.0, chars / 12.0))`. Short confirmations ("Completed") disappear quickly; long LLM responses stay readable.
 - **List category color: teal → blue** — Minor color tweak for better visual distinction.
+- **Launch screen seam fix** — PNG has no alpha (navy background baked in), so color matching was imperfect. Fixed by pinning imageView to all 4 edges (full screen) with `scaleAspectFit` + setting screen background to the exact PNG corner pixel color (#060912). No seam because the imageView IS the background; letterbox areas above/below the icon match the PNG border color.
 
 ## Open questions
 
