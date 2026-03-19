@@ -96,7 +96,7 @@ enum Theme {
         case .habit:    return Colors.accentGreen
         case .note:     return Colors.accentSlate
         case .question: return Colors.accentFuchsia
-        case .list:     return Colors.accentTeal
+        case .list:     return Colors.accentBlue
         }
     }
 }

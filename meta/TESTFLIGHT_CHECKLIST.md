@@ -143,3 +143,5 @@ IAP products (credit packs) may not exist in App Store Connect for the first bet
 | 18 | Gate DevMode behind `#if DEBUG` | **dam or sac** | No (exposes tools) | Not started |
 | 19 | Privacy manifest — transcribed text | **dam** | **Yes** | Not started |
 | 20 | Verify StoreKit degradation | **sac** | Soft | Not started |
+
+

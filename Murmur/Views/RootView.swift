@@ -538,7 +538,7 @@ private extension RootView {
         toastConfig = ToastContainer.ToastConfig(
             message: message,
             type: type,
-            duration: action != nil ? 4.0 : 3.0,
+            duration: action != nil ? 4.5 : max(2.5, min(6.0, Double(message.count) / 12.0)),
             actionLabel: actionLabel,
             action: action
         )

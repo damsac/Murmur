@@ -13,12 +13,20 @@ struct AllEntriesView: View {
     let onAction: (Entry, EntryAction) -> Void
     let onGlowComplete: (UUID) -> Void
 
+    @State private var searchText = ""
+
     private static let categoryDisplayOrder: [EntryCategory] = [
         .todo, .reminder, .habit, .idea, .list, .note, .question
     ]
 
+    private var filteredEntries: [Entry] {
+        guard !searchText.isEmpty else { return entries }
+        let q = searchText.lowercased()
+        return entries.filter { $0.summary.lowercased().contains(q) }
+    }
+
     private var entriesByCategory: [(category: EntryCategory, entries: [Entry])] {
-        let grouped = Dictionary(grouping: entries) { $0.category }
+        let grouped = Dictionary(grouping: filteredEntries) { $0.category }
         return Self.categoryDisplayOrder.compactMap { category in
             guard let items = grouped[category], !items.isEmpty else { return nil }
             let sorted = items.sorted { lhs, rhs in
@@ -37,31 +45,108 @@ struct AllEntriesView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                if isProcessing {
+                // Search bar
+                searchBar
+                    .padding(.horizontal, Theme.Spacing.screenPadding)
+                    .padding(.top, 12)
+                    .padding(.bottom, 4)
+
+                if isProcessing && searchText.isEmpty {
                     SharedProcessingDotsView()
                         .transition(.opacity)
                 }
 
-                VStack(spacing: 0) {
-                    ForEach(entriesByCategory, id: \.category) { group in
-                        CategorySectionView(
-                            category: group.category,
-                            entries: group.entries,
-                            arrivedEntryIDs: arrivedEntryIDs,
-                            activeSwipeEntryID: $activeSwipeEntryID,
-                            onEntryTap: onEntryTap,
-                            swipeActionsProvider: swipeActionsProvider,
-                            onAction: onAction,
-                            onGlowComplete: onGlowComplete
-                        )
+                if !searchText.isEmpty {
+                    if filteredEntries.isEmpty {
+                        VStack(spacing: 12) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 32))
+                                .foregroundStyle(Theme.Colors.textTertiary)
+                            Text("No results for \"\(searchText)\"")
+                                .font(Theme.Typography.body)
+                                .foregroundStyle(Theme.Colors.textSecondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 60)
+                        .transition(.opacity)
+                    } else {
+                        LazyVStack(spacing: 12) {
+                            ForEach(filteredEntries) { entry in
+                                SwipeableCard(
+                                    actions: swipeActionsProvider(entry),
+                                    activeSwipeID: $activeSwipeEntryID,
+                                    entryID: entry.id,
+                                    onTap: { onEntryTap(entry) }
+                                ) {
+                                    GlowingEntryRow(
+                                        entry: entry,
+                                        isArrived: arrivedEntryIDs.contains(entry.id),
+                                        category: entry.category,
+                                        onAction: onAction,
+                                        onGlowComplete: { onGlowComplete(entry.id) }
+                                    )
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.top, 8)
+                        .transition(.opacity)
                     }
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(entriesByCategory, id: \.category) { group in
+                            CategorySectionView(
+                                category: group.category,
+                                entries: group.entries,
+                                arrivedEntryIDs: arrivedEntryIDs,
+                                activeSwipeEntryID: $activeSwipeEntryID,
+                                onEntryTap: onEntryTap,
+                                swipeActionsProvider: swipeActionsProvider,
+                                onAction: onAction,
+                                onGlowComplete: onGlowComplete
+                            )
+                        }
+                    }
+                    .animation(Animations.smoothSlide, value: entries.map(\.id))
                 }
-                .animation(Animations.smoothSlide, value: entries.map(\.id))
 
                 Color.clear.frame(height: 160)
             }
         }
         .scrollIndicators(.hidden)
+    }
+
+    @ViewBuilder
+    private var searchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Theme.Colors.textTertiary)
+
+            TextField("Search entries", text: $searchText)
+                .font(Theme.Typography.body)
+                .foregroundStyle(Theme.Colors.textPrimary)
+                .autocorrectionDisabled()
+
+            if !searchText.isEmpty {
+                Button { searchText = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Theme.Colors.bgCard)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Theme.Colors.borderSubtle, lineWidth: 1)
+                )
+        )
     }
 }
 
