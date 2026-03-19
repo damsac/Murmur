@@ -58,9 +58,9 @@ struct BottomNavBar: View {
 
             // Tab labels — centered in bar area, one each side of notch
             HStack {
-                tabItem(tab: .focus, label: "Focus")
+                tabItem(tab: .focus, label: "Focus", icon: "sparkles", iconOnRight: false)
                 Spacer()
-                tabItem(tab: .all, label: "All")
+                tabItem(tab: .all, label: "All", icon: "tray.fill", iconOnRight: true)
             }
             .padding(.horizontal, 32)
             .offset(y: (micSize - barHeight) / 2)
@@ -96,13 +96,23 @@ struct BottomNavBar: View {
     }
 
     @ViewBuilder
-    private func tabItem(tab: AppState.Tab, label: String) -> some View {
+    private func tabItem(tab: AppState.Tab, label: String, icon: String, iconOnRight: Bool) -> some View {
         let isSelected = selectedTab == tab
         Button { onTabChange?(tab) } label: {
             VStack(spacing: 6) {
-                Text(label)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(isSelected ? Theme.Colors.textPrimary : Theme.Colors.textSecondary)
+                HStack(spacing: 5) {
+                    if !iconOnRight {
+                        Image(systemName: icon)
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    Text(label)
+                        .font(.system(size: 16, weight: .semibold))
+                    if iconOnRight {
+                        Image(systemName: icon)
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                }
+                .foregroundStyle(isSelected ? Theme.Colors.textPrimary : Theme.Colors.textSecondary)
                 Capsule()
                     .fill(isSelected ? Theme.Colors.accentPurple : Color.clear)
                     .frame(width: 24, height: 3)
