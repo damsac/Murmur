@@ -97,9 +97,24 @@ public final class Entry {
         set { sourceRawValue = newValue.rawValue }
     }
 
-    /// Resolve a natural language date phrase (e.g. "next Thursday") to a Date using NSDataDetector.
+    /// Resolve a date string to a Date. Tries ISO 8601 first (LLM output), then NSDataDetector fallback.
     public static func resolveDate(from phrase: String?) -> Date? {
         guard let phrase, !phrase.isEmpty else { return nil }
+
+        // Primary: ISO 8601 (what the LLM now outputs for relative + absolute times)
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: phrase) { return date }
+        // Also try without fractional seconds
+        iso.formatOptions = [.withInternetDateTime]
+        if let date = iso.date(from: phrase) { return date }
+        // Try without timezone (bare datetime like "2025-03-17T15:30:00")
+        let bare = DateFormatter()
+        bare.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        bare.locale = Locale(identifier: "en_US_POSIX")
+        if let date = bare.date(from: phrase) { return date }
+
+        // Fallback: NSDataDetector for legacy verbatim phrases ("next Thursday", "tomorrow at 3pm")
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) else {
             return nil
         }

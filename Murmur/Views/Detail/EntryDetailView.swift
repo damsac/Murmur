@@ -130,6 +130,7 @@ struct EntryDetailView: View {
                                 entry.summary = trimmed
                                 entry.updatedAt = Date()
                                 save()
+                                NotificationService.shared.sync(entry, preferences: notifPrefs)
                             }
                             .padding(.bottom, 24)
 
@@ -262,9 +263,8 @@ struct EntryDetailView: View {
             VStack {
                 Spacer()
                 EntryActionBar(
-                    isArchived: entry.status == .archived,
-                    onArchive: { onAction(.archive) },
-                    onUnarchive: { onAction(.unarchive) },
+                    isDone: entry.status == .completed || entry.status == .archived,
+                    onDone: { onAction(.complete) },
                     onSnooze: { showSnoozeDialog = true },
                     onDelete: { onAction(.delete) }
                 )
@@ -506,29 +506,19 @@ private struct HabitStreakRow: View {
 // MARK: - Entry Action Bar
 
 private struct EntryActionBar: View {
-    let isArchived: Bool
-    let onArchive: () -> Void
-    let onUnarchive: () -> Void
+    let isDone: Bool
+    let onDone: () -> Void
     let onSnooze: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            if isArchived {
-                ActionButton(
-                    icon: "arrow.uturn.left",
-                    label: "Unarchive",
-                    color: Theme.Colors.accentGreen,
-                    action: onUnarchive
-                )
-            } else {
-                ActionButton(
-                    icon: "archivebox",
-                    label: "Archive",
-                    color: Theme.Colors.textSecondary,
-                    action: onArchive
-                )
-            }
+            ActionButton(
+                icon: isDone ? "checkmark.circle.fill" : "checkmark.circle",
+                label: "Done",
+                color: Theme.Colors.accentGreen,
+                action: onDone
+            )
 
             ActionButton(
                 icon: "clock",

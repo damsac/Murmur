@@ -23,6 +23,13 @@ struct MurmurApp: App {
                     appState.configurePipeline()
                 }
                 .task {
+                    // Re-schedule habit reminder on every launch — repeating triggers survive normal
+                    // relaunches but are wiped on reinstall (common during TestFlight).
+                    if notificationPreferences.habitsEnabled {
+                        NotificationService.shared.scheduleHabitReminder(preferences: notificationPreferences)
+                    }
+                }
+                .task {
                     await listenForTransactionUpdates()
                 }
         }

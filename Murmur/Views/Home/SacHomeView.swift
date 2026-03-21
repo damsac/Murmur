@@ -432,22 +432,24 @@ private struct FocusCardExpandedView: View {
             onTap: onTap
         ) {
             HStack(alignment: .center, spacing: 12) {
-                if entry.category == .habit && entry.appliesToday {
-                    Button {
-                        onAction(entry, .checkOffHabit)
-                    } label: {
-                        Image(systemName: entry.isCompletedToday ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 24))
-                            .foregroundStyle(
-                                entry.isCompletedToday
-                                    ? Theme.categoryColor(entry.category)
-                                    : Theme.Colors.textTertiary
-                            )
-                            .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
-                            .frame(width: 36)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+                if entry.category == .habit {
+                    Image(systemName: entry.isCompletedToday ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 24))
+                        .foregroundStyle(Theme.categoryColor(entry.category))
+                        .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
+                        .frame(width: 36)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            guard entry.appliesToday else { return }
+                            onAction(entry, .checkOffHabit)
+                        }
+                } else {
+                    let dotColor = Theme.categoryColor(entry.category)
+                    Circle()
+                        .fill(dotColor)
+                        .frame(width: 8, height: 8)
+                        .shadow(color: dotColor.opacity(0.6), radius: 4)
+                        .padding(.leading, 2)
                 }
 
                 VStack(alignment: .leading, spacing: 3) {

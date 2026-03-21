@@ -87,7 +87,8 @@ public struct LLMPrompt: @unchecked Sendable {
             Create entry quality rules:
             - Produce concise card-style content, not long prose.
             - summary should be 10 words or fewer.
-            - Keep due_date and snooze_until as the user's natural language phrase.
+            - Set due_date as an ISO 8601 datetime string resolved from the current time (e.g. "2025-03-17T15:30:00"). Always set it when the user mentions any time reference.
+            - Keep snooze_until as the user's natural language phrase.
             - For habits, set cadence to daily/weekdays/weekly/monthly when clear.
             - Do not include urgency words in content when priority captures urgency.
 
@@ -148,7 +149,8 @@ public struct LLMPrompt: @unchecked Sendable {
             - category
             - source_text: relevant transcript span
             - summary: 10 words or fewer
-            Optional: priority (1-5), due_date (verbatim phrase), cadence (for habits)
+            Optional: priority (1-5), due_date (ISO 8601 datetime resolved from the current time provided above, e.g. "2025-03-17T15:30:00"), cadence (for habits)
+            Always set due_date for reminders and todos when the user mentions any time reference (e.g. "in 30 minutes", "tomorrow", "next Friday").
             """,
         tools: [createEntriesToolSchema()],
         toolChoice: .function(name: "create_entries")
