@@ -191,7 +191,7 @@ final class AppState {
         defer { isHomeCompositionLoading = false }
 
         let pricing = pipeline?.llmPricing ?? Self.defaultPricing
-        var event = LLMRequestEvent(
+        var event = LLMRequestTracker(
             requestId: UUID(),
             conversationId: UUID(),
             callType: "composition",
@@ -222,11 +222,11 @@ final class AppState {
                 usage: result.usage,
                 pricing: pricing
             )
-            StudioAnalytics.track("credits.charged", properties: [
-                "request_id": event.requestId.uuidString,
-                "credits": receipt.creditsCharged,
-                "balance_after": receipt.newBalance,
-            ])
+            StudioAnalytics.track(CreditCharged(
+                requestId: event.requestId.uuidString,
+                credits: receipt.creditsCharged,
+                balanceAfter: receipt.newBalance
+            ))
             await refreshCreditBalance()
 
             try? homeCompositionStore?.save(result.composition)
@@ -256,7 +256,7 @@ final class AppState {
             defer { self.isRefreshing = false }
 
             let pricing = self.pipeline?.llmPricing ?? Self.defaultPricing
-            var event = LLMRequestEvent(
+            var event = LLMRequestTracker(
                 requestId: UUID(),
                 conversationId: UUID(),
                 callType: "layout_refresh",
@@ -290,11 +290,11 @@ final class AppState {
                     usage: result.usage,
                     pricing: pricing
                 )
-                StudioAnalytics.track("credits.charged", properties: [
-                    "request_id": event.requestId.uuidString,
-                    "credits": receipt.creditsCharged,
-                    "balance_after": receipt.newBalance,
-                ])
+                StudioAnalytics.track(CreditCharged(
+                    requestId: event.requestId.uuidString,
+                    credits: receipt.creditsCharged,
+                    balanceAfter: receipt.newBalance
+                ))
                 await self.refreshCreditBalance()
 
                 _ = withAnimation(Animations.layoutSpring) {

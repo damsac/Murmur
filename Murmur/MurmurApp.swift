@@ -28,7 +28,7 @@ struct MurmurApp: App {
                             endpoint: endpoint,
                             apiKey: apiKey
                         )
-                        StudioAnalytics.track("app.launch")
+                        StudioAnalytics.track(AppLaunched())
                     }
                     appState.configurePipeline()
                 }

@@ -131,11 +131,11 @@ struct AgentActionExecutor {
                 return .completed(entryID: entry.id, previousStatus: prev)
             }
             if case .applied(let entry, _) = result {
-                StudioAnalytics.track("entry.completed", properties: [
-                    "category": entry.category.rawValue,
-                    "age_hours": Int(Date().timeIntervalSince(entry.createdAt) / 3600),
-                    "source": "agent",
-                ])
+                StudioAnalytics.track(EntryCompleted(
+                    category: entry.category.rawValue,
+                    ageHours: Int(Date().timeIntervalSince(entry.createdAt) / 3600),
+                    source: "agent"
+                ))
             }
             return result
         case .archive(let a):
@@ -146,11 +146,11 @@ struct AgentActionExecutor {
                 return .archived(entryID: entry.id, previousStatus: prev)
             }
             if case .applied(let entry, _) = result {
-                StudioAnalytics.track("entry.archived", properties: [
-                    "category": entry.category.rawValue,
-                    "age_hours": Int(Date().timeIntervalSince(entry.createdAt) / 3600),
-                    "source": "agent",
-                ])
+                StudioAnalytics.track(EntryArchived(
+                    category: entry.category.rawValue,
+                    ageHours: Int(Date().timeIntervalSince(entry.createdAt) / 3600),
+                    source: "agent"
+                ))
             }
             return result
         case .updateMemory(let a):
@@ -188,10 +188,10 @@ struct AgentActionExecutor {
         )
         ctx.modelContext.insert(entry)
         NotificationService.shared.sync(entry, preferences: ctx.preferences)
-        StudioAnalytics.track("entry.created", properties: [
-            "category": entry.category.rawValue,
-            "source": ctx.source == .voice ? "voice" : "text",
-        ])
+        StudioAnalytics.track(EntryCreated(
+            category: entry.category.rawValue,
+            source: ctx.source == .voice ? "voice" : "text"
+        ))
         return .applied(entry, .created(entryID: entry.id))
     }
 

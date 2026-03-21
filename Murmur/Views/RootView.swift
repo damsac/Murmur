@@ -488,21 +488,21 @@ private extension RootView {
         case .complete:
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             entry.perform(.complete, in: modelContext, preferences: notifPrefs)
-            StudioAnalytics.track("entry.completed", properties: [
-                "category": entry.category.rawValue,
-                "age_hours": Int(Date().timeIntervalSince(entry.createdAt) / 3600),
-                "source": "user",
-            ])
+            StudioAnalytics.track(EntryCompleted(
+                category: entry.category.rawValue,
+                ageHours: Int(Date().timeIntervalSince(entry.createdAt) / 3600),
+                source: "user"
+            ))
             showToast("Completed")
 
         case .archive:
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             entry.perform(.archive, in: modelContext, preferences: notifPrefs)
-            StudioAnalytics.track("entry.archived", properties: [
-                "category": entry.category.rawValue,
-                "age_hours": Int(Date().timeIntervalSince(entry.createdAt) / 3600),
-                "source": "user",
-            ])
+            StudioAnalytics.track(EntryArchived(
+                category: entry.category.rawValue,
+                ageHours: Int(Date().timeIntervalSince(entry.createdAt) / 3600),
+                source: "user"
+            ))
             showToast("Archived", type: .info)
 
         case .unarchive:
@@ -524,11 +524,11 @@ private extension RootView {
                 try? await Task.sleep(for: .seconds(4))
                 guard let pending = pendingDeleteEntry else { return }
                 pending.perform(.delete, in: modelContext, preferences: notifPrefs)
-                StudioAnalytics.track("entry.deleted", properties: [
-                    "category": deleteCategory,
-                    "age_hours": deleteAgeHours,
-                    "source": "user",
-                ])
+                StudioAnalytics.track(EntryDeleted(
+                    category: deleteCategory,
+                    ageHours: deleteAgeHours,
+                    source: "user"
+                ))
                 pendingDeleteEntry = nil
             }
 

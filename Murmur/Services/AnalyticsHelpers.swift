@@ -4,9 +4,9 @@ import StudioAnalytics
 
 // MARK: - LLM Request Event Builder
 
-/// Reduces the 20-parameter `trackLLMRequest` call sites to a builder pattern.
-/// Construct with required fields, set optionals, then call `.track()` or `.trackError(_:)`.
-struct LLMRequestEvent {
+/// Builder that wraps `LLMRequestEvent` with Murmur-specific conveniences:
+/// computed cost from `ServicePricing`, latency from `ContinuousClock`, error classification.
+struct LLMRequestTracker {
     let requestId: UUID
     let conversationId: UUID
     let callType: String
@@ -14,7 +14,6 @@ struct LLMRequestEvent {
     let pricing: ServicePricing
     let start: ContinuousClock.Instant
 
-    // Populated on success
     var tokensIn: Int = 0
     var tokensOut: Int = 0
     var streaming: Bool = false
@@ -38,7 +37,7 @@ struct LLMRequestEvent {
     }
 
     func track() {
-        StudioAnalytics.trackLLMRequest(
+        var event = LLMRequestEvent(
             requestId: requestId,
             conversationId: conversationId,
             callType: callType,
@@ -47,22 +46,23 @@ struct LLMRequestEvent {
             model: model,
             costMicros: costMicros,
             latencyMs: latencyMs,
-            ttftMs: ttftMs,
             streaming: streaming,
             turnNumber: turnNumber,
             conversationMessages: conversationMessages,
             toolCalls: toolCalls,
             actionCount: actionCount,
             parseFailureCount: parseFailureCount,
-            hasTextResponse: hasTextResponse,
-            variant: variant,
-            itemsCount: itemsCount
+            hasTextResponse: hasTextResponse
         )
+        event.ttftMs = ttftMs
+        event.variant = variant
+        event.itemsCount = itemsCount
+        StudioAnalytics.track(event)
     }
 
     func trackError(_ error: Error) {
         let (errorType, statusCode) = Self.classifyError(error)
-        StudioAnalytics.trackLLMRequest(
+        var event = LLMRequestEvent(
             requestId: requestId,
             conversationId: conversationId,
             callType: callType,
@@ -77,11 +77,12 @@ struct LLMRequestEvent {
             toolCalls: [],
             actionCount: 0,
             parseFailureCount: 0,
-            hasTextResponse: false,
-            variant: variant,
-            error: errorType,
-            errorStatusCode: statusCode
+            hasTextResponse: false
         )
+        event.variant = variant
+        event.error = errorType
+        event.errorStatusCode = statusCode
+        StudioAnalytics.track(event)
     }
 
     // MARK: - Shared Helpers
@@ -93,7 +94,6 @@ struct LLMRequestEvent {
     }
 
     static func classifyError(_ error: Error) -> (type: String, statusCode: Int?) {
-        // Unwrap PipelineError wrapper if present
         var inner = error
         if case PipelineError.extractionFailed(let underlying) = error {
             inner = underlying

@@ -141,9 +141,7 @@ final class ConversationState {
         pendingRevealEntryIDs.removeAll()
         recordingStartTime = .now
 
-        StudioAnalytics.track("recording.start", properties: [
-            "source": "voice",
-        ])
+        StudioAnalytics.track(RecordingStarted(source: "voice"))
 
         withAnimation(.easeInOut(duration: 0.35)) {
             inputState = .recording(transcript: "")
@@ -249,10 +247,7 @@ final class ConversationState {
                 Int($0.duration(to: .now).totalMilliseconds)
             }
             recordingStartTime = nil
-            StudioAnalytics.track("recording.complete", properties: [
-                "duration_ms": durationMs ?? 0,
-                "transcript_length": liveText.count,
-            ])
+            StudioAnalytics.track(RecordingComplete(durationMs: durationMs ?? 0, transcriptLength: liveText.count))
 
             await pipeline.cancelRecording()
 
@@ -339,7 +334,7 @@ final class ConversationState {
                 .map { $0.toAgentContext() }
             truncateConversationHistory()
 
-            var event = LLMRequestEvent(
+            var event = LLMRequestTracker(
                 requestId: UUID(),
                 conversationId: conversation.id,
                 callType: "agent",
@@ -391,7 +386,7 @@ final class ConversationState {
         generation gen: Int,
         context execCtx: AgentActionExecutor.ExecutionContext,
         appState: AppState,
-        trackingEvent: LLMRequestEvent? = nil
+        trackingEvent: LLMRequestTracker? = nil
     ) async throws {
         var allApplied: [AgentActionExecutor.AppliedAction] = []
         var allFailures: [AgentActionExecutor.ActionFailure] = []
@@ -473,11 +468,11 @@ final class ConversationState {
                     let credits = tracking.pricing.credits(for: response.usage)
                     if credits > 0 {
                         let balance = await appState.creditGate?.balance ?? 0
-                        StudioAnalytics.track("credits.charged", properties: [
-                            "request_id": tracking.requestId.uuidString,
-                            "credits": credits,
-                            "balance_after": balance,
-                        ])
+                        StudioAnalytics.track(CreditCharged(
+                            requestId: tracking.requestId.uuidString,
+                            credits: credits,
+                            balanceAfter: balance
+                        ))
                     }
                 }
 
