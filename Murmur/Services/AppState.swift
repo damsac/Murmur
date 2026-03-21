@@ -177,8 +177,6 @@ final class AppState {
         // Check cache (variant-aware)
         if let cached = homeCompositionStore?.load(expectedVariant: variant), cached.isFromToday {
             homeComposition = cached
-            // Background diff refresh
-            requestLayoutRefresh(entries: entries, variant: variant)
             return
         }
 
