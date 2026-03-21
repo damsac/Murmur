@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 import StoreKit
 import MurmurCore
+import StudioAnalytics
 
 @main
 struct MurmurApp: App {
@@ -20,6 +21,15 @@ struct MurmurApp: App {
                 .environment(notificationPreferences)
                 .preferredColorScheme(.dark)
                 .task {
+                    if let endpoint = APIKeyProvider.analyticsEndpoint,
+                       let apiKey = APIKeyProvider.analyticsAPIKey {
+                        StudioAnalytics.configure(
+                            appId: "murmur-ios",
+                            endpoint: endpoint,
+                            apiKey: apiKey
+                        )
+                        StudioAnalytics.track("app.launch")
+                    }
                     appState.configurePipeline()
                 }
                 .task {
@@ -39,6 +49,7 @@ struct MurmurApp: App {
                 if appState.conversation.isRecording {
                     appState.conversation.cancelRecording()
                 }
+                StudioAnalytics.flush()
             }
         }
     }

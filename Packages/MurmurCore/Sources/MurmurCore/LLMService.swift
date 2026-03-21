@@ -3,9 +3,18 @@ import Foundation
 /// Opaque conversation state for multi-turn LLM interactions.
 /// Retains full message history including tool calls and model reasoning.
 public final class LLMConversation: @unchecked Sendable {
+    /// Stable identifier for this conversation. Used to link multi-turn LLM requests in analytics.
+    public let id: UUID = UUID()
+
+    /// Number of LLM turns completed in this conversation. Incremented before each HTTP call.
+    public private(set) var turnCount: Int = 0
+
     var messages: [[String: Any]] = []
 
     public init() {}
+
+    /// Increment the turn counter. Called by the LLM service before each HTTP request.
+    public func incrementTurn() { turnCount += 1 }
 
     /// Number of messages in the conversation history.
     public var messageCount: Int { messages.count }

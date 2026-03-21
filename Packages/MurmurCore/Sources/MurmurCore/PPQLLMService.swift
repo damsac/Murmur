@@ -8,7 +8,7 @@ private let sseLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur",
 /// LLMService implementation using PPQ.ai's OpenAI-compatible API with tool calling.
 public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked Sendable {
     private let apiKey: String
-    private let model: String
+    public let model: String
     private let prompt: LLMPrompt
     private let extractionPrompt: LLMPrompt
     private let session: URLSession
@@ -307,6 +307,7 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
         conversation: LLMConversation
     ) async throws -> TurnResult {
         sseLog.info("[SSE] runTurn — building request (non-streaming, no stream:true in body)")
+        conversation.incrementTurn()
         let requestMessages = buildRequestMessages(
             userContent: userContent,
             prompt: prompt,
@@ -359,6 +360,8 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
             prompt: prompt,
             conversation: conversation
         )
+
+        conversation.incrementTurn()
 
         return AsyncThrowingStream { continuation in
             let task = Task { [self] in
