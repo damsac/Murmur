@@ -63,15 +63,20 @@ struct ArchiveView: View {
                                         entries: group.entries,
                                         onRestore: { entry in
                                             entry.perform(.unarchive, in: modelContext, preferences: notifPrefs)
+                                        },
+                                        onDelete: { entry in
+                                            modelContext.delete(entry)
                                         }
                                     )
                                 }
                             } else {
                                 LazyVStack(spacing: 12) {
                                     ForEach(filteredEntries) { entry in
-                                        ArchiveRow(entry: entry) {
+                                        ArchiveRow(entry: entry, onRestore: {
                                             entry.perform(.unarchive, in: modelContext, preferences: notifPrefs)
-                                        }
+                                        }, onDelete: {
+                                            modelContext.delete(entry)
+                                        })
                                     }
                                 }
                                 .padding(.horizontal, Theme.Spacing.screenPadding)
@@ -153,13 +158,15 @@ private struct ArchiveSectionView: View {
     let category: EntryCategory
     let entries: [Entry]
     let onRestore: (Entry) -> Void
+    let onDelete: (Entry) -> Void
 
     @AppStorage private var isCollapsed: Bool
 
-    init(category: EntryCategory, entries: [Entry], onRestore: @escaping (Entry) -> Void) {
+    init(category: EntryCategory, entries: [Entry], onRestore: @escaping (Entry) -> Void, onDelete: @escaping (Entry) -> Void) {
         self.category = category
         self.entries = entries
         self.onRestore = onRestore
+        self.onDelete = onDelete
         self._isCollapsed = AppStorage(wrappedValue: false, "archive_section_\(category.rawValue)_collapsed")
     }
 
@@ -220,9 +227,11 @@ private struct ArchiveSectionView: View {
             if !isCollapsed {
                 LazyVStack(spacing: 12) {
                     ForEach(entries) { entry in
-                        ArchiveRow(entry: entry) {
+                        ArchiveRow(entry: entry, onRestore: {
                             onRestore(entry)
-                        }
+                        }, onDelete: {
+                            onDelete(entry)
+                        })
                     }
                 }
                 .padding(.horizontal, Theme.Spacing.screenPadding)
@@ -237,6 +246,7 @@ private struct ArchiveSectionView: View {
 private struct ArchiveRow: View {
     let entry: Entry
     let onRestore: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -251,13 +261,23 @@ private struct ArchiveRow: View {
 
             Spacer()
 
-            Button(action: onRestore) {
-                Image(systemName: "arrow.uturn.backward.circle.fill")
-                    .font(.system(size: 24))
-                    .foregroundStyle(Theme.Colors.accentPurple)
+            HStack(spacing: 12) {
+                Button(action: onRestore) {
+                    Image(systemName: "arrow.uturn.backward.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundStyle(Theme.Colors.accentPurple)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Restore entry")
+
+                Button(action: onDelete) {
+                    Image(systemName: "trash.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Delete entry")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Restore entry")
         }
         .cardStyle()
     }

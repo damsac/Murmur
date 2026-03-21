@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftData
 import MurmurCore
 
 // MARK: - Onboarding Content
@@ -54,7 +53,6 @@ struct OnboardingFlowView: View {
     let onComplete: () -> Void
 
     @Environment(AppState.self) private var appState
-    @Environment(\.modelContext) private var modelContext
 
     @State private var currentStep: OnboardingStep = .welcome
     @State private var displayEntries: [Entry] = OnboardingContent.makeDisplayEntries()
@@ -101,7 +99,7 @@ struct OnboardingFlowView: View {
                         removal: .opacity
                     ))
                     .task {
-                        try? await Task.sleep(for: .seconds(1.5))
+                        try? await Task.sleep(for: .seconds(2.5))
                         withAnimation(.spring(response: 0.5, dampingFraction: 0.75)) {
                             currentStep = .result
                         }
@@ -121,15 +119,6 @@ struct OnboardingFlowView: View {
     }
 
     private func saveAndComplete() {
-        for entry in displayEntries {
-            modelContext.insert(entry)
-        }
-        do {
-            try modelContext.save()
-        } catch {
-            print("Failed to save onboarding entries: \(error.localizedDescription)")
-        }
-
         appState.hasCompletedOnboarding = true
         onComplete()
     }

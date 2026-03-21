@@ -6,7 +6,7 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-Launch screen polish: eliminated the visible seam/box around the launch icon.
+TestFlight polish: onboarding UX improvements, archive delete, LLM quality fixes, Studio Analytics setup.
 
 ## Recent decisions
 
@@ -16,7 +16,6 @@ Launch screen polish: eliminated the visible seam/box around the launch icon.
 - **LLM now always sets due_date for reminders/todos** — Changed "Optional: due_date (verbatim phrase)" to an explicit instruction: always set it when the user mentions a time reference.
 - **Snooze notification defaults to ON** — `snoozeWakeUpEnabled` was defaulting to OFF, making snooze effectively silent. Changed to ON; snooze implies wanting a reminder.
 - **Summary edit re-syncs notification** — EntryDetailView summary onChange now calls `sync()` so the pending notification title stays current.
-- **Notification tip in onboarding result view** — Purple-tinted card pointing to Settings → Notifications after habits strip.
 - **Dropped swipe-to-switch-tabs** — `TabView(.page)` fires simultaneously with card swipe actions. Replaced with HStack pager (tap-only). Applied to both home variants.
 - **Section headers: dot + colored text + hairline** — Replaced pill/bubble with dot + category-colored label + tinted hairline.
 - **Archive + All-entries search** — Both views now have a search bar that filters by summary. Archive: grouped sections when idle, flat list when searching. All entries: same pattern, hides processing dots while searching.
@@ -24,6 +23,11 @@ Launch screen polish: eliminated the visible seam/box around the launch icon.
 - **Smart toast duration** — Duration scales with message length: `max(2.5, min(6.0, chars / 12.0))`. Short confirmations ("Completed") disappear quickly; long LLM responses stay readable.
 - **List category color: teal → blue** — Minor color tweak for better visual distinction.
 - **Launch screen seam fix** — PNG has no alpha (navy background baked in), so color matching was imperfect. Fixed by pinning imageView to all 4 edges (full screen) with `scaleAspectFit` + setting screen background to the exact PNG corner pixel color (#060912). No seam because the imageView IS the background; letterbox areas above/below the icon match the PNG border color.
+- **Archive delete** — Added trash button alongside restore in ArchiveRow. `.swipeActions` doesn't work in `LazyVStack`; went with always-visible side-by-side buttons instead of restructuring to `List`.
+- **LLM priority defaults to 3** — Changed prompt to default priority to middle (3) unless context clearly signals urgency or low importance. Prevents all entries coming in as P1.
+- **Temporal context on every turn** — `buildTemporalContext()` was only injected on first turn; subsequent turns had a stale timestamp causing wrong relative-time calculations for notifications. Fixed by prepending `[temporalContext]` to every user message.
+- **Post-onboarding hint cards** — Replaced tiny capsule pills with a prominent floating card that cycles through 5 tips (added notifications tip). Used explicit task management (`hintTimerTask`) to prevent tap+auto-advance races. Tapping advances to the next card; last card shows "Got it".
+- **Studio Analytics wired** — Added `STUDIO_ANALYTICS_ENDPOINT` + `STUDIO_ANALYTICS_API_KEY` to `project.local.yml` for both Debug and Release configs.
 
 ## Open questions
 

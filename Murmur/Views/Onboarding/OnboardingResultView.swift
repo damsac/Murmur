@@ -9,9 +9,6 @@ struct OnboardingResultView: View {
     @State private var cardsVisible = false
     @State private var ctaVisible = false
     @State private var habitChecked = false
-    @State private var swipeCalloutVisible = false
-    @State private var habitCalloutVisible = false
-    @State private var calendarCalloutVisible = false
 
     private var todoEntry: Entry? { entries.first(where: { $0.category == .todo }) }
     private var reminderEntry: Entry? { entries.first(where: { $0.category == .reminder }) }
@@ -77,12 +74,6 @@ struct OnboardingResultView: View {
                         .offset(y: cardsVisible ? 0 : 8)
                         .padding(.bottom, 16)
                     }
-
-                    // Notification tip
-                    NotificationTipRow()
-                        .opacity(ctaVisible ? 1 : 0)
-                        .offset(y: ctaVisible ? 0 : 6)
-                        .padding(.bottom, 16)
 
                     Spacer().frame(height: 120)
                 }
@@ -277,34 +268,6 @@ private struct OnboardingHabitRow: View {
         )
         .opacity(checked ? 0.5 : 1.0)
         .animation(.easeInOut(duration: 0.2), value: checked)
-    }
-}
-
-// MARK: - Notification Tip
-
-private struct NotificationTipRow: View {
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "bell.badge.fill")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Theme.Colors.accentPurple)
-
-            Text("Customize when you get notified in **Settings → Notifications**")
-                .font(.caption)
-                .foregroundStyle(Theme.Colors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius)
-                .fill(Theme.Colors.accentPurple.opacity(0.07))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius)
-                        .stroke(Theme.Colors.accentPurple.opacity(0.15), lineWidth: 1)
-                )
-        )
     }
 }
 
