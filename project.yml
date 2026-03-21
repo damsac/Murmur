@@ -23,7 +23,7 @@ packages:
     path: Packages/MurmurCore
   StudioAnalytics:
     url: https://github.com/damsac/damsac-studio
-    branch: feat/typed-analytics-events
+    branch: main
 
 targets:
   Murmur:
