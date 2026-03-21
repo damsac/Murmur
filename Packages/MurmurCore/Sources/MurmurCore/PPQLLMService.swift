@@ -447,8 +447,9 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
             ]
         }
 
+        let temporalContext = buildTemporalContext()
         return conversation.messages + [
-            ["role": "user", "content": userContent],
+            ["role": "user", "content": "[\(temporalContext)]\n\n\(userContent)"],
         ]
     }
 

@@ -41,7 +41,7 @@ struct SacHomeView: View {
         HStack {
             Button(action: onCalendarTap) {
                 Image(systemName: "calendar")
-                    .font(.system(size: 20, weight: .medium))
+                    .font(.system(size: 24, weight: .medium))
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .frame(width: 44, height: 44)
             }
@@ -53,7 +53,7 @@ struct SacHomeView: View {
 
             Button(action: onSettingsTap) {
                 Image(systemName: "gearshape")
-                    .font(.system(size: 20, weight: .medium))
+                    .font(.system(size: 24, weight: .medium))
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .frame(width: 44, height: 44)
             }

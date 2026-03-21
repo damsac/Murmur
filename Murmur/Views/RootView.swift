@@ -26,6 +26,7 @@ struct RootView: View {
     @State private var topUpProductIDByCredits: [Int64: String] = [:]
     @AppStorage("homeVariant") private var homeVariant: String = "sac"
     @State private var hintStep: Int = -1
+    @State private var hintTimerTask: Task<Void, Never>?
     @State private var pendingDeleteEntry: Entry?
     @State private var pendingDeleteTask: Task<Void, Never>?
     @State private var snoozeEntry: Entry?
@@ -82,6 +83,7 @@ struct RootView: View {
                             withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
                                 hintStep = 0
                             }
+                            scheduleHintTimer()
                         }
                     }
                 )
@@ -114,33 +116,7 @@ struct RootView: View {
             }
 
             // Post-onboarding sequential hints
-            if hintStep >= 0 && hintStep < onboardingHints.count {
-                let hint = onboardingHints[hintStep]
-                VStack {
-                    Spacer()
-                    Label(hint.text, systemImage: hint.icon)
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 14)
-                        .background(
-                            Capsule()
-                                .fill(Theme.Colors.bgCard)
-                                .overlay(Capsule().stroke(Theme.Colors.borderSubtle, lineWidth: 1))
-                        )
-                        .padding(.bottom, Theme.Spacing.micButtonSize + 20)
-                        .shadow(color: Theme.Colors.accentPurple.opacity(0.45), radius: 16, x: 0, y: 0)
-                        .id(hintStep)
-                        .transition(.opacity.animation(.easeOut(duration: 0.25)))
-                        .onTapGesture { advanceHint() }
-                        .task(id: hintStep) {
-                            try? await Task.sleep(for: .seconds(3.5))
-                            advanceHint()
-                        }
-                }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .zIndex(55)
-            }
+            hintOverlay
 
             // Tap-to-dismiss overlay when text input is open
             if showTextInputBar {
@@ -438,12 +414,86 @@ private extension RootView {
             HintItem(icon: "arrow.left", text: "Swipe left to snooze or complete"),
             HintItem(icon: "circle", text: "Tap the circle on habits to check them off"),
             HintItem(icon: "calendar", text: "Tap calendar to see your schedule"),
+            HintItem(icon: "bell", text: "Customize notification preferences in Settings"),
         ]
     }
 
     func advanceHint() {
-        withAnimation(.easeOut(duration: 0.3)) {
+        hintTimerTask?.cancel()
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
             hintStep += 1
+        }
+        scheduleHintTimer()
+    }
+
+    func scheduleHintTimer() {
+        hintTimerTask?.cancel()
+        guard hintStep < onboardingHints.count else { return }
+        hintTimerTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4.5))
+            guard !Task.isCancelled else { return }
+            advanceHint()
+        }
+    }
+
+    @ViewBuilder var hintOverlay: some View {
+        if hintStep >= 0 && hintStep < onboardingHints.count {
+            let hint = onboardingHints[hintStep]
+            VStack {
+                Spacer()
+                VStack(spacing: 12) {
+                    HStack(spacing: 12) {
+                        Image(systemName: hint.icon)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(Theme.Colors.accentPurple)
+                            .frame(width: 32, height: 32)
+                            .background(Theme.Colors.accentPurple.opacity(0.12), in: Circle())
+                            .id("icon_\(hintStep)")
+                            .transition(.asymmetric(
+                                insertion: .opacity.combined(with: .offset(y: 6)),
+                                removal: .opacity.combined(with: .offset(y: -6))
+                            ))
+                        Text(hint.text)
+                            .font(Theme.Typography.body)
+                            .foregroundStyle(Theme.Colors.textPrimary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .id("text_\(hintStep)")
+                            .transition(.asymmetric(
+                                insertion: .opacity.combined(with: .offset(y: 6)),
+                                removal: .opacity.combined(with: .offset(y: -6))
+                            ))
+                    }
+                    HStack(spacing: 6) {
+                        ForEach(0..<onboardingHints.count, id: \.self) { i in
+                            Capsule()
+                                .fill(i == hintStep ? Theme.Colors.accentPurple : Theme.Colors.borderSubtle)
+                                .frame(width: i == hintStep ? 16 : 6, height: 4)
+                                .animation(.spring(response: 0.3, dampingFraction: 0.8), value: hintStep)
+                        }
+                        Spacer()
+                        let isLast = hintStep == onboardingHints.count - 1
+                        Text(isLast ? "Got it" : "Tap to continue")
+                            .font(Theme.Typography.caption)
+                            .foregroundStyle(isLast ? Theme.Colors.accentPurple : Theme.Colors.textTertiary)
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius)
+                        .fill(Theme.Colors.bgCard)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.Spacing.cardRadius)
+                                .stroke(Theme.Colors.accentPurple.opacity(0.2), lineWidth: 1)
+                        )
+                )
+                .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
+                .padding(.horizontal, Theme.Spacing.screenPadding)
+                .padding(.bottom, Theme.Spacing.micButtonSize + 28)
+                .onTapGesture { advanceHint() }
+            }
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .zIndex(55)
         }
     }
 

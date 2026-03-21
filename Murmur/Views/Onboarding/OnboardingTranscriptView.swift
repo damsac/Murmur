@@ -77,20 +77,20 @@ struct OnboardingTranscriptView: View {
                 // Natural pacing: longer pause after punctuation
                 let charIndex = transcript.index(transcript.startIndex, offsetBy: i - 1)
                 let char = transcript[charIndex]
-                let baseDelay: UInt64 = 35_000_000 // 35ms
-                let jitter = UInt64.random(in: 0...10_000_000) // 0-10ms jitter
+                let baseDelay: UInt64 = 18_000_000 // 18ms
+                let jitter = UInt64.random(in: 0...5_000_000) // 0-5ms jitter
 
                 if char == "." || char == "," || char == "—" {
-                    try? await Task.sleep(nanoseconds: baseDelay * 4 + jitter)
+                    try? await Task.sleep(nanoseconds: baseDelay * 3 + jitter)
                 } else if char == " " {
-                    try? await Task.sleep(nanoseconds: baseDelay + jitter * 2)
+                    try? await Task.sleep(nanoseconds: baseDelay + jitter)
                 } else {
                     try? await Task.sleep(nanoseconds: baseDelay + jitter)
                 }
             }
 
             // Brief hold after streaming completes
-            try? await Task.sleep(nanoseconds: 800_000_000) // 0.8s
+            try? await Task.sleep(nanoseconds: 1_800_000_000) // 1.8s
 
             if !Task.isCancelled {
                 onComplete()
