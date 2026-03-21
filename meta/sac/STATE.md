@@ -6,7 +6,7 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-Notification system overhaul: per-type preferences, due date extraction fix, and full system audit.
+Search + UX polish: archive search, all-entries search, notification bubble label shortening, smart toast durations.
 
 ## Recent decisions
 
@@ -19,6 +19,10 @@ Notification system overhaul: per-type preferences, due date extraction fix, and
 - **Notification tip in onboarding result view** — Purple-tinted card pointing to Settings → Notifications after habits strip.
 - **Dropped swipe-to-switch-tabs** — `TabView(.page)` fires simultaneously with card swipe actions. Replaced with HStack pager (tap-only). Applied to both home variants.
 - **Section headers: dot + colored text + hairline** — Replaced pill/bubble with dot + category-colored label + tinted hairline.
+- **Archive + All-entries search** — Both views now have a search bar that filters by summary. Archive: grouped sections when idle, flat list when searching. All entries: same pattern, hides processing dots while searching.
+- **Shorter notification bubble labels** — Dropped "before" suffix from lead time options (e.g. "15m before" → "15 min") since direction is implicit. Fixes squishing on small phones.
+- **Smart toast duration** — Duration scales with message length: `max(2.5, min(6.0, chars / 12.0))`. Short confirmations ("Completed") disappear quickly; long LLM responses stay readable.
+- **List category color: teal → blue** — Minor color tweak for better visual distinction.
 
 ## Open questions
 
@@ -28,7 +32,6 @@ Notification system overhaul: per-type preferences, due date extraction fix, and
 
 ## What I need from dam
 
-- **Launch screen icon is wrong** — `LaunchIcon.imageset` files need to be replaced with the correct app icon. You have the source file. Storyboard shows it at 200×200pt with `scaleAspectFit` on a dark background. After updating, delete `Library/SplashBoard` on simulator and clean build.
 - Confirm API key plan for TestFlight archive build — document or add a Makefile target.
 - Real token counts from PPQ responses — MurmurCore side, needed before credits display is trustworthy.
 - Review the TestFlight checklist and adjust any dam-owned items or priorities.

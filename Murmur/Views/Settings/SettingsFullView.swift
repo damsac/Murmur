@@ -134,14 +134,14 @@ struct SettingsFullView: View {
             NotifRow(icon: "bell.fill", title: "Reminders", isOn: $prefs.remindersEnabled) {
                 LeadTimePicker(
                     selected: $prefs.remindersLeadTime,
-                    options: [("At time", 0), ("5m before", 5), ("15m before", 15), ("30m before", 30)]
+                    options: [("At time", 0), ("5 min", 5), ("15 min", 15), ("30 min", 30)]
                 )
             }
 
             NotifRow(icon: "clock.fill", title: "Due Soon", isOn: $prefs.dueSoonEnabled) {
                 LeadTimePicker(
                     selected: $prefs.dueSoonLeadTime,
-                    options: [("At time", 0), ("1 hr before", 60), ("3 hrs before", 180), ("1 day before", 1440)]
+                    options: [("At time", 0), ("1 hr", 60), ("3 hrs", 180), ("1 day", 1440)]
                 )
             }
 

@@ -41,7 +41,7 @@ struct SacHomeView: View {
         HStack {
             Button(action: onCalendarTap) {
                 Image(systemName: "calendar")
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .frame(width: 44, height: 44)
             }
@@ -53,7 +53,7 @@ struct SacHomeView: View {
 
             Button(action: onSettingsTap) {
                 Image(systemName: "gearshape")
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(Theme.Colors.textSecondary)
                     .frame(width: 44, height: 44)
             }
@@ -462,7 +462,7 @@ private struct FocusCardExpandedView: View {
                         Text(detail)
                             .font(.caption)
                             .foregroundStyle(detailColor)
-                    } else if !reason.isEmpty {
+                    } else if !reason.isEmpty && entry.dueDate == nil {
                         Text(reason)
                             .font(.caption)
                             .foregroundStyle(Theme.Colors.textSecondary)
