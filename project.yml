@@ -23,7 +23,7 @@ packages:
     path: Packages/MurmurCore
   StudioAnalytics:
     url: https://github.com/damsac/damsac-studio
-    from: 0.1.0
+    from: 0.2.0
 
 targets:
   Murmur:
@@ -66,6 +66,8 @@ targets:
         PPQAPIKey: "$(PPQ_API_KEY)"
         StudioAnalyticsEndpoint: "$(STUDIO_ANALYTICS_ENDPOINT)"
         StudioAnalyticsAPIKey: "$(STUDIO_ANALYTICS_API_KEY)"
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
         ITSAppUsesNonExemptEncryption: false
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -74,15 +76,6 @@ targets:
       properties:
         com.apple.security.application-groups:
           - $(APP_GROUP_IDENTIFIER)
-    postBuildScripts:
-      - name: Allow local networking (Debug only)
-        basedOnDependencyAnalysis: false
-        script: |
-          if [ "$CONFIGURATION" = "Debug" ]; then
-            PLIST="${BUILT_PRODUCTS_DIR}/${INFOPLIST_PATH}"
-            /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$PLIST" 2>/dev/null || true
-            /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true" "$PLIST" 2>/dev/null || true
-          fi
     scheme:
       storeKitConfiguration: Murmur/Config/StoreKit/Murmur.storekit
       testTargets:
