@@ -15,10 +15,15 @@ settings:
     SWIFT_VERSION: "5.9"
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_IDENTITY: "Apple Development"
+    STUDIO_ANALYTICS_ENDPOINT: ""
+    STUDIO_ANALYTICS_API_KEY: ""
 
 packages:
   MurmurCore:
     path: Packages/MurmurCore
+  StudioAnalytics:
+    url: https://github.com/damsac/damsac-studio
+    branch: main
 
 targets:
   Murmur:
@@ -40,6 +45,7 @@ targets:
           - "Components/TokenBalanceLabel.swift"
     dependencies:
       - package: MurmurCore
+      - package: StudioAnalytics
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(PRODUCT_BUNDLE_IDENTIFIER_MURMUR)
@@ -58,6 +64,10 @@ targets:
         NSMicrophoneUsageDescription: "Murmur uses the microphone to capture your voice notes and turn them into organized entries."
         NSSpeechRecognitionUsageDescription: "Murmur uses speech recognition to transcribe your voice notes."
         PPQAPIKey: "$(PPQ_API_KEY)"
+        StudioAnalyticsEndpoint: "$(STUDIO_ANALYTICS_ENDPOINT)"
+        StudioAnalyticsAPIKey: "$(STUDIO_ANALYTICS_API_KEY)"
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
         ITSAppUsesNonExemptEncryption: false
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import MurmurCore
+import StudioAnalytics
 import os.log
 
 private let entryLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "Entries")
@@ -487,11 +488,21 @@ private extension RootView {
         case .complete:
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             entry.perform(.complete, in: modelContext, preferences: notifPrefs)
+            StudioAnalytics.track(EntryCompleted(
+                category: entry.category.rawValue,
+                ageHours: Int(Date().timeIntervalSince(entry.createdAt) / 3600),
+                source: "user"
+            ))
             showToast("Completed")
 
         case .archive:
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             entry.perform(.archive, in: modelContext, preferences: notifPrefs)
+            StudioAnalytics.track(EntryArchived(
+                category: entry.category.rawValue,
+                ageHours: Int(Date().timeIntervalSince(entry.createdAt) / 3600),
+                source: "user"
+            ))
             showToast("Archived", type: .info)
 
         case .unarchive:
@@ -503,6 +514,8 @@ private extension RootView {
             UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
             pendingDeleteTask?.cancel()
             pendingDeleteEntry = entry
+            let deleteCategory = entry.category.rawValue
+            let deleteAgeHours = Int(Date().timeIntervalSince(entry.createdAt) / 3600)
             showToast("Deleted", type: .warning, actionLabel: "Undo") {
                 pendingDeleteTask?.cancel()
                 pendingDeleteEntry = nil
@@ -511,6 +524,11 @@ private extension RootView {
                 try? await Task.sleep(for: .seconds(4))
                 guard let pending = pendingDeleteEntry else { return }
                 pending.perform(.delete, in: modelContext, preferences: notifPrefs)
+                StudioAnalytics.track(EntryDeleted(
+                    category: deleteCategory,
+                    ageHours: deleteAgeHours,
+                    source: "user"
+                ))
                 pendingDeleteEntry = nil
             }
 

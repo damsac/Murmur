@@ -3,6 +3,7 @@ import Observation
 import SwiftUI
 import SwiftData
 import MurmurCore
+import StudioAnalytics
 import AVFAudio
 import UIKit
 import os.log
@@ -127,6 +128,8 @@ final class ConversationState {
 
     // MARK: - Voice Input
 
+    private var recordingStartTime: ContinuousClock.Instant?
+
     func startRecording() {
         guard case .idle = inputState else { return }
         guard let pipeline = appState?.pipeline else {
@@ -136,6 +139,9 @@ final class ConversationState {
 
         arrivedEntryIDs.removeAll()
         pendingRevealEntryIDs.removeAll()
+        recordingStartTime = .now
+
+        StudioAnalytics.track(RecordingStarted(source: "voice"))
 
         withAnimation(.easeInOut(duration: 0.35)) {
             inputState = .recording(transcript: "")
@@ -231,10 +237,17 @@ final class ConversationState {
                 inputState = .idle
                 displayTranscript = nil
                 removeStatusItem()
+                recordingStartTime = nil
                 return
             }
             // Update with final transcript
             displayTranscript = liveText
+
+            let durationMs = recordingStartTime.map {
+                Int($0.duration(to: .now).totalMilliseconds)
+            }
+            recordingStartTime = nil
+            StudioAnalytics.track(RecordingComplete(durationMs: durationMs ?? 0, transcriptLength: liveText.count))
 
             await pipeline.cancelRecording()
 
@@ -315,13 +328,26 @@ final class ConversationState {
                 return
             }
 
-            do {
-                sseLog.info("[SSE] submitDirect — streaming agent call, gen=\(gen)")
-                appState.llmService?.agentMemory = appState.memoryStore?.load() ?? ""
-                let agentContext = entries.filter { $0.status == .active || $0.status == .snoozed }
-                    .map { $0.toAgentContext() }
-                truncateConversationHistory()
+            sseLog.info("[SSE] submitDirect — streaming agent call, gen=\(gen)")
+            appState.llmService?.agentMemory = appState.memoryStore?.load() ?? ""
+            let agentContext = entries.filter { $0.status == .active || $0.status == .snoozed }
+                .map { $0.toAgentContext() }
+            truncateConversationHistory()
 
+            var event = LLMRequestTracker(
+                requestId: UUID(),
+                conversationId: conversation.id,
+                callType: "agent",
+                model: appState.llmService?.model ?? "unknown",
+                pricing: pipeline.llmPricing,
+                start: .now
+            )
+            event.streaming = true
+            event.turnNumber = conversation.turnCount + 1
+            event.conversationMessages = conversation.messageCount
+            event.variant = appState.llmService?.compositionVariant.rawValue
+
+            do {
                 let stream = try await pipeline.processWithAgentStreaming(
                     transcript: text,
                     existingEntries: agentContext,
@@ -334,12 +360,18 @@ final class ConversationState {
                     memoryStore: appState.memoryStore,
                     appState: appState
                 )
-                try await consumeAgentStream(stream, generation: gen, context: execCtx, appState: appState)
+
+                try await consumeAgentStream(
+                    stream, generation: gen, context: execCtx,
+                    appState: appState, trackingEvent: event
+                )
                 inputState = .idle
             } catch {
                 guard !Task.isCancelled else { return }
                 removeStatusItem()
                 sseLog.error("[SSE] streaming agent call failed: \(error.localizedDescription)")
+                event.trackError(error)
+
                 let (message, toastType) = sanitizeError(error)
                 threadItems.append(.error(message: message, retryText: text))
                 ErrorPresentation.processingFailed(message, toastType).post()
@@ -353,7 +385,8 @@ final class ConversationState {
         _ stream: AsyncThrowingStream<AgentStreamEvent, Error>,
         generation gen: Int,
         context execCtx: AgentActionExecutor.ExecutionContext,
-        appState: AppState
+        appState: AppState,
+        trackingEvent: LLMRequestTracker? = nil
     ) async throws {
         var allApplied: [AgentActionExecutor.AppliedAction] = []
         var allFailures: [AgentActionExecutor.ActionFailure] = []
@@ -362,8 +395,10 @@ final class ConversationState {
         var allGroups: [ToolCallGroup] = []
         var allParseFailures: [ParseFailure] = []
         var streamedText = ""
+        var firstEventTime: ContinuousClock.Instant?
 
         for try await event in stream {
+            if firstEventTime == nil { firstEventTime = .now }
             guard !Task.isCancelled else { break }
 
             switch event {
@@ -401,7 +436,7 @@ final class ConversationState {
             case .toolCallFailed(let failure):
                 allParseFailures.append(failure)
 
-            case .completed:
+            case .completed(let response):
                 await appState.refreshCreditBalance()
                 let toolResults = ToolResultBuilder.build(
                     groups: allGroups, outcomes: allOutcomes, parseFailures: allParseFailures
@@ -413,6 +448,32 @@ final class ConversationState {
                     threadItems.append(.agentText(text: streamedText))
                     // Auto-insert text-only agent responses into home view
                     appState.addRecentMessage(streamedText)
+                }
+
+                // Track LLM request
+                if var tracking = trackingEvent {
+                    tracking.tokensIn = response.usage.inputTokens
+                    tracking.tokensOut = response.usage.outputTokens
+                    tracking.toolCalls = response.toolCallGroups.map(\.toolName)
+                    tracking.actionCount = response.actions.count
+                    tracking.parseFailureCount = response.parseFailures.count
+                    tracking.hasTextResponse = response.textResponse != nil
+                    tracking.ttftMs = firstEventTime.map {
+                        Int(tracking.start.duration(to: $0).totalMilliseconds)
+                    }
+                    tracking.track()
+
+                    // Credits are charged inside Pipeline (no receipt exposed to stream consumer),
+                    // so we reconstruct the charge from pricing + usage. Should match CreditGate.charge().
+                    let credits = tracking.pricing.credits(for: response.usage)
+                    if credits > 0 {
+                        let balance = await appState.creditGate?.balance ?? 0
+                        StudioAnalytics.track(CreditCharged(
+                            requestId: tracking.requestId.uuidString,
+                            credits: credits,
+                            balanceAfter: balance
+                        ))
+                    }
                 }
 
                 scheduleCompletionToast(streamedText: streamedText, applied: allApplied, failures: allFailures)

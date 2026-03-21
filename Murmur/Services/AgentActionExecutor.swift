@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import SwiftData
 import MurmurCore
+import StudioAnalytics
 import os.log
 
 private let actionLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "Actions")
@@ -123,19 +124,35 @@ struct AgentActionExecutor {
                 return .updated(entryID: entry.id, previousFields: snapshot)
             }
         case .complete(let a):
-            return executeMutation(id: a.id, entries: ctx.entries) { entry in
+            let result = executeMutation(id: a.id, entries: ctx.entries) { entry in
                 guard entry.status != .completed else { return nil }
                 let prev = entry.status
                 entry.perform(.complete, in: ctx.modelContext, preferences: ctx.preferences)
                 return .completed(entryID: entry.id, previousStatus: prev)
             }
+            if case .applied(let entry, _) = result {
+                StudioAnalytics.track(EntryCompleted(
+                    category: entry.category.rawValue,
+                    ageHours: Int(Date().timeIntervalSince(entry.createdAt) / 3600),
+                    source: "agent"
+                ))
+            }
+            return result
         case .archive(let a):
-            return executeMutation(id: a.id, entries: ctx.entries) { entry in
+            let result = executeMutation(id: a.id, entries: ctx.entries) { entry in
                 guard entry.status != .archived else { return nil }
                 let prev = entry.status
                 entry.perform(.archive, in: ctx.modelContext, preferences: ctx.preferences)
                 return .archived(entryID: entry.id, previousStatus: prev)
             }
+            if case .applied(let entry, _) = result {
+                StudioAnalytics.track(EntryArchived(
+                    category: entry.category.rawValue,
+                    ageHours: Int(Date().timeIntervalSince(entry.createdAt) / 3600),
+                    source: "agent"
+                ))
+            }
+            return result
         case .updateMemory(let a):
             if let store = ctx.memoryStore {
                 do {
@@ -171,6 +188,10 @@ struct AgentActionExecutor {
         )
         ctx.modelContext.insert(entry)
         NotificationService.shared.sync(entry, preferences: ctx.preferences)
+        StudioAnalytics.track(EntryCreated(
+            category: entry.category.rawValue,
+            source: ctx.source == .voice ? "voice" : "text"
+        ))
         return .applied(entry, .created(entryID: entry.id))
     }
 

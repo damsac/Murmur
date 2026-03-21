@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import SwiftUI
 import MurmurCore
+import StudioAnalytics
 import os.log
 
 private let pipelineLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "Pipeline")
@@ -176,8 +177,6 @@ final class AppState {
         // Check cache (variant-aware)
         if let cached = homeCompositionStore?.load(expectedVariant: variant), cached.isFromToday {
             homeComposition = cached
-            // Background diff refresh
-            requestLayoutRefresh(entries: entries, variant: variant)
             return
         }
 
@@ -189,6 +188,17 @@ final class AppState {
         isHomeCompositionLoading = true
         defer { isHomeCompositionLoading = false }
 
+        let pricing = pipeline?.llmPricing ?? Self.defaultPricing
+        var event = LLMRequestTracker(
+            requestId: UUID(),
+            conversationId: UUID(),
+            callType: "composition",
+            model: llmService.model,
+            pricing: pricing,
+            start: .now
+        )
+        event.variant = variant.rawValue
+
         do {
             let authorization = try await creditGate.authorize()
             let agentEntries = entries.map { $0.toAgentContext() }
@@ -197,16 +207,30 @@ final class AppState {
                 variant: variant
             )
 
-            _ = try await creditGate.charge(
+            let itemsCount = result.composition.sections.reduce(0) { $0 + $1.items.count }
+            event.tokensIn = result.usage.inputTokens
+            event.tokensOut = result.usage.outputTokens
+            event.toolCalls = ["compose_view"]
+            event.actionCount = itemsCount
+            event.itemsCount = itemsCount
+            event.track()
+
+            let receipt = try await creditGate.charge(
                 authorization,
                 usage: result.usage,
-                pricing: pipeline?.llmPricing ?? Self.defaultPricing
+                pricing: pricing
             )
+            StudioAnalytics.track(CreditCharged(
+                requestId: event.requestId.uuidString,
+                credits: receipt.creditsCharged,
+                balanceAfter: receipt.newBalance
+            ))
             await refreshCreditBalance()
 
             try? homeCompositionStore?.save(result.composition)
             homeComposition = result.composition
         } catch {
+            event.trackError(error)
             homeComposition = buildDeterministicComposition(entries: entries, variant: variant)
         }
     }
@@ -229,6 +253,17 @@ final class AppState {
             }
             defer { self.isRefreshing = false }
 
+            let pricing = self.pipeline?.llmPricing ?? Self.defaultPricing
+            var event = LLMRequestTracker(
+                requestId: UUID(),
+                conversationId: UUID(),
+                callType: "layout_refresh",
+                model: llmService.model,
+                pricing: pricing,
+                start: .now
+            )
+            event.variant = variant.rawValue
+
             do {
                 let authorization = try await creditGate.authorize()
                 let agentEntries = entries.map { $0.toAgentContext() }
@@ -240,13 +275,24 @@ final class AppState {
 
                 try Task.checkCancellation()
 
+                event.tokensIn = result.usage.inputTokens
+                event.tokensOut = result.usage.outputTokens
+                event.toolCalls = result.operations.isEmpty ? [] : ["update_layout"]
+                event.actionCount = result.operations.count
+                event.track()
+
                 guard !result.operations.isEmpty else { return }
 
-                _ = try await creditGate.charge(
+                let receipt = try await creditGate.charge(
                     authorization,
                     usage: result.usage,
-                    pricing: self.pipeline?.llmPricing ?? Self.defaultPricing
+                    pricing: pricing
                 )
+                StudioAnalytics.track(CreditCharged(
+                    requestId: event.requestId.uuidString,
+                    credits: receipt.creditsCharged,
+                    balanceAfter: receipt.newBalance
+                ))
                 await self.refreshCreditBalance()
 
                 _ = withAnimation(Animations.layoutSpring) {
@@ -256,7 +302,7 @@ final class AppState {
             } catch is CancellationError {
                 // Variant switched during refresh — discard silently
             } catch {
-                // Silent failure — layout stays as-is, still usable
+                event.trackError(error)
             }
         }
     }
