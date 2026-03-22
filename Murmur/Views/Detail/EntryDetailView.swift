@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftData
 import MurmurCore
 import os.log
 
@@ -13,8 +12,6 @@ struct EntryDetailView: View {
     let onBack: () -> Void
     let onAction: (EntryAction) -> Void
 
-    @Query(sort: \Entry.createdAt, order: .reverse) private var allEntries: [Entry]
-
     // Inline draft state — seeded on appear, saved on every change
     @State private var draftSummary: String = ""
     @State private var draftNotes: String = ""
@@ -26,10 +23,6 @@ struct EntryDetailView: View {
     @State private var showCustomSnoozeSheet = false
     @State private var showDueDateSheet = false
     @State private var draftDueDate: Date = Date()
-
-    // Note dictation state
-    @State private var isRecordingNote = false
-    @State private var noteRecordingTask: Task<Void, Never>?
 
     @FocusState private var summaryFocused: Bool
     @FocusState private var notesFocused: Bool
@@ -142,14 +135,10 @@ struct EntryDetailView: View {
                             .padding(.bottom, 24)
 
                         // MARK: Notes (inline TextEditor, always visible)
-                        HStack {
-                            Text("Notes")
-                                .font(Theme.Typography.label)
-                                .foregroundStyle(Theme.Colors.textSecondary)
-                            Spacer()
-                            noteDictationButton
-                        }
-                        .padding(.bottom, 6)
+                        Text("Notes")
+                            .font(Theme.Typography.label)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .padding(.bottom, 6)
 
                         ZStack(alignment: .topLeading) {
                             if draftNotes.isEmpty && !notesFocused {
@@ -391,94 +380,6 @@ struct EntryDetailView: View {
         let minutes = Int(duration) / 60
         let seconds = Int(duration) % 60
         return String(format: "%d:%02d", minutes, seconds)
-    }
-}
-
-// MARK: - Note Dictation
-
-extension EntryDetailView {
-    @ViewBuilder
-    var noteDictationButton: some View {
-        let conversation = appState.conversation
-        let isGloballyBusy = conversation.isRecording || conversation.isProcessing
-
-        Button {
-            if isRecordingNote {
-                stopNoteDictation()
-            } else {
-                startNoteDictation()
-            }
-        } label: {
-            Image(systemName: isRecordingNote ? "stop.circle.fill" : "mic.fill")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(
-                    isRecordingNote
-                        ? Theme.Colors.accentRed
-                        : Theme.Colors.accentPurple.opacity(0.7)
-                )
-                .frame(width: 32, height: 32)
-                .contentShape(Rectangle())
-                .contentTransition(.symbolEffect(.replace))
-        }
-        .buttonStyle(.plain)
-        .disabled(!isRecordingNote && isGloballyBusy)
-        .opacity(!isRecordingNote && isGloballyBusy ? 0.3 : 1.0)
-        .accessibilityLabel(isRecordingNote ? "Stop note dictation" : "Dictate notes")
-    }
-
-    func startNoteDictation() {
-        let conversation = appState.conversation
-        guard !conversation.isRecording, !conversation.isProcessing else { return }
-
-        isRecordingNote = true
-        conversation.startRecording()
-
-        // Watch for recording failure — if the conversation drops back to idle
-        // (e.g. no mic hardware, permission denied), reset our local state.
-        noteRecordingTask?.cancel()
-        noteRecordingTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled else { return }
-            if case .idle = conversation.inputState {
-                isRecordingNote = false
-            }
-        }
-    }
-
-    func stopNoteDictation() {
-        let conversation = appState.conversation
-        guard isRecordingNote else { return }
-
-        let transcript: String
-        if case .recording(let t) = conversation.inputState {
-            transcript = t
-        } else {
-            transcript = ""
-        }
-
-        isRecordingNote = false
-        conversation.cancelRecording()
-
-        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        let prefixedText = "[Dictating notes for entry \(entry.shortID) — \"\(entry.summary)\"]: \(trimmed)"
-
-        noteRecordingTask?.cancel()
-        noteRecordingTask = Task { @MainActor in
-            for _ in 0..<40 {
-                if case .idle = conversation.inputState { break }
-                try? await Task.sleep(for: .milliseconds(50))
-            }
-            guard !Task.isCancelled else { return }
-
-            conversation.inputText = prefixedText
-            conversation.submitText(
-                entries: allEntries,
-                modelContext: modelContext,
-                preferences: notifPrefs
-            )
-        }
     }
 }
 
