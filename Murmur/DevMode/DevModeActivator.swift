@@ -37,8 +37,13 @@ struct DevModeActivator: ViewModifier {
 }
 
 extension View {
-    /// Makes this view activate Dev Mode when tapped 5 times within 2 seconds
+    /// Makes this view activate Dev Mode when tapped 5 times within 2 seconds.
+    /// No-op in Release builds.
     func devModeActivator() -> some View {
+        #if DEBUG
         modifier(DevModeActivator())
+        #else
+        self
+        #endif
     }
 }
