@@ -55,7 +55,9 @@ struct SwipeableCard<Content: View>: View {
             .opacity(revealed || dragOffset < swipeVisibilityThreshold ? 1 : 0)
             .zIndex(revealed ? 1 : 0)
 
-            // Card content — uses Button for scroll-friendly tap handling
+            // Card content — uses Button for scroll-friendly tap handling.
+            // Horizontal pan gesture is installed on the parent hosting view
+            // via a zero-size background, so it doesn't block taps.
             Button {
                 guard Date().timeIntervalSince(lastDragEndTime) > 0.15 else { return }
                 if revealed {
@@ -83,12 +85,14 @@ struct SwipeableCard<Content: View>: View {
             )
             .contentShape(Rectangle())
             .offset(x: dragOffset)
-            .overlay {
-                // UIKit pan gesture recognizer that only recognizes horizontal drags.
-                // Unlike SwiftUI's DragGesture + simultaneousGesture, this properly
-                // yields to ScrollView for vertical scrolling via gestureRecognizerShouldBegin.
+            .background {
+                // Install a UIKit pan gesture recognizer on the parent hosting view.
+                // Zero-size so it doesn't affect layout or block taps.
+                // cancelsTouchesInView=false lets taps reach the Button.
+                // gestureRecognizerShouldBegin filters for horizontal-only, letting
+                // ScrollView handle vertical scrolling.
                 if !actions.isEmpty {
-                    HorizontalPanGestureView { dx in
+                    HorizontalPanGestureInstaller { dx in
                         activeSwipeID = entryID
                         let base: CGFloat = revealed ? -totalWidth : 0
                         dragOffset = min(0, max(-totalWidth, base + dx))
@@ -98,7 +102,8 @@ struct SwipeableCard<Content: View>: View {
                         snap(reveal: -finalOffset > totalWidth * 0.35)
                         lastDragEndTime = Date()
                     }
-                    .allowsHitTesting(true)
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
                 }
             }
         }
@@ -117,30 +122,50 @@ struct SwipeableCard<Content: View>: View {
     }
 }
 
-// MARK: - UIKit Horizontal Pan Gesture
+// MARK: - UIKit Horizontal Pan Gesture Installer
 
-/// A UIKit-based pan gesture recognizer that only activates for horizontal drags.
-/// Uses `gestureRecognizerShouldBegin` to explicitly fail for vertical movement,
-/// allowing the parent ScrollView to scroll unimpeded.
-private struct HorizontalPanGestureView: UIViewRepresentable {
+/// Installs a UIPanGestureRecognizer on the nearest parent hosting view.
+/// The gesture only recognizes horizontal drags (via gestureRecognizerShouldBegin),
+/// letting ScrollView handle vertical scrolling. cancelsTouchesInView=false
+/// ensures taps still reach the SwiftUI Button.
+private struct HorizontalPanGestureInstaller: UIViewRepresentable {
     let onDrag: (CGFloat) -> Void
     let onEnd: (CGFloat) -> Void
 
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
         view.backgroundColor = .clear
-        let pan = UIPanGestureRecognizer(
-            target: context.coordinator,
-            action: #selector(Coordinator.handlePan(_:))
-        )
-        pan.delegate = context.coordinator
-        view.addGestureRecognizer(pan)
+        view.isUserInteractionEnabled = false
+
+        // Defer gesture installation to after the view is added to the hierarchy
+        DispatchQueue.main.async {
+            guard let host = view.superview?.superview else { return }
+            // Remove any previously installed pan gesture (on reuse)
+            for gr in host.gestureRecognizers ?? [] where gr is HorizontalPanRecognizer {
+                host.removeGestureRecognizer(gr)
+            }
+            let pan = HorizontalPanRecognizer(
+                target: context.coordinator,
+                action: #selector(Coordinator.handlePan(_:))
+            )
+            pan.delegate = context.coordinator
+            pan.cancelsTouchesInView = false
+            host.addGestureRecognizer(pan)
+            context.coordinator.installedOn = host
+            context.coordinator.gestureRecognizer = pan
+        }
         return view
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
         context.coordinator.onDrag = onDrag
         context.coordinator.onEnd = onEnd
+    }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        if let host = coordinator.installedOn, let pan = coordinator.gestureRecognizer {
+            host.removeGestureRecognizer(pan)
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -150,6 +175,8 @@ private struct HorizontalPanGestureView: UIViewRepresentable {
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var onDrag: (CGFloat) -> Void
         var onEnd: (CGFloat) -> Void
+        weak var installedOn: UIView?
+        var gestureRecognizer: UIPanGestureRecognizer?
 
         init(onDrag: @escaping (CGFloat) -> Void, onEnd: @escaping (CGFloat) -> Void) {
             self.onDrag = onDrag
@@ -168,15 +195,12 @@ private struct HorizontalPanGestureView: UIViewRepresentable {
             }
         }
 
-        // Only begin recognizing if the velocity is more horizontal than vertical.
-        // This lets ScrollView's vertical pan gesture win for scrolling.
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
             let velocity = pan.velocity(in: pan.view)
             return abs(velocity.x) > abs(velocity.y) * 1.2
         }
 
-        // Allow simultaneous recognition so the Button tap still works
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
@@ -185,3 +209,6 @@ private struct HorizontalPanGestureView: UIViewRepresentable {
         }
     }
 }
+
+/// Tagged subclass so we can find and clean up our gesture recognizers.
+private final class HorizontalPanRecognizer: UIPanGestureRecognizer {}
