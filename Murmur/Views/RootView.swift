@@ -21,6 +21,7 @@ struct RootView: View {
     @State private var showCalendar = false
     @State private var showHelp = false
     @State private var showTopUp = false
+    @State private var showOutOfCredits = false
     @State private var isPurchasingTopUp = false
     @State private var isLoadingTopUpProducts = false
     @State private var topUpPacks: [CreditPack] = []
@@ -193,6 +194,18 @@ struct RootView: View {
                 }
             )
         }
+        .fullScreenCover(isPresented: $showOutOfCredits) {
+            OutOfCreditsView(
+                onTopUp: {
+                    showOutOfCredits = false
+                    openTopUp()
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(0.6))
+                        showTopUp = true
+                    }
+                }
+            )
+        }
         .confirmationDialog("Snooze until...", isPresented: $showSnoozeDialog) {
             Button("In 1 hour") {
                 performSnooze(.hour, value: 1)
@@ -279,6 +292,11 @@ struct RootView: View {
             guard let text, !text.isEmpty else { return }
             showToast(text, type: .info)
             appState.conversation.completionText = nil
+        }
+        .onChange(of: appState.conversation.outOfCreditsInfo) { _, triggered in
+            guard triggered else { return }
+            appState.conversation.outOfCreditsInfo = false
+            showOutOfCredits = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .murmurShowError)) { notification in
             guard let info = notification.userInfo,
