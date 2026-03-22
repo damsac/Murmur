@@ -288,7 +288,20 @@ private struct FocusTabView: View {
 
                     // Focus clusters
                     let clusters = resolvedClusters(composition: composition)
-                    if !clusters.isEmpty {
+                    if clusters.isEmpty && !isProcessing {
+                        VStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle")
+                                .font(.system(size: 28, weight: .light))
+                                .foregroundStyle(Theme.Colors.accentGreen.opacity(0.6))
+                            Text("You're all caught up.")
+                                .font(Theme.Typography.body)
+                                .foregroundStyle(Theme.Colors.textTertiary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 32)
+                        .opacity(messageVisible ? 1 : 0)
+                        .offset(y: messageVisible ? 0 : 6)
+                    } else if !clusters.isEmpty {
                         VStack(spacing: 24) {
                             ForEach(clusters.indices, id: \.self) { i in
                                 let cluster = clusters[i]

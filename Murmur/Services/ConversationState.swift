@@ -62,6 +62,10 @@ final class ConversationState {
     /// Transcript saved when recording stops, shown in overlay during processing.
     var displayTranscript: String?
 
+    /// Set when a pipeline run fails due to insufficient credits.
+    /// RootView observes this to present OutOfCreditsView.
+    var outOfCreditsInfo: Bool = false
+
     /// Rolling buffer of recent audio levels for waveform visualization (0.0–1.0).
     var audioLevels: [Float] = []
     private static let maxAudioLevels = 50
@@ -372,9 +376,13 @@ final class ConversationState {
                 sseLog.error("[SSE] streaming agent call failed: \(error.localizedDescription)")
                 event.trackError(error)
 
-                let (message, toastType) = sanitizeError(error)
-                threadItems.append(.error(message: message, retryText: text))
-                ErrorPresentation.processingFailed(message, toastType).post()
+                if case PipelineError.insufficientCredits = error {
+                    outOfCreditsInfo = true
+                } else {
+                    let (message, toastType) = sanitizeError(error)
+                    threadItems.append(.error(message: message, retryText: text))
+                    ErrorPresentation.processingFailed(message, toastType).post()
+                }
                 inputState = .idle
             }
         }
@@ -550,6 +558,7 @@ final class ConversationState {
         arrivedEntryIDs.removeAll()
         pendingRevealEntryIDs.removeAll()
         displayTranscript = nil
+        outOfCreditsInfo = false
         audioLevels = []
 
         // Cancel any ongoing recording

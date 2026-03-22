@@ -160,6 +160,35 @@ struct DevModeView: View {
                         .buttonStyle(.plain)
                         .padding(.horizontal, Theme.Spacing.screenPadding)
 
+                        // Drain Credits
+                        Button {
+                            Task { @MainActor in
+                                await appState.creditGate?.setBalance(0)
+                                await appState.refreshCreditBalance()
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "creditcard.trianglebadge.exclamationmark")
+                                    .font(.body.weight(.semibold))
+
+                                Text("Drain Credits to Zero")
+                                    .font(.body.weight(.semibold))
+                            }
+                            .foregroundStyle(Theme.Colors.accentRed)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(Theme.Colors.accentRed.opacity(0.1))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 14)
+                                            .stroke(Theme.Colors.accentRed.opacity(0.2), lineWidth: 1)
+                                    )
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, Theme.Spacing.screenPadding)
+
                         // Onboarding Reset
                         Button {
                             appState.hasCompletedOnboarding = false

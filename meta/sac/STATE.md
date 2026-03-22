@@ -6,31 +6,17 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-TestFlight polish: DevMode gate, onboarding transitions, checklist cleanup.
+Out-of-credits UX: wired OutOfCreditsView into the live error path, simplified it to a minimal screen, and added DevMode tooling to test the flow.
 
 ## Recent decisions
 
-- **Per-type notification preferences** — Split old single-toggle into four rows: Reminders (minute-scale lead time), Due Soon / todos (hour/day lead time), Habits (morning/midday/evening daily ping), Snooze (no config, just on/off). Each type has independent enable + timing in Settings.
-- **Habit reminder restore on launch** — Repeating `UNCalendarNotificationTrigger` survives relaunches but is wiped on reinstall (TestFlight). Added restore call in `MurmurApp.swift` on every launch.
-- **Due date extraction: ISO 8601 instead of verbatim phrase** — `NSDataDetector` can't resolve relative time phrases ("30 min from now"). Changed LLM prompt (both `entryCreation` and `entryManager`) to output ISO 8601 datetime strings computed against the current time already in context. `Entry.resolveDate` tries ISO 8601 first, falls back to NSDataDetector for legacy entries.
-- **LLM now always sets due_date for reminders/todos** — Changed "Optional: due_date (verbatim phrase)" to an explicit instruction: always set it when the user mentions a time reference.
-- **Snooze notification defaults to ON** — `snoozeWakeUpEnabled` was defaulting to OFF, making snooze effectively silent. Changed to ON; snooze implies wanting a reminder.
-- **Summary edit re-syncs notification** — EntryDetailView summary onChange now calls `sync()` so the pending notification title stays current.
-- **Dropped swipe-to-switch-tabs** — `TabView(.page)` fires simultaneously with card swipe actions. Replaced with HStack pager (tap-only). Applied to both home variants.
-- **Section headers: dot + colored text + hairline** — Replaced pill/bubble with dot + category-colored label + tinted hairline.
-- **Archive + All-entries search** — Both views now have a search bar that filters by summary. Archive: grouped sections when idle, flat list when searching. All entries: same pattern, hides processing dots while searching.
-- **Shorter notification bubble labels** — Dropped "before" suffix from lead time options (e.g. "15m before" → "15 min") since direction is implicit. Fixes squishing on small phones.
-- **Smart toast duration** — Duration scales with message length: `max(2.5, min(6.0, chars / 12.0))`. Short confirmations ("Completed") disappear quickly; long LLM responses stay readable.
-- **List category color: teal → blue** — Minor color tweak for better visual distinction.
-- **Launch screen seam fix** — PNG has no alpha (navy background baked in), so color matching was imperfect. Fixed by pinning imageView to all 4 edges (full screen) with `scaleAspectFit` + setting screen background to the exact PNG corner pixel color (#060912). No seam because the imageView IS the background; letterbox areas above/below the icon match the PNG border color.
-- **Archive delete** — Added trash button alongside restore in ArchiveRow. `.swipeActions` doesn't work in `LazyVStack`; went with always-visible side-by-side buttons instead of restructuring to `List`.
-- **LLM priority defaults to 3** — Changed prompt to default priority to middle (3) unless context clearly signals urgency or low importance. Prevents all entries coming in as P1.
-- **Temporal context on every turn** — `buildTemporalContext()` was only injected on first turn; subsequent turns had a stale timestamp causing wrong relative-time calculations for notifications. Fixed by prepending `[temporalContext]` to every user message.
-- **Post-onboarding hint cards** — Replaced tiny capsule pills with a prominent floating card that cycles through 5 tips (added notifications tip). Used explicit task management (`hintTimerTask`) to prevent tap+auto-advance races. Tapping advances to the next card; last card shows "Got it".
-- **Studio Analytics wired** — Added `STUDIO_ANALYTICS_ENDPOINT` + `STUDIO_ANALYTICS_API_KEY` to `project.local.yml` for both Debug and Release configs.
-- **DevMode gated behind `#if DEBUG`** — The 5-tap `DevModeActivator` gesture was shipping in Release builds. Made `devModeActivator()` a no-op in non-DEBUG builds. Floating hammer button was already `#if DEBUG` gated in RootView.
-- **Onboarding transitions smoothed** — Replaced full-width `.move(edge: .trailing)` slides with subtle 24pt offset + opacity. Animation changed from spring(0.5, 0.75) to spring(0.55, 0.92) — high damping, no bounce.
-- **Onboarding no longer saves demo entries** — "Start capturing" just sets `hasCompletedOnboarding = true`. Home starts empty. Checklist items #10 and #12 marked done.
+- **OutOfCreditsView wired end-to-end** — Was excluded from compilation (`Views/Errors/**` blanket exclude in project.yml). Changed to enumerate only the three still-unwired views, leaving OutOfCreditsView included.
+- **OutOfCreditsView simplified** — Stripped transcript card, balance row, token count row, "Save as raw" button, and the "Review / Here's what I heard" header. Now just: icon + "Out of tokens" + subtitle + "Top up tokens" button. The recording context was noise at the moment of running out of credits.
+- **outOfCreditsInfo simplified to Bool** — Was a `(transcript: String, duration: TimeInterval)` tuple. Now just `Bool`. No longer need the payload since the view doesn't show it.
+- **Focus tab empty state** — Added "You're all caught up." with checkmark icon when composition is loaded but has no focus clusters and is not processing.
+- **DevMode drain credits button** — Added `setBalance(_ newBalance: Int64)` (DEBUG-only) to `LocalCreditGate`, exposed as "Drain Credits to Zero" button in DevModeView for easy out-of-credits testing.
+- **project.yml exclusion fix** — Changed `Views/Errors/**` to enumerate only the three orphaned views. OutOfCreditsView now compiles.
+
 ## Open questions
 
 - Should swipe-to-switch-tabs ever come back? Only viable path is UIViewRepresentable. High complexity, low priority.
