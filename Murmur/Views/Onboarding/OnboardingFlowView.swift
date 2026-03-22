@@ -70,37 +70,40 @@ struct OnboardingFlowView: View {
             case .welcome:
                 OnboardingWelcomeView(
                     onContinue: {
-                        withAnimation(.spring(response: 0.5, dampingFraction: 0.75)) {
+                        withAnimation(.spring(response: 0.55, dampingFraction: 0.92)) {
                             currentStep = .transcript
                         }
                     },
                     onSkip: skipAndComplete
                 )
-                .transition(.opacity)
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .offset(x: 24)),
+                    removal: .opacity.combined(with: .offset(x: -16))
+                ))
 
             case .transcript:
                 OnboardingTranscriptView(
                     transcript: OnboardingContent.transcript,
                     onComplete: {
-                        withAnimation(.spring(response: 0.5, dampingFraction: 0.75)) {
+                        withAnimation(.spring(response: 0.55, dampingFraction: 0.92)) {
                             currentStep = .processing
                         }
                     }
                 )
                 .transition(.asymmetric(
-                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                    removal: .move(edge: .leading).combined(with: .opacity)
+                    insertion: .opacity.combined(with: .offset(x: 24)),
+                    removal: .opacity.combined(with: .offset(x: -16))
                 ))
 
             case .processing:
                 ProcessingView(transcript: OnboardingContent.transcript)
                     .transition(.asymmetric(
-                        insertion: .move(edge: .trailing).combined(with: .opacity),
-                        removal: .opacity
+                        insertion: .opacity.combined(with: .offset(x: 24)),
+                        removal: .opacity.combined(with: .offset(x: -16))
                     ))
                     .task {
                         try? await Task.sleep(for: .seconds(2.5))
-                        withAnimation(.spring(response: 0.5, dampingFraction: 0.75)) {
+                        withAnimation(.spring(response: 0.55, dampingFraction: 0.92)) {
                             currentStep = .result
                         }
                     }
@@ -111,8 +114,8 @@ struct OnboardingFlowView: View {
                     onSaveAndComplete: saveAndComplete
                 )
                 .transition(.asymmetric(
-                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                    removal: .opacity
+                    insertion: .opacity.combined(with: .offset(x: 24)),
+                    removal: .opacity.combined(with: .offset(x: -16))
                 ))
             }
         }

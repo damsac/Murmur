@@ -21,7 +21,7 @@ actor LocalCreditGate: CreditGate {
     private var state: PersistedState
 
     init(
-        starterCredits: Int64 = 1_000,
+        starterCredits: Int64 = 10_000,
         defaults: UserDefaults = .standard,
         storageKey: String = "credits.local.state.v1"
     ) {

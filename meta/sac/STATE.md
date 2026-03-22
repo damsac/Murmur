@@ -6,7 +6,7 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-TestFlight polish: onboarding UX improvements, archive delete, LLM quality fixes, Studio Analytics setup.
+TestFlight polish: DevMode gate, onboarding transitions, credit balance for beta testers, checklist cleanup.
 
 ## Recent decisions
 
@@ -28,15 +28,20 @@ TestFlight polish: onboarding UX improvements, archive delete, LLM quality fixes
 - **Temporal context on every turn** — `buildTemporalContext()` was only injected on first turn; subsequent turns had a stale timestamp causing wrong relative-time calculations for notifications. Fixed by prepending `[temporalContext]` to every user message.
 - **Post-onboarding hint cards** — Replaced tiny capsule pills with a prominent floating card that cycles through 5 tips (added notifications tip). Used explicit task management (`hintTimerTask`) to prevent tap+auto-advance races. Tapping advances to the next card; last card shows "Got it".
 - **Studio Analytics wired** — Added `STUDIO_ANALYTICS_ENDPOINT` + `STUDIO_ANALYTICS_API_KEY` to `project.local.yml` for both Debug and Release configs.
+- **DevMode gated behind `#if DEBUG`** — The 5-tap `DevModeActivator` gesture was shipping in Release builds. Made `devModeActivator()` a no-op in non-DEBUG builds. Floating hammer button was already `#if DEBUG` gated in RootView.
+- **Onboarding transitions smoothed** — Replaced full-width `.move(edge: .trailing)` slides with subtle 24pt offset + opacity. Animation changed from spring(0.5, 0.75) to spring(0.55, 0.92) — high damping, no bounce.
+- **Onboarding no longer saves demo entries** — "Start capturing" just sets `hasCompletedOnboarding = true`. Home starts empty. Checklist items #10 and #12 marked done.
+- **Starter credits bumped to 10,000** — TestFlight testers get 10x the default balance so they never hit the out-of-credits screen during beta.
 
 ## Open questions
 
 - Should swipe-to-switch-tabs ever come back? Only viable path is UIViewRepresentable. High complexity, low priority.
 - API key distribution for testers unresolved — dam needs to confirm which PPQ key to bake into the archive build.
 - Is the three-zone layout (ZonedFocusHomeView) still on the roadmap, or do we consolidate on SacHomeView?
+- Starter credits (10,000) — should this be lowered before App Store release, or handled via a different mechanism?
 
 ## What I need from dam
 
 - Confirm API key plan for TestFlight archive build — document or add a Makefile target.
-- Real token counts from PPQ responses — MurmurCore side, needed before credits display is trustworthy.
+- PPQ error signal for wiring error views (#9) — need a clear error type from PPQ auth/quota failures.
 - Review the TestFlight checklist and adjust any dam-owned items or priorities.

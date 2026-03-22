@@ -55,21 +55,14 @@ Error views already exist in `Murmur/Views/Errors/` but most production paths si
 - **sac**: `OutOfCreditsView` — verify it actually fires when balance hits zero (it exists, check it's wired)
 - **dam**: Add a clear error signal when PPQ returns auth/quota errors so the UI can surface them
 
-### 10. Onboarding flow review — **sac**
-Run the full 4-screen flow from a cold-launch (wipe `hasCompletedOnboarding` in UserDefaults). Verify:
-- Demo entries (reminder, todo, idea) look correct in the current card style
-- Skip leaves no broken state
-- After onboarding, the home screen shows the 3 saved demo entries
+### 10. ~~Onboarding flow review~~ — ✅ DONE
+Transitions smoothed (subtle offset+opacity, no full-width slide). Demo entries are display-only — "Start capturing" no longer saves them, home starts empty. Skip confirmed clean.
 
 ### 11. App icon polish — **sac**
 Only a 1024×1024 universal icon is provided. Xcode auto-scales, which is fine, but it's worth exporting 180pt / 120pt / 87pt from the source if the auto-scale looks blurry or off on device. Not a blocker.
 
-### 12. Settings + Archive smoke test — **sac**
-Quick tap-through:
-- Top-up opens `TopUpView` without crashing
-- Notification toggles persist across an app restart
-- Archive opens, shows archived entries, un-archive works
-- Empty archive shows an empty state (not a crash)
+### 12. ~~Settings + Archive smoke test~~ — ✅ DONE
+Verified: top-up, notification toggles, archive/unarchive, empty archive state all working.
 
 ### 13. Crash-free device walkthrough — **dam + sac**
 Before any external testers, each person does one full walkthrough on a real device:
@@ -132,9 +125,9 @@ IAP products (credit packs) may not exist in App Store Connect for the first bet
 | 7 | LLM cost tool (backend + UI) | **dam + sac** | No (feature) | Not started |
 | 8 | Empty state in FocusTabView | **sac** | No (UX) | Not started |
 | 9 | Wire error views | **sac + dam** | No (UX) | Not started |
-| 10 | Onboarding review | **sac** | No (polish) | Not started |
+| 10 | ~~Onboarding review~~ | **sac** | No (polish) | ✅ Done |
 | 11 | App icon polish | **sac** | No (polish) | Not started |
-| 12 | Settings + Archive smoke test | **sac** | No (QA) | Not started |
+| 12 | ~~Settings + Archive smoke test~~ | **sac** | No (QA) | ✅ Done |
 | 13 | Crash-free device walkthrough | **dam + sac** | Soft | Not started |
 | 14 | TestFlight metadata + App Store Connect | **dam + sac** | **Yes** | Not started |
 | 15 | Hosted privacy policy URL | **dam** | **Yes** (external) | Not started |
