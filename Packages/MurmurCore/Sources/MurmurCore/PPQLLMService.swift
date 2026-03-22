@@ -806,6 +806,11 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
             line += " streak:\(streak)"
         }
 
+        if let notes = cleaned(entry.notes), !notes.isEmpty {
+            let truncated = notes.count > 100 ? String(notes.prefix(100)) + "..." : notes
+            line += " notes:\"\(truncated)\""
+        }
+
         return line
     }
 
@@ -838,6 +843,7 @@ struct RawCreateAction: Decodable {
     let priority: Int?
     let dueDate: String?
     let cadence: HabitCadence?
+    let notes: String?
 
     enum CodingKeys: String, CodingKey {
         case content
@@ -847,6 +853,7 @@ struct RawCreateAction: Decodable {
         case priority
         case dueDate = "due_date"
         case cadence
+        case notes
     }
 
     init(from decoder: Decoder) throws {
@@ -863,6 +870,7 @@ struct RawCreateAction: Decodable {
         } else {
             cadence = nil
         }
+        notes = try container.decodeIfPresent(String.self, forKey: .notes)
     }
 
     var asAction: CreateAction {
@@ -888,7 +896,8 @@ struct RawCreateAction: Decodable {
             summary: finalSummary,
             priority: priority.map { max(1, min(5, $0)) },
             dueDateDescription: dueDate,
-            cadence: cadence
+            cadence: cadence,
+            notes: notes
         )
     }
 }
@@ -927,6 +936,8 @@ struct RawUpdateFields: Decodable {
     let cadence: HabitCadence?
     let status: AgentEntryStatus?
     let snoozeUntil: String?
+    let checkOffHabit: Bool?
+    let notes: String?
 
     enum CodingKeys: String, CodingKey {
         case content
@@ -937,6 +948,8 @@ struct RawUpdateFields: Decodable {
         case cadence
         case status
         case snoozeUntil = "snooze_until"
+        case checkOffHabit = "check_off_habit"
+        case notes
     }
 
     init(from decoder: Decoder) throws {
@@ -954,6 +967,8 @@ struct RawUpdateFields: Decodable {
         }
         status = try container.decodeIfPresent(AgentEntryStatus.self, forKey: .status)
         snoozeUntil = try container.decodeIfPresent(String.self, forKey: .snoozeUntil)
+        checkOffHabit = try container.decodeIfPresent(Bool.self, forKey: .checkOffHabit)
+        notes = try container.decodeIfPresent(String.self, forKey: .notes)
     }
 
     var asFields: UpdateFields {
@@ -965,7 +980,9 @@ struct RawUpdateFields: Decodable {
             dueDateDescription: dueDate,
             cadence: cadence,
             status: status,
-            snoozeUntilDescription: snoozeUntil
+            snoozeUntilDescription: snoozeUntil,
+            checkOffHabit: checkOffHabit,
+            notes: notes
         )
     }
 }
