@@ -368,10 +368,37 @@ struct EntryDetailView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Note Dictation
+    // MARK: - Helpers
 
+    private func save() {
+        do {
+            try modelContext.save()
+        } catch {
+            entryDetailLog.error("Failed to save entry: \(error.localizedDescription)")
+        }
+    }
+
+    private func snooze(until date: Date?) {
+        onAction(.snooze(until: date))
+    }
+
+    private var formattedDate: String {
+        Self.dateFormatter.string(from: entry.createdAt)
+    }
+
+    private var formattedDuration: String {
+        guard let duration = entry.audioDuration else { return "text" }
+        let minutes = Int(duration) / 60
+        let seconds = Int(duration) % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
+// MARK: - Note Dictation
+
+extension EntryDetailView {
     @ViewBuilder
-    private var noteDictationButton: some View {
+    var noteDictationButton: some View {
         let conversation = appState.conversation
         let isGloballyBusy = conversation.isRecording || conversation.isProcessing
 
@@ -399,19 +426,29 @@ struct EntryDetailView: View {
         .accessibilityLabel(isRecordingNote ? "Stop note dictation" : "Dictate notes")
     }
 
-    private func startNoteDictation() {
+    func startNoteDictation() {
         let conversation = appState.conversation
         guard !conversation.isRecording, !conversation.isProcessing else { return }
 
         isRecordingNote = true
         conversation.startRecording()
+
+        // Watch for recording failure — if the conversation drops back to idle
+        // (e.g. no mic hardware, permission denied), reset our local state.
+        noteRecordingTask?.cancel()
+        noteRecordingTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            if case .idle = conversation.inputState {
+                isRecordingNote = false
+            }
+        }
     }
 
-    private func stopNoteDictation() {
+    func stopNoteDictation() {
         let conversation = appState.conversation
         guard isRecordingNote else { return }
 
-        // Capture the live transcript before canceling
         let transcript: String
         if case .recording(let t) = conversation.inputState {
             transcript = t
@@ -422,18 +459,14 @@ struct EntryDetailView: View {
         isRecordingNote = false
         conversation.cancelRecording()
 
-        // Skip if transcript is empty
         let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        // Prefix with entry context so the LLM knows to write notes for this entry
         let prefixedText = "[Dictating notes for entry \(entry.shortID) — \"\(entry.summary)\"]: \(trimmed)"
 
-        // Wait for cancel to finish (inputState returns to .idle), then submit as text
         noteRecordingTask?.cancel()
         noteRecordingTask = Task { @MainActor in
-            // Poll until the conversation returns to idle after cancel
-            for _ in 0..<40 { // up to ~2 seconds
+            for _ in 0..<40 {
                 if case .idle = conversation.inputState { break }
                 try? await Task.sleep(for: .milliseconds(50))
             }
@@ -446,31 +479,6 @@ struct EntryDetailView: View {
                 preferences: notifPrefs
             )
         }
-    }
-
-    // MARK: - Helpers
-
-    private func save() {
-        do {
-            try modelContext.save()
-        } catch {
-            entryDetailLog.error("Failed to save entry: \(error.localizedDescription)")
-        }
-    }
-
-    private func snooze(until date: Date?) {
-        onAction(.snooze(until: date))
-    }
-
-    private var formattedDate: String {
-        Self.dateFormatter.string(from: entry.createdAt)
-    }
-
-    private var formattedDuration: String {
-        guard let duration = entry.audioDuration else { return "text" }
-        let minutes = Int(duration) / 60
-        let seconds = Int(duration) % 60
-        return String(format: "%d:%02d", minutes, seconds)
     }
 }
 
