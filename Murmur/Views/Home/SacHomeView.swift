@@ -153,11 +153,8 @@ struct SacHomeView: View {
 
     @ViewBuilder
     private var populatedState: some View {
-        GeometryReader { geo in
-            let width = geo.size.width
-            let tabIndex: CGFloat = appState.selectedTab == .focus ? 0 : 1
-
-            HStack(spacing: 0) {
+        ZStack {
+            if appState.selectedTab == .focus {
                 FocusTabView(
                     isLoading: appState.isHomeCompositionLoading,
                     composition: appState.homeComposition,
@@ -170,8 +167,8 @@ struct SacHomeView: View {
                     swipeActionsProvider: swipeActions(for:),
                     onAction: onAction
                 )
-                .frame(width: width)
-
+                .transition(.opacity)
+            } else {
                 AllEntriesView(
                     entries: entries,
                     isProcessing: appState.conversation.isProcessing,
@@ -182,13 +179,10 @@ struct SacHomeView: View {
                     onAction: onAction,
                     onGlowComplete: { id in appState.conversation.arrivedEntryIDs.remove(id) }
                 )
-                .frame(width: width)
+                .transition(.opacity)
             }
-            .frame(width: width, alignment: .leading)
-            .offset(x: -(tabIndex * width))
-            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: appState.selectedTab)
-            .clipped()
         }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: appState.selectedTab)
     }
 
     // MARK: - Swipe Actions

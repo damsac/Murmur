@@ -88,7 +88,10 @@ public struct LLMPrompt: @unchecked Sendable {
             Decision rules:
             - Prefer updating/completing existing entries over creating duplicates.
             - Use fuzzy semantic matching for references ("that one", "the dentist thing", garbled names).
-            - If user says done/finished/completed, use complete_entries.
+            - If user says done/finished/completed a non-habit entry, use complete_entries.
+            - For habits: when user says they did/completed their habit, use update_entries
+              with check_off_habit: true. Marks it done for the period, keeps it active.
+              Do NOT use complete_entries for habits — that archives them permanently.
             - If user changes timing/priority/details, use update_entries.
             - Only create when intent is genuinely new.
             - If no current entries are provided, create_entries is usually appropriate.
@@ -262,6 +265,7 @@ public struct AgentContextEntry: Sendable, Codable, Identifiable {
     public let status: AgentEntryStatus
     public let createdAt: Date
     public let currentStreak: Int?
+    public let notes: String?
 
     public init(
         id: String,
@@ -272,7 +276,8 @@ public struct AgentContextEntry: Sendable, Codable, Identifiable {
         cadence: HabitCadence? = nil,
         status: AgentEntryStatus = .active,
         createdAt: Date = Date(),
-        currentStreak: Int? = nil
+        currentStreak: Int? = nil,
+        notes: String? = nil
     ) {
         self.id = id
         self.summary = summary
@@ -283,6 +288,7 @@ public struct AgentContextEntry: Sendable, Codable, Identifiable {
         self.status = status
         self.createdAt = createdAt
         self.currentStreak = currentStreak
+        self.notes = notes
     }
 }
 
@@ -294,6 +300,7 @@ public struct CreateAction: Sendable {
     public let priority: Int?
     public let dueDateDescription: String?
     public let cadence: HabitCadence?
+    public let notes: String?
 
     public init(
         content: String,
@@ -302,7 +309,8 @@ public struct CreateAction: Sendable {
         summary: String,
         priority: Int? = nil,
         dueDateDescription: String? = nil,
-        cadence: HabitCadence? = nil
+        cadence: HabitCadence? = nil,
+        notes: String? = nil
     ) {
         self.content = content
         self.category = category
@@ -311,6 +319,7 @@ public struct CreateAction: Sendable {
         self.priority = priority
         self.dueDateDescription = dueDateDescription
         self.cadence = cadence
+        self.notes = notes
     }
 }
 
@@ -323,6 +332,8 @@ public struct UpdateFields: Sendable {
     public let cadence: HabitCadence?
     public let status: AgentEntryStatus?
     public let snoozeUntilDescription: String?
+    public let checkOffHabit: Bool?
+    public let notes: String?
 
     public init(
         content: String? = nil,
@@ -332,7 +343,9 @@ public struct UpdateFields: Sendable {
         dueDateDescription: String? = nil,
         cadence: HabitCadence? = nil,
         status: AgentEntryStatus? = nil,
-        snoozeUntilDescription: String? = nil
+        snoozeUntilDescription: String? = nil,
+        checkOffHabit: Bool? = nil,
+        notes: String? = nil
     ) {
         self.content = content
         self.summary = summary
@@ -342,6 +355,8 @@ public struct UpdateFields: Sendable {
         self.cadence = cadence
         self.status = status
         self.snoozeUntilDescription = snoozeUntilDescription
+        self.checkOffHabit = checkOffHabit
+        self.notes = notes
     }
 }
 
@@ -421,7 +436,8 @@ public extension AgentAction {
             summary: action.summary,
             priority: action.priority,
             dueDateDescription: action.dueDateDescription,
-            cadence: action.cadence
+            cadence: action.cadence,
+            notes: action.notes
         )
     }
 
@@ -575,8 +591,11 @@ public struct ExtractedEntry: Sendable, Codable, Identifiable {
     /// How often this habit repeats, nil for non-habits
     public let cadence: HabitCadence?
 
+    /// Supplementary notes for the entry
+    public let notes: String?
+
     enum CodingKeys: String, CodingKey {
-        case content, category, sourceText, summary, priority, dueDateDescription, cadence
+        case content, category, sourceText, summary, priority, dueDateDescription, cadence, notes
     }
 
     public init(from decoder: Decoder) throws {
@@ -589,6 +608,7 @@ public struct ExtractedEntry: Sendable, Codable, Identifiable {
         self.priority = try container.decodeIfPresent(Int.self, forKey: .priority)
         self.dueDateDescription = try container.decodeIfPresent(String.self, forKey: .dueDateDescription)
         self.cadence = try container.decodeIfPresent(HabitCadence.self, forKey: .cadence)
+        self.notes = try container.decodeIfPresent(String.self, forKey: .notes)
     }
 
     public init(
@@ -598,7 +618,8 @@ public struct ExtractedEntry: Sendable, Codable, Identifiable {
         summary: String = "",
         priority: Int? = nil,
         dueDateDescription: String? = nil,
-        cadence: HabitCadence? = nil
+        cadence: HabitCadence? = nil,
+        notes: String? = nil
     ) {
         self.id = UUID()
         self.content = content
@@ -608,6 +629,7 @@ public struct ExtractedEntry: Sendable, Codable, Identifiable {
         self.priority = priority
         self.dueDateDescription = dueDateDescription
         self.cadence = cadence
+        self.notes = notes
     }
 }
 
@@ -648,6 +670,10 @@ private extension LLMPrompt {
                                         "type": "string",
                                         "enum": ["daily", "weekdays", "weekly", "monthly"],
                                     ],
+                                    "notes": [
+                                        "type": "string",
+                                        "description": "Supplementary notes for the entry",
+                                    ] as [String: Any],
                                 ] as [String: Any],
                                 "required": ["content", "category", "source_text", "summary"],
                             ] as [String: Any],
@@ -694,6 +720,14 @@ private extension LLMPrompt {
                                                 "enum": ["active", "snoozed", "completed", "archived"],
                                             ],
                                             "snooze_until": ["type": "string"],
+                                            "check_off_habit": [
+                                                "type": "boolean",
+                                                "description": "Mark a habit as done for its current period (daily/weekly/monthly). Do NOT use complete_entries for habits.",
+                                            ] as [String: Any],
+                                            "notes": [
+                                                "type": "string",
+                                                "description": "Supplementary notes for the entry",
+                                            ] as [String: Any],
                                         ] as [String: Any],
                                     ],
                                     "reason": [

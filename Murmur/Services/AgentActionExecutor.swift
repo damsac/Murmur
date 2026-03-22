@@ -120,6 +120,9 @@ struct AgentActionExecutor {
             return executeMutation(id: a.id, entries: ctx.entries) { entry in
                 let snapshot = FieldSnapshot(entry: entry, fields: a.fields)
                 applyFieldUpdates(a.fields, to: entry)
+                if a.fields.checkOffHabit == true {
+                    entry.perform(.checkOffHabit, in: ctx.modelContext, preferences: ctx.preferences)
+                }
                 applyStatusUpdate(a.fields, to: entry, context: ctx)
                 return .updated(entryID: entry.id, previousFields: snapshot)
             }
@@ -186,6 +189,7 @@ struct AgentActionExecutor {
             cadenceRawValue: action.cadence?.rawValue,
             source: ctx.source
         )
+        if let notes = action.notes { entry.notes = notes }
         ctx.modelContext.insert(entry)
         NotificationService.shared.sync(entry, preferences: ctx.preferences)
         StudioAnalytics.track(EntryCreated(
@@ -251,6 +255,7 @@ struct AgentActionExecutor {
             entry.dueDateDescription = dueDesc
             entry.dueDate = Entry.resolveDate(from: dueDesc)
         }
+        if let notes = fields.notes { entry.notes = notes }
         entry.updatedAt = Date()
     }
 
@@ -346,6 +351,9 @@ struct FieldSnapshot {
     let cadence: HabitCadence?
     let status: EntryStatus?
     let snoozeUntil: Date?
+    let notes: String?
+    let lastHabitCompletionDate: Date?
+    let habitCompletionDates: [Date]?
 
     init(entry: Entry, fields: UpdateFields) {
         self.content = fields.content != nil ? entry.content : nil
@@ -357,9 +365,17 @@ struct FieldSnapshot {
         self.cadence = fields.cadence != nil ? entry.cadence : nil
         self.status = fields.status != nil ? entry.status : nil
         self.snoozeUntil = fields.status != nil ? entry.snoozeUntil : nil
+        self.notes = fields.notes != nil ? entry.notes : nil
+        self.lastHabitCompletionDate = fields.checkOffHabit == true ? entry.lastHabitCompletionDate : nil
+        self.habitCompletionDates = fields.checkOffHabit == true ? entry.habitCompletionDates : nil
     }
 
     func restore(to entry: Entry) {
+        restoreFields(to: entry)
+        restoreHabitFields(to: entry)
+    }
+
+    private func restoreFields(to entry: Entry) {
         if let content { entry.content = content }
         if let summary { entry.summary = summary }
         if let category { entry.category = category }
@@ -370,6 +386,16 @@ struct FieldSnapshot {
         if let status {
             entry.status = status
             entry.snoozeUntil = snoozeUntil
+        }
+        if let notes { entry.notes = notes }
+    }
+
+    private func restoreHabitFields(to entry: Entry) {
+        if let lastHabitCompletionDate {
+            entry.lastHabitCompletionDate = lastHabitCompletionDate
+        }
+        if let habitCompletionDates {
+            entry.habitCompletionDates = habitCompletionDates
         }
     }
 }

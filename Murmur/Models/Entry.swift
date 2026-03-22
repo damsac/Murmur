@@ -243,7 +243,8 @@ extension Entry {
             cadence: cadence,
             status: agentStatus,
             createdAt: createdAt,
-            currentStreak: streak
+            currentStreak: streak,
+            notes: notes.isEmpty ? nil : notes
         )
     }
 

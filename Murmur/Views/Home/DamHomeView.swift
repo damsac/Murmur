@@ -81,13 +81,6 @@ struct DamHomeView: View {
             }
         }
         .animation(Animations.smoothSlide, value: appState.selectedTab == .focus)
-        .mask(
-            VStack(spacing: 0) {
-                Color.black
-                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 110)
-            }
-        )
     }
 
     // MARK: - Composed Content
