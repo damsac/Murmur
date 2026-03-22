@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftData
 import MurmurCore
 import os.log
 
@@ -13,8 +12,6 @@ struct EntryDetailView: View {
     let onBack: () -> Void
     let onAction: (EntryAction) -> Void
 
-    @Query(sort: \Entry.createdAt, order: .reverse) private var allEntries: [Entry]
-
     // Inline draft state — seeded on appear, saved on every change
     @State private var draftSummary: String = ""
     @State private var draftNotes: String = ""
@@ -26,10 +23,6 @@ struct EntryDetailView: View {
     @State private var showCustomSnoozeSheet = false
     @State private var showDueDateSheet = false
     @State private var draftDueDate: Date = Date()
-
-    // Note dictation state
-    @State private var isRecordingNote = false
-    @State private var noteRecordingTask: Task<Void, Never>?
 
     @FocusState private var summaryFocused: Bool
     @FocusState private var notesFocused: Bool
@@ -142,14 +135,10 @@ struct EntryDetailView: View {
                             .padding(.bottom, 24)
 
                         // MARK: Notes (inline TextEditor, always visible)
-                        HStack {
-                            Text("Notes")
-                                .font(Theme.Typography.label)
-                                .foregroundStyle(Theme.Colors.textSecondary)
-                            Spacer()
-                            noteDictationButton
-                        }
-                        .padding(.bottom, 6)
+                        Text("Notes")
+                            .font(Theme.Typography.label)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .padding(.bottom, 6)
 
                         ZStack(alignment: .topLeading) {
                             if draftNotes.isEmpty && !notesFocused {
@@ -366,86 +355,6 @@ struct EntryDetailView: View {
                 )
         }
         .buttonStyle(.plain)
-    }
-
-    // MARK: - Note Dictation
-
-    @ViewBuilder
-    private var noteDictationButton: some View {
-        let conversation = appState.conversation
-        let isGloballyBusy = conversation.isRecording || conversation.isProcessing
-
-        Button {
-            if isRecordingNote {
-                stopNoteDictation()
-            } else {
-                startNoteDictation()
-            }
-        } label: {
-            Image(systemName: isRecordingNote ? "stop.circle.fill" : "mic.fill")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(
-                    isRecordingNote
-                        ? Theme.Colors.accentRed
-                        : Theme.Colors.accentPurple.opacity(0.7)
-                )
-                .frame(width: 32, height: 32)
-                .contentShape(Rectangle())
-                .contentTransition(.symbolEffect(.replace))
-        }
-        .buttonStyle(.plain)
-        .disabled(!isRecordingNote && isGloballyBusy)
-        .opacity(!isRecordingNote && isGloballyBusy ? 0.3 : 1.0)
-        .accessibilityLabel(isRecordingNote ? "Stop note dictation" : "Dictate notes")
-    }
-
-    private func startNoteDictation() {
-        let conversation = appState.conversation
-        guard !conversation.isRecording, !conversation.isProcessing else { return }
-
-        isRecordingNote = true
-        conversation.startRecording()
-    }
-
-    private func stopNoteDictation() {
-        let conversation = appState.conversation
-        guard isRecordingNote else { return }
-
-        // Capture the live transcript before canceling
-        let transcript: String
-        if case .recording(let t) = conversation.inputState {
-            transcript = t
-        } else {
-            transcript = ""
-        }
-
-        isRecordingNote = false
-        conversation.cancelRecording()
-
-        // Skip if transcript is empty
-        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        // Prefix with entry context so the LLM knows to write notes for this entry
-        let prefixedText = "[Dictating notes for entry \(entry.shortID) — \"\(entry.summary)\"]: \(trimmed)"
-
-        // Wait for cancel to finish (inputState returns to .idle), then submit as text
-        noteRecordingTask?.cancel()
-        noteRecordingTask = Task { @MainActor in
-            // Poll until the conversation returns to idle after cancel
-            for _ in 0..<40 { // up to ~2 seconds
-                if case .idle = conversation.inputState { break }
-                try? await Task.sleep(for: .milliseconds(50))
-            }
-            guard !Task.isCancelled else { return }
-
-            conversation.inputText = prefixedText
-            conversation.submitText(
-                entries: allEntries,
-                modelContext: modelContext,
-                preferences: notifPrefs
-            )
-        }
     }
 
     // MARK: - Helpers

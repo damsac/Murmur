@@ -71,6 +71,15 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
         // Ensure no stale state is left behind before starting a new session.
         cleanupRecordingState(endAudio: false)
 
+        // Configure audio session BEFORE creating AVAudioEngine so the engine's
+        // input node picks up the correct hardware format. Creating the engine first
+        // can result in inputNode.outputFormat returning 0 sample rate / 0 channels.
+        #if !os(macOS)
+        let audioSession = AVAudioSession.sharedInstance()
+        try audioSession.setCategory(.playAndRecord, mode: .measurement, options: .duckOthers)
+        try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        #endif
+
         // Build a fresh engine each session to avoid stale tap state on reused input nodes.
         let audioEngine = AVAudioEngine()
         self.audioEngine = audioEngine
@@ -83,16 +92,16 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
 
         recognitionRequest.shouldReportPartialResults = true
 
-        // Configure audio session before accessing audio engine
-        #if !os(macOS)
-        let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.playAndRecord, mode: .measurement, options: .duckOthers)
-        try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-        #endif
-
-        // Configure audio engine input
+        // Configure audio engine input — validate format before installTap.
+        // installTap throws an Obj-C exception (not a Swift error) if the format
+        // is invalid, which crashes the app. Guard against this here.
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
+
+        guard recordingFormat.sampleRate > 0, recordingFormat.channelCount > 0 else {
+            cleanupRecordingState(endAudio: true)
+            throw TranscriberError.audioInputUnavailable
+        }
 
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
             self?.recognitionRequest?.append(buffer)
@@ -279,6 +288,7 @@ public enum TranscriberError: LocalizedError {
     case unableToCreateRequest
     case notRecording
     case alreadyRecording
+    case audioInputUnavailable
 
     public var errorDescription: String? {
         switch self {
@@ -294,6 +304,8 @@ public enum TranscriberError: LocalizedError {
             return "Not currently recording"
         case .alreadyRecording:
             return "Recording is already in progress"
+        case .audioInputUnavailable:
+            return "No microphone input available"
         }
     }
 }
