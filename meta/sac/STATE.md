@@ -6,7 +6,7 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-TestFlight polish: DevMode gate, onboarding transitions, credit balance for beta testers, checklist cleanup.
+TestFlight polish: DevMode gate, onboarding transitions, checklist cleanup.
 
 ## Recent decisions
 
@@ -31,14 +31,11 @@ TestFlight polish: DevMode gate, onboarding transitions, credit balance for beta
 - **DevMode gated behind `#if DEBUG`** — The 5-tap `DevModeActivator` gesture was shipping in Release builds. Made `devModeActivator()` a no-op in non-DEBUG builds. Floating hammer button was already `#if DEBUG` gated in RootView.
 - **Onboarding transitions smoothed** — Replaced full-width `.move(edge: .trailing)` slides with subtle 24pt offset + opacity. Animation changed from spring(0.5, 0.75) to spring(0.55, 0.92) — high damping, no bounce.
 - **Onboarding no longer saves demo entries** — "Start capturing" just sets `hasCompletedOnboarding = true`. Home starts empty. Checklist items #10 and #12 marked done.
-- **Starter credits bumped to 10,000** — TestFlight testers get 10x the default balance so they never hit the out-of-credits screen during beta.
-
 ## Open questions
 
 - Should swipe-to-switch-tabs ever come back? Only viable path is UIViewRepresentable. High complexity, low priority.
 - API key distribution for testers unresolved — dam needs to confirm which PPQ key to bake into the archive build.
 - Is the three-zone layout (ZonedFocusHomeView) still on the roadmap, or do we consolidate on SacHomeView?
-- Starter credits (10,000) — should this be lowered before App Store release, or handled via a different mechanism?
 
 ## What I need from dam
 
