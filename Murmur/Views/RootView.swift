@@ -19,6 +19,7 @@ struct RootView: View {
     @State private var showTextInputBar = false
     @State private var showSettings = false
     @State private var showCalendar = false
+    @State private var showHelp = false
     @State private var showTopUp = false
     @State private var isPurchasingTopUp = false
     @State private var isLoadingTopUpProducts = false
@@ -329,6 +330,9 @@ struct RootView: View {
             .sheet(isPresented: $showCalendar) {
                 CalendarView(onEntryTap: { selectedEntry = $0 })
             }
+            .sheet(isPresented: $showHelp) {
+                HelpView(onBack: { showHelp = false })
+            }
     }
 
     // MARK: - Home Content
@@ -379,6 +383,7 @@ struct RootView: View {
                 onEntryTap: { selectedEntry = $0 },
                 onKeyboardTap: { showTextInputBar = true },
                 onSettingsTap: { showSettings = true },
+                onHelpTap: { showHelp = true },
                 onCalendarTap: { showCalendar = true },
                 onAction: { handleEntryAction($0, $1) }
             )
