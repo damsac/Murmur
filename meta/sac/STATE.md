@@ -6,7 +6,7 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-TestFlight polish: DevMode gate, onboarding transitions, checklist cleanup.
+Help page accessible from home screen top bar (? icon next to settings).
 
 ## Recent decisions
 
@@ -31,6 +31,8 @@ TestFlight polish: DevMode gate, onboarding transitions, checklist cleanup.
 - **DevMode gated behind `#if DEBUG`** — The 5-tap `DevModeActivator` gesture was shipping in Release builds. Made `devModeActivator()` a no-op in non-DEBUG builds. Floating hammer button was already `#if DEBUG` gated in RootView.
 - **Onboarding transitions smoothed** — Replaced full-width `.move(edge: .trailing)` slides with subtle 24pt offset + opacity. Animation changed from spring(0.5, 0.75) to spring(0.55, 0.92) — high damping, no bounce.
 - **Onboarding no longer saves demo entries** — "Start capturing" just sets `hasCompletedOnboarding = true`. Home starts empty. Checklist items #10 and #12 marked done.
+- **Help icon added to home top bar** — Added `?` (questionmark.circle) button in ZonedFocusHomeView topBar, immediately left of the gear. Narrowed its frame to 28pt wide (vs 44pt for other buttons) so it sits visually snug against Settings without excess gap. Tapping opens HelpView as a sheet from RootView.
+
 ## Open questions
 
 - Should swipe-to-switch-tabs ever come back? Only viable path is UIViewRepresentable. High complexity, low priority.

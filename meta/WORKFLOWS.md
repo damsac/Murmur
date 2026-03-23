@@ -109,3 +109,8 @@ These are centers of gravity, not walls. Both touch whatever needs touching.
 | Product spec | `.claude/project-spec.yml` | When product decisions change |
 | How we work | `meta/WORKFLOWS.md` | When practices evolve |
 | PR reconciliation | `meta/RECONCILIATION.md` | Rarely (it's the protocol) |
+| In-app help | `Murmur/Views/Settings/HelpView.swift` | When releasing a new version or changing features |
+
+## Release checklist reminder
+
+When releasing a new version or changing user-facing features, review the in-app help page (`HelpView.swift`) to ensure its content is up to date with the current feature set.

@@ -10,6 +10,7 @@ struct ZonedFocusHomeView: View {
     let onEntryTap: (Entry) -> Void
     let onKeyboardTap: () -> Void
     let onSettingsTap: () -> Void
+    let onHelpTap: () -> Void
     let onCalendarTap: () -> Void
     let onAction: (Entry, EntryAction) -> Void
 
@@ -43,6 +44,15 @@ struct ZonedFocusHomeView: View {
             .padding(.leading, Theme.Spacing.screenPadding - 10)
 
             Spacer()
+
+            Button(action: onHelpTap) {
+                Image(systemName: "questionmark.circle")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                    .frame(width: 28, height: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Help")
 
             Button(action: onSettingsTap) {
                 Image(systemName: "gearshape")
@@ -622,6 +632,7 @@ private struct HabitRowView: View {
         onEntryTap: { print("Tap:", $0.summary) },
         onKeyboardTap: { print("Keyboard") },
         onSettingsTap: { print("Settings") },
+        onHelpTap: { print("Help") },
         onCalendarTap: { print("Calendar") },
         onAction: { e, a in print("Action:", a, e.summary) }
     )
