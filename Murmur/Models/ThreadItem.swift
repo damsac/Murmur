@@ -62,6 +62,7 @@ struct AppliedActionInfo: Identifiable {
             switch action {
             case .create: return .created
             case .update: return .updated
+            case .updateListItems: return .updated
             case .complete: return .completed
             case .archive: return .archived
             case .updateMemory: return .updated

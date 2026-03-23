@@ -154,6 +154,24 @@ public struct UpdateMemoryAction: Sendable {
     }
 }
 
+/// Action to update list items on an existing list entry.
+public struct UpdateListItemsAction: Sendable {
+    public let id: String
+    public let items: [(text: String, checked: Bool)]
+
+    public init(id: String, items: [(text: String, checked: Bool)]) {
+        self.id = id
+        self.items = items
+    }
+
+    /// Serialize list items to markdown checkbox format.
+    public static func serializeToMarkdown(_ items: [(text: String, checked: Bool)]) -> String {
+        items.map { item in
+            "- [\(item.checked ? "x" : " ")] \(item.text)"
+        }.joined(separator: "\n")
+    }
+}
+
 /// Proposed actions awaiting user confirmation.
 public struct ConfirmationRequest: Sendable {
     public let message: String
@@ -169,6 +187,7 @@ public struct ConfirmationRequest: Sendable {
 public enum AgentAction: Sendable {
     case create(CreateAction)
     case update(UpdateAction)
+    case updateListItems(UpdateListItemsAction)
     case complete(CompleteAction)
     case archive(ArchiveAction)
     case updateMemory(UpdateMemoryAction)
@@ -183,10 +202,11 @@ public extension AgentAction {
         return false
     }
 
-    /// The entry ID targeted by a mutation action (update/complete/archive), or nil for creates/other.
+    /// The entry ID targeted by a mutation action (update/updateListItems/complete/archive), or nil for creates/other.
     var mutationEntryID: String? {
         switch self {
         case .update(let a): return a.id
+        case .updateListItems(let a): return a.id
         case .complete(let a): return a.id
         case .archive(let a): return a.id
         default: return nil

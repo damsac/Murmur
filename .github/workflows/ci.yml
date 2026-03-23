@@ -28,7 +28,9 @@ jobs:
           key: brew-${{ runner.os }}-xcodegen-xcbeautify
 
       - name: Install tools
-        run: brew install xcodegen xcbeautify
+        run: |
+          brew install xcodegen xcbeautify || true
+          brew link --overwrite xcodegen xcbeautify || true
 
       - name: Configure CI environment
         run: |

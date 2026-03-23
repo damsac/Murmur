@@ -264,6 +264,21 @@ struct UpdateMemoryArguments: Decodable {
     let content: String
 }
 
+struct UpdateListItemsArguments: Decodable {
+    let entryId: String
+    let items: [ListItemArgument]
+
+    struct ListItemArgument: Decodable {
+        let text: String
+        let checked: Bool
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case entryId = "entry_id"
+        case items
+    }
+}
+
 struct RawEntryMutation: Decodable {
     let id: String
     let reason: String?

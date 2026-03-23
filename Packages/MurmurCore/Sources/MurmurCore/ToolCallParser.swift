@@ -44,6 +44,14 @@ public enum ToolCallParser {
                 let wrapper = try JSONDecoder().decode(UpdateEntriesArguments.self, from: argumentsData)
                 actions = wrapper.updates.map { .update($0.asAction) }
 
+            case "update_list_items":
+                let wrapper = try JSONDecoder().decode(UpdateListItemsArguments.self, from: argumentsData)
+                let items = wrapper.items.map { (text: $0.text, checked: $0.checked) }
+                actions = [.updateListItems(UpdateListItemsAction(
+                    id: wrapper.entryId,
+                    items: items
+                ))]
+
             case "complete_entries":
                 let wrapper = try JSONDecoder().decode(EntryMutationArguments.self, from: argumentsData)
                 actions = wrapper.entries.map {
@@ -158,6 +166,13 @@ public enum ToolCallParser {
                 case "update_entries":
                     let wrapper = try JSONDecoder().decode(UpdateEntriesArguments.self, from: data)
                     result.append(contentsOf: wrapper.updates.map { .update($0.asAction) })
+                case "update_list_items":
+                    let wrapper = try JSONDecoder().decode(UpdateListItemsArguments.self, from: data)
+                    let items = wrapper.items.map { (text: $0.text, checked: $0.checked) }
+                    result.append(.updateListItems(UpdateListItemsAction(
+                        id: wrapper.entryId,
+                        items: items
+                    )))
                 case "complete_entries":
                     let wrapper = try JSONDecoder().decode(EntryMutationArguments.self, from: data)
                     result.append(contentsOf: wrapper.entries.map {
@@ -186,7 +201,11 @@ public enum ToolCallParser {
 
         let labels: [(String, Int)] = [
             ("created", actions.filter { if case .create = $0 { return true }; return false }.count),
-            ("updated", actions.filter { if case .update = $0 { return true }; return false }.count),
+            ("updated", actions.filter {
+                if case .update = $0 { return true }
+                if case .updateListItems = $0 { return true }
+                return false
+            }.count),
             ("completed", actions.filter { if case .complete = $0 { return true }; return false }.count),
             ("archived", actions.filter { if case .archive = $0 { return true }; return false }.count),
         ]

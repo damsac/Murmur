@@ -293,19 +293,39 @@ private struct ComposedSectionView: View {
                         ForEach(Array(items.enumerated()), id: \.element.id) { _, item in
                             switch item {
                             case .entry(let entry, let composed):
-                                ComposedEntryView(
-                                    entry: entry,
-                                    emphasis: composed.emphasis,
-                                    badge: composed.badge,
-                                    activeSwipeEntryID: $activeSwipeEntryID,
-                                    swipeActionsProvider: swipeActionsProvider,
-                                    onTap: { onEntryTap(entry) },
-                                    onAction: { onAction(entry, $0) }
-                                )
-                                .matchedGeometryEffect(id: "entry-\(composed.id)", in: layoutNamespace)
-                                .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                                .opacity(isEntryRevealed(composed.id) ? 1 : 0)
-                                .scaleEffect(isEntryRevealed(composed.id) ? 1 : 0.95)
+                                if entry.category == .list {
+                                    SwipeableCard(
+                                        actions: swipeActionsProvider(entry),
+                                        activeSwipeID: $activeSwipeEntryID,
+                                        entryID: entry.id,
+                                        onTap: { onEntryTap(entry) }
+                                    ) {
+                                        ListCardView(
+                                            entry: entry,
+                                            onAction: onAction,
+                                            onTap: { onEntryTap(entry) }
+                                        )
+                                    }
+                                    .padding(.horizontal, Theme.Spacing.screenPadding)
+                                    .matchedGeometryEffect(id: "entry-\(composed.id)", in: layoutNamespace)
+                                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                                    .opacity(isEntryRevealed(composed.id) ? 1 : 0)
+                                    .scaleEffect(isEntryRevealed(composed.id) ? 1 : 0.95)
+                                } else {
+                                    ComposedEntryView(
+                                        entry: entry,
+                                        emphasis: composed.emphasis,
+                                        badge: composed.badge,
+                                        activeSwipeEntryID: $activeSwipeEntryID,
+                                        swipeActionsProvider: swipeActionsProvider,
+                                        onTap: { onEntryTap(entry) },
+                                        onAction: { onAction(entry, $0) }
+                                    )
+                                    .matchedGeometryEffect(id: "entry-\(composed.id)", in: layoutNamespace)
+                                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                                    .opacity(isEntryRevealed(composed.id) ? 1 : 0)
+                                    .scaleEffect(isEntryRevealed(composed.id) ? 1 : 0.95)
+                                }
                             case .message(let text):
                                 ComposedMessageView(text: text)
                             }
