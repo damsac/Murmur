@@ -302,7 +302,8 @@ private struct ComposedSectionView: View {
                                     ) {
                                         ListCardView(
                                             entry: entry,
-                                            onAction: onAction
+                                            onAction: onAction,
+                                            onTap: { onEntryTap(entry) }
                                         )
                                     }
                                     .padding(.horizontal, Theme.Spacing.screenPadding)

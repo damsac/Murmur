@@ -253,7 +253,8 @@ private struct ZonedFocusTabView: View {
                                         ) {
                                             ListCardView(
                                                 entry: item.entry,
-                                                onAction: onAction
+                                                onAction: onAction,
+                                                onTap: { onEntryTap(item.entry) }
                                             )
                                         }
                                         .transition(cardTransition)

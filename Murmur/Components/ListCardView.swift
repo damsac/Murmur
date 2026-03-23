@@ -4,6 +4,7 @@ import MurmurCore
 struct ListCardView: View {
     let entry: Entry
     let onAction: (Entry, EntryAction) -> Void
+    var onTap: (() -> Void)?
     var glowAccent: Color?
     var glowIntensity: Double = 0
 
@@ -37,11 +38,11 @@ struct ListCardView: View {
             // Header — always visible
             headerView
 
-            // Expanded items
-            if isExpanded {
-                expandedBody
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
+            // Expanded items — always in hierarchy, height controlled
+            expandedBody
+                .frame(maxHeight: isExpanded ? nil : 0)
+                .opacity(isExpanded ? 1 : 0)
+                .clipped()
         }
         .cardStyle(accent: glowAccent, intensity: glowIntensity)
         .opacity(entry.isDone ? 0.5 : 1.0)
@@ -53,31 +54,39 @@ struct ListCardView: View {
     // MARK: - Header (collapsed / always visible)
 
     private var headerView: some View {
-        Button {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                isExpanded.toggle()
-            }
-        } label: {
-            HStack(alignment: .center, spacing: 12) {
-                Circle()
-                    .fill(accent)
-                    .frame(width: 8, height: 8)
-                    .shadow(color: accent.opacity(0.6), radius: 4)
-                    .padding(.leading, 2)
+        HStack(alignment: .center, spacing: 12) {
+            // Tappable card body — opens detail
+            Button {
+                onTap?()
+            } label: {
+                HStack(alignment: .center, spacing: 12) {
+                    Circle()
+                        .fill(accent)
+                        .frame(width: 8, height: 8)
+                        .shadow(color: accent.opacity(0.6), radius: 4)
+                        .padding(.leading, 2)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(entry.summary)
-                        .font(.subheadline)
-                        .foregroundStyle(entry.isDone ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
-                        .lineLimit(2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(entry.summary)
+                            .font(.subheadline)
+                            .foregroundStyle(entry.isDone ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
-                    if !isExpanded {
                         collapsedPreview
                     }
+                    .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
 
+            // Expand/collapse button — right side only
+            Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    isExpanded.toggle()
+                }
+            } label: {
                 HStack(spacing: 8) {
                     // Item count badge
                     Text("\(listItems.count)")
@@ -98,9 +107,12 @@ struct ListCardView: View {
                         .rotationEffect(.degrees(isExpanded ? 0 : -90))
                         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isExpanded)
                 }
+                .padding(.vertical, 8)
+                .padding(.leading, 4)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Collapsed Preview

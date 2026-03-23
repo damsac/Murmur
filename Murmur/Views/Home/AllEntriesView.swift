@@ -269,6 +269,7 @@ struct CategorySectionView: View {
                         ListCardView(
                             entry: peekEntry,
                             onAction: onAction,
+                            onTap: { onEntryTap(peekEntry) },
                             glowAccent: color,
                             glowIntensity: 1.0
                         )
@@ -310,6 +311,7 @@ struct CategorySectionView: View {
                                 isArrived: arrivedEntryIDs.contains(entry.id),
                                 category: category,
                                 onAction: onAction,
+                                onTap: { onEntryTap(entry) },
                                 onGlowComplete: { onGlowComplete(entry.id) }
                             )
                         }
@@ -381,6 +383,7 @@ private struct GlowingEntryRow: View {
     let isArrived: Bool
     let category: EntryCategory
     let onAction: (Entry, EntryAction) -> Void
+    var onTap: (() -> Void)?
     let onGlowComplete: () -> Void
 
     @State private var glowIntensity: Double = 0
@@ -392,6 +395,7 @@ private struct GlowingEntryRow: View {
                 ListCardView(
                     entry: entry,
                     onAction: onAction,
+                    onTap: onTap,
                     glowAccent: glowIntensity > 0 ? Theme.categoryColor(category) : nil,
                     glowIntensity: glowIntensity
                 )
