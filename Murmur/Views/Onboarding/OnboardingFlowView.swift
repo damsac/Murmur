@@ -96,7 +96,7 @@ struct OnboardingFlowView: View {
                 ))
 
             case .processing:
-                ProcessingView(transcript: OnboardingContent.transcript)
+                ProcessingOverlay(transcript: OnboardingContent.transcript)
                     .transition(.asymmetric(
                         insertion: .opacity.combined(with: .offset(x: 24)),
                         removal: .opacity.combined(with: .offset(x: -16))

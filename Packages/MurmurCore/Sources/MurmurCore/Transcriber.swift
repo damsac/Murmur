@@ -21,30 +21,11 @@ public protocol Transcriber: Sendable {
     var isAvailable: Bool { get async }
 }
 
-/// The result of a transcription, containing the full text and optional segments.
+/// The result of a transcription.
 public struct Transcript: Codable, Sendable, Equatable {
     public let text: String
-    public let segments: [Segment]
 
-    public init(text: String, segments: [Segment]? = nil) {
+    public init(text: String) {
         self.text = text
-        self.segments = segments ?? [Segment(text: text)]
-    }
-
-    /// Total duration derived from the last segment's endTime, if available
-    public var duration: TimeInterval? {
-        segments.last?.endTime
-    }
-
-    public struct Segment: Codable, Sendable, Equatable {
-        public let text: String
-        public let startTime: TimeInterval?
-        public let endTime: TimeInterval?
-
-        public init(text: String, startTime: TimeInterval? = nil, endTime: TimeInterval? = nil) {
-            self.text = text
-            self.startTime = startTime
-            self.endTime = endTime
-        }
     }
 }

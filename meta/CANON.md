@@ -17,7 +17,7 @@ Updated via PR. Changes to this file require review from the other person.
 
 - **What Murmur is:** An autonomous second brain. You speak, and an agent captures, organizes, surfaces, and acts on your entries. Not a transcription app — a thinking partner that manages your mental load.
 - **Core insight:** Capture first, categorize automatically. The agent doesn't just structure your input — it actively curates what you need to see and when.
-- **Entry model:** The atomic unit is `Entry`. Category (todo, idea, reminder, note, list, habit, question, thought) carries the semantic weight.
+- **Entry model:** The atomic unit is `Entry`. Category (todo, note, reminder, idea, list, habit, question) carries the semantic weight.
 - **Agent-first UI:** Three layers — smart list (flat, agent-curated), gestures (swipe to act), mic (voice to agent).
 - **Privacy (goal):** All user data encrypted at rest. Zero plaintext storage. Not yet implemented — required for production release.
 - **Credits as fuel:** Token-based usage with starter balance. Additional payment methods planned post-launch.
