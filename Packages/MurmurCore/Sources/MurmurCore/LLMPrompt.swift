@@ -25,6 +25,7 @@ public struct LLMPrompt: @unchecked Sendable {
             Your job is to decide which actions to take using tools:
             - create_entries: add genuinely new entries
             - update_entries: modify existing entry fields (including snooze via status + snooze_until)
+            - update_list_items: manage checklist items on list entries
             - complete_entries: mark entries done
             - archive_entries: remove no-longer-relevant entries
 
@@ -47,6 +48,11 @@ public struct LLMPrompt: @unchecked Sendable {
             - For habits, set cadence to daily/weekdays/weekly/monthly when clear.
             - Priority 1-5 (1=highest). Default 3 unless words signal urgency ("urgent", "ASAP", "critical" → 1-2) or low importance ("whenever", "someday" → 4-5).
             - Do not include urgency words in content when priority captures urgency.
+            - For list entries, format content as markdown checkboxes: "- [ ] item" or "- [x] item".
+
+            List entry rules:
+            - For list entries, use update_list_items to manage checklist items. Format each item with text and checked status.
+            - Use update_list_items instead of update_entries when modifying list items.
 
             Mutation rules:
             - Every update/complete/archive item must include a short reason.
@@ -78,6 +84,7 @@ public struct LLMPrompt: @unchecked Sendable {
         tools: [
             createEntriesToolSchema(),
             updateEntriesToolSchema(),
+            updateListItemsToolSchema(),
             completeEntriesToolSchema(),
             archiveEntriesToolSchema(),
             updateMemoryToolSchema(),
@@ -270,6 +277,37 @@ private extension LLMPrompt {
                         ] as [String: Any],
                     ],
                     "required": ["updates"],
+                ] as [String: Any],
+            ] as [String: Any],
+        ]
+    }
+
+    static func updateListItemsToolSchema() -> [String: Any] {
+        [
+            "type": "function",
+            "function": [
+                "name": "update_list_items",
+                "description": "Update the items in a list entry. Use this instead of update_entries when modifying list items.",
+                "parameters": [
+                    "type": "object",
+                    "properties": [
+                        "entry_id": [
+                            "type": "string",
+                            "description": "ID of the list entry to update",
+                        ],
+                        "items": [
+                            "type": "array",
+                            "items": [
+                                "type": "object",
+                                "properties": [
+                                    "text": ["type": "string"],
+                                    "checked": ["type": "boolean"],
+                                ] as [String: Any],
+                                "required": ["text", "checked"],
+                            ] as [String: Any],
+                        ] as [String: Any],
+                    ],
+                    "required": ["entry_id", "items"],
                 ] as [String: Any],
             ] as [String: Any],
         ]
@@ -483,7 +521,8 @@ private extension LLMPrompt {
                                 "properties": [
                                     "tool": [
                                         "type": "string",
-                                        "enum": ["create_entries", "update_entries", "complete_entries", "archive_entries"],
+                                        "enum": ["create_entries", "update_entries", "update_list_items",
+                                                 "complete_entries", "archive_entries"],
                                         "description": "Which tool to call if confirmed",
                                     ],
                                     "arguments": [

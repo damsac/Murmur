@@ -684,7 +684,11 @@ private func buildActionSummary(
 ) -> String {
     let labels: [(String, (AgentAction) -> Bool)] = [
         ("Created", { if case .create = $0 { return true }; return false }),
-        ("Updated", { if case .update = $0 { return true }; return false }),
+        ("Updated", {
+            if case .update = $0 { return true }
+            if case .updateListItems = $0 { return true }
+            return false
+        }),
         ("Completed", { if case .complete = $0 { return true }; return false }),
         ("Archived", { if case .archive = $0 { return true }; return false }),
     ]

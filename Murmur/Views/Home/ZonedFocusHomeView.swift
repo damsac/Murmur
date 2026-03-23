@@ -244,15 +244,30 @@ private struct ZonedFocusTabView: View {
                         VStack(spacing: 8) {
                             ForEach(zones.standard, id: \.entry.id) { item in
                                 if item.globalIndex < visibleCardCount {
-                                    StandardFocusCard(
-                                        entry: item.entry,
-                                        reason: item.reason,
-                                        activeSwipeEntryID: $activeSwipeEntryID,
-                                        swipeActionsProvider: swipeActionsProvider,
-                                        onAction: onAction,
-                                        onTap: { onEntryTap(item.entry) }
-                                    )
-                                    .transition(cardTransition)
+                                    if item.entry.category == .list {
+                                        SwipeableCard(
+                                            actions: swipeActionsProvider(item.entry),
+                                            activeSwipeID: $activeSwipeEntryID,
+                                            entryID: item.entry.id,
+                                            onTap: { onEntryTap(item.entry) }
+                                        ) {
+                                            ListCardView(
+                                                entry: item.entry,
+                                                onAction: onAction
+                                            )
+                                        }
+                                        .transition(cardTransition)
+                                    } else {
+                                        StandardFocusCard(
+                                            entry: item.entry,
+                                            reason: item.reason,
+                                            activeSwipeEntryID: $activeSwipeEntryID,
+                                            swipeActionsProvider: swipeActionsProvider,
+                                            onAction: onAction,
+                                            onTap: { onEntryTap(item.entry) }
+                                        )
+                                        .transition(cardTransition)
+                                    }
                                 }
                             }
                         }

@@ -417,6 +417,7 @@ enum EntryAction {
     case unarchive
     case delete
     case checkOffHabit         // toggle done-for-period on habit entries
+    case toggleListItem(index: Int) // toggle checkbox on a list item
 }
 
 extension Entry {
@@ -464,6 +465,37 @@ extension Entry {
                 habitCompletionDates.append(now)
                 lastHabitCompletionDate = now
             }
+            updatedAt = Date()
+            save(in: context)
+
+        case .toggleListItem(let index):
+            var lines = content.components(separatedBy: "\n")
+            var itemIndex = 0
+            for i in lines.indices {
+                let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
+                let isListItem = trimmed.hasPrefix("- [x] ")
+                    || trimmed.hasPrefix("- [ ] ")
+                    || trimmed.hasPrefix("- ")
+                guard isListItem else { continue }
+                if itemIndex == index {
+                    // Find the prefix in the original line (preserving leading whitespace)
+                    let leading = String(lines[i].prefix(while: { $0 == " " || $0 == "\t" }))
+                    if trimmed.hasPrefix("- [x] ") {
+                        let rest = String(trimmed.dropFirst(6))
+                        lines[i] = leading + "- [ ] " + rest
+                    } else if trimmed.hasPrefix("- [ ] ") {
+                        let rest = String(trimmed.dropFirst(6))
+                        lines[i] = leading + "- [x] " + rest
+                    } else if trimmed.hasPrefix("- ") {
+                        // Plain bullet — promote to checkbox syntax
+                        let rest = String(trimmed.dropFirst(2))
+                        lines[i] = leading + "- [x] " + rest
+                    }
+                    break
+                }
+                itemIndex += 1
+            }
+            content = lines.joined(separator: "\n")
             updatedAt = Date()
             save(in: context)
         }

@@ -579,6 +579,10 @@ private extension RootView {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             entry.perform(.checkOffHabit, in: modelContext, preferences: notifPrefs)
 
+        case .toggleListItem(let index):
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            entry.perform(.toggleListItem(index: index), in: modelContext, preferences: notifPrefs)
+
         case .snooze(nil):
             snoozeEntry = entry
             showSnoozeDialog = true

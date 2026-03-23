@@ -264,12 +264,23 @@ struct CategorySectionView: View {
 
             // Peek slot (collapsed section arrival preview)
             if isCollapsed && peekVisible, let peekEntry {
-                SmartListRow(
-                    entry: peekEntry,
-                    onAction: onAction,
-                    glowAccent: color,
-                    glowIntensity: 1.0
-                )
+                Group {
+                    if peekEntry.category == .list {
+                        ListCardView(
+                            entry: peekEntry,
+                            onAction: onAction,
+                            glowAccent: color,
+                            glowIntensity: 1.0
+                        )
+                    } else {
+                        SmartListRow(
+                            entry: peekEntry,
+                            onAction: onAction,
+                            glowAccent: color,
+                            glowIntensity: 1.0
+                        )
+                    }
+                }
                 .padding(.horizontal, 12)
                 .transition(.opacity.combined(with: .move(edge: .top)))
                 .onTapGesture {
@@ -376,12 +387,23 @@ private struct GlowingEntryRow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        SmartListRow(
-            entry: entry,
-            onAction: onAction,
-            glowAccent: glowIntensity > 0 ? Theme.categoryColor(category) : nil,
-            glowIntensity: glowIntensity
-        )
+        Group {
+            if entry.category == .list {
+                ListCardView(
+                    entry: entry,
+                    onAction: onAction,
+                    glowAccent: glowIntensity > 0 ? Theme.categoryColor(category) : nil,
+                    glowIntensity: glowIntensity
+                )
+            } else {
+                SmartListRow(
+                    entry: entry,
+                    onAction: onAction,
+                    glowAccent: glowIntensity > 0 ? Theme.categoryColor(category) : nil,
+                    glowIntensity: glowIntensity
+                )
+            }
+        }
         .onChange(of: isArrived) { _, newValue in
             if newValue { triggerGlow() }
         }
