@@ -7,12 +7,6 @@ import os.log
 
 private let pipelineLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "Pipeline")
 
-enum RecordingState {
-    case idle
-    case recording
-    case processing
-}
-
 enum RecentInsert: Identifiable {
     case entry(UUID)
     case message(String, UUID)
@@ -29,9 +23,7 @@ enum RecentInsert: Identifiable {
 @MainActor
 final class AppState {
     enum Tab { case focus, all }
-    var recordingState: RecordingState = .idle
     var showOnboarding: Bool = false
-    var showFocusCard: Bool = false
     var selectedTab: Tab = .focus
     #if DEBUG
     var isDevMode: Bool = true

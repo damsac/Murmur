@@ -83,25 +83,6 @@ private struct MicButtonStyle: ButtonStyle {
     }
 }
 
-// Pulsing animation for recording indicator
-private struct PulsingDot: ViewModifier {
-    @State private var isPulsing = false
-
-    func body(content: Content) -> some View {
-        content
-            .scaleEffect(isPulsing ? 1.3 : 1.0)
-            .opacity(isPulsing ? 0.6 : 1.0)
-            .onAppear {
-                withAnimation(
-                    Animation.easeInOut(duration: 0.8)
-                        .repeatForever(autoreverses: true)
-                ) {
-                    isPulsing = true
-                }
-            }
-    }
-}
-
 #Preview("Sizes") {
     VStack(spacing: 40) {
         MicButton(size: .small, isRecording: false) {

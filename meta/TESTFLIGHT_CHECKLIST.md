@@ -85,17 +85,17 @@ Required before the first external invite, none of it is code:
 ### 15. Hosted privacy policy URL — **dam**
 Required for external TestFlight testers. Apple needs a live, publicly accessible URL — a GitHub Pages one-pager is fine. Without this, you cannot invite external testers.
 
-### 16. Add `ITSAppUsesNonExemptEncryption: false` — **dam**
-One-line addition to `project.yml` Info.plist properties. Without it, App Store Connect prompts for export compliance manually on every single upload. The app only uses standard HTTPS — this is exempt.
+### 16. ~~Add `ITSAppUsesNonExemptEncryption: false`~~ — ✅ DONE
+Added to `project.yml` Info.plist properties.
 
-### 17. Lock interface orientation to portrait — **dam or sac**
-No explicit `UISupportedInterfaceOrientations` is set. Without it the app rotates to landscape, which will look broken. Add to `project.yml` build settings or Info.plist properties.
+### 17. ~~Lock interface orientation to portrait~~ — ✅ DONE
+`UISupportedInterfaceOrientations` set to portrait-only in `project.yml`.
 
-### 18. Gate DevMode behind `#if DEBUG` — **dam or sac**
-The 5-tap gesture (`DevModeActivator`) still runs in release builds. The DevMode button in RootView is `#if DEBUG` gated, but the activator itself is not. Wrap `DevModeActivator` in `#if DEBUG` so the gesture handler doesn't ship.
+### 18. ~~Gate DevMode behind `#if DEBUG`~~ — ✅ DONE
+`DevModeActivator` wrapped in `#if DEBUG`.
 
-### 19. Privacy manifest — add transcribed text as collected data — **dam**
-`PrivacyInfo.xcprivacy` declares `AudioData` collection but the app also sends transcribed text to `api.ppq.ai`. Apple reviewers may flag this. Consider adding a collected data type for user-generated text content.
+### 19. ~~Privacy manifest — add transcribed text as collected data~~ — ✅ DONE
+`PrivacyInfo.xcprivacy` updated to declare user-generated text content.
 
 ### 20. Verify StoreKit graceful degradation — **sac**
 IAP products (credit packs) may not exist in App Store Connect for the first beta. Verify the app doesn't crash or show broken UI when StoreKit returns no products. If it doesn't degrade gracefully, either fix it or remove the StoreKit scheme config for beta.
@@ -131,10 +131,10 @@ IAP products (credit packs) may not exist in App Store Connect for the first bet
 | 13 | Crash-free device walkthrough | **dam + sac** | Soft | Not started |
 | 14 | TestFlight metadata + App Store Connect | **dam + sac** | **Yes** | Not started |
 | 15 | Hosted privacy policy URL | **dam** | **Yes** (external) | Not started |
-| 16 | `ITSAppUsesNonExemptEncryption` | **dam** | **Yes** | Not started |
-| 17 | Portrait orientation lock | **dam or sac** | No (looks broken) | Not started |
-| 18 | Gate DevMode behind `#if DEBUG` | **dam or sac** | No (exposes tools) | Not started |
-| 19 | Privacy manifest — transcribed text | **dam** | **Yes** | Not started |
+| 16 | ~~`ITSAppUsesNonExemptEncryption`~~ | **dam** | **Yes** | ✅ Done |
+| 17 | ~~Portrait orientation lock~~ | **dam or sac** | No (looks broken) | ✅ Done |
+| 18 | ~~Gate DevMode behind `#if DEBUG`~~ | **dam or sac** | No (exposes tools) | ✅ Done |
+| 19 | ~~Privacy manifest — transcribed text~~ | **dam** | **Yes** | ✅ Done |
 | 20 | Verify StoreKit degradation | **sac** | Soft | Not started |
 
 

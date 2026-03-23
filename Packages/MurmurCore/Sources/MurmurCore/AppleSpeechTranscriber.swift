@@ -4,7 +4,7 @@ import AVFoundation
 
 /// Transcriber implementation using Apple's Speech framework
 @MainActor
-public final class AppleSpeechTranscriber: NSObject, Transcriber {
+public final class AppleSpeechTranscriber: Transcriber {
     private let speechRecognizer: SFSpeechRecognizer
     private var audioEngine: AVAudioEngine?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
@@ -21,10 +21,9 @@ public final class AppleSpeechTranscriber: NSObject, Transcriber {
     /// Callback for audio level updates — set by audioLevelStream consumers.
     var onAudioLevelUpdate: ((Float) -> Void)?
 
-    public override init() {
+    public init() {
         // Use device locale or fallback to US English
         self.speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")) ?? SFSpeechRecognizer(locale: Locale.current)!
-        super.init()
     }
 
     // MARK: - Transcriber Protocol

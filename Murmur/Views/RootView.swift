@@ -24,7 +24,7 @@ struct RootView: View {
     @State private var isLoadingTopUpProducts = false
     @State private var topUpPacks: [CreditPack] = []
     @State private var topUpProductIDByCredits: [Int64: String] = [:]
-    @AppStorage("homeVariant") private var homeVariant: String = "sac"
+    @AppStorage("homeVariant") private var homeVariant: String = "zones"
     @State private var hintStep: Int = -1
     @State private var hintTimerTask: Task<Void, Never>?
     @State private var pendingDeleteEntry: Entry?
@@ -360,7 +360,7 @@ struct RootView: View {
 
     @ViewBuilder
     private var homeContent: some View {
-        if homeVariant == "dam" {
+        if homeVariant == "scanner" {
             DamHomeView(
                 inputText: $inputText,
                 entries: activeEntries,
@@ -370,20 +370,8 @@ struct RootView: View {
                 onSettingsTap: { showSettings = true },
                 onAction: { handleEntryAction($0, $1) }
             )
-        } else if homeVariant == "sac2" {
-            ZonedFocusHomeView(
-                inputText: $inputText,
-                entries: activeEntries,
-                onMicTap: toggleRecording,
-                onSubmit: submitInput,
-                onEntryTap: { selectedEntry = $0 },
-                onKeyboardTap: { showTextInputBar = true },
-                onSettingsTap: { showSettings = true },
-                onCalendarTap: { showCalendar = true },
-                onAction: { handleEntryAction($0, $1) }
-            )
         } else {
-            SacHomeView(
+            ZonedFocusHomeView(
                 inputText: $inputText,
                 entries: activeEntries,
                 onMicTap: toggleRecording,
@@ -498,7 +486,7 @@ private extension RootView {
     }
 
     var currentVariant: CompositionVariant {
-        homeVariant == "dam" ? .scanner : .navigator
+        homeVariant == "scanner" ? .scanner : .navigator
     }
 
     func handleTopUpPurchase(_ pack: CreditPack) {

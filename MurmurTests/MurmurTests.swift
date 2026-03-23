@@ -7,7 +7,7 @@ import MurmurCore
 struct EntryCategoryTests {
     @Test("all cases exist")
     func allCases() {
-        #expect(EntryCategory.allCases.count == 8)
+        #expect(EntryCategory.allCases.count == 7)
     }
 
     @Test("raw values are lowercase")
