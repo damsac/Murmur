@@ -102,6 +102,13 @@ actor LocalCreditGate: CreditGate {
         )
     }
 
+    #if DEBUG
+    func setBalance(_ newBalance: Int64) async {
+        state.balance = newBalance
+        persistState()
+    }
+    #endif
+
     func topUp(credits: Int64) async throws {
         guard credits > 0 else {
             throw CreditError.invalidTopUpAmount

@@ -33,8 +33,10 @@ targets:
       - path: Murmur
         excludes:
           - "**/.DS_Store"
-          # Orphaned views — UI shells not wired to real functionality
-          - "Views/Errors/**"
+          # Orphaned error views — only OutOfCreditsView is wired
+          - "Views/Errors/APIErrorView.swift"
+          - "Views/Errors/LowTokensView.swift"
+          - "Views/Errors/MicDeniedView.swift"
           # Orphaned DevMode — complex simulation not needed
           - "DevMode/DevScreen.swift"
           - "DevMode/DevComponentGallery.swift"
