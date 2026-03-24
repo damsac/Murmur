@@ -56,8 +56,8 @@ struct SwipeableCard<Content: View>: View {
             .zIndex(revealed ? 1 : 0)
 
             // Card content — uses Button for scroll-friendly tap handling.
-            // Horizontal pan gesture is installed on the parent hosting view
-            // via a zero-size background, so it doesn't block taps.
+            // Horizontal pan gesture is installed via a per-card UIView overlay,
+            // so each card gets its own independent recognizer.
             Button {
                 guard Date().timeIntervalSince(lastDragEndTime) > 0.15 else { return }
                 if revealed {
@@ -85,10 +85,10 @@ struct SwipeableCard<Content: View>: View {
             )
             .contentShape(Rectangle())
             .offset(x: dragOffset)
-            .background {
-                // Install a UIKit pan gesture recognizer on the parent hosting view.
-                // Zero-size so it doesn't affect layout or block taps.
-                // cancelsTouchesInView=false lets taps reach the Button.
+            .overlay {
+                // Install a UIKit pan gesture recognizer on this card's own UIView.
+                // Each card gets its own recognizer — no shared parent conflicts.
+                // cancelsTouchesInView=false lets taps reach the SwiftUI Button.
                 // gestureRecognizerShouldBegin filters for horizontal-only, letting
                 // ScrollView handle vertical scrolling.
                 if !actions.isEmpty {
@@ -102,8 +102,7 @@ struct SwipeableCard<Content: View>: View {
                         snap(reveal: -finalOffset > totalWidth * 0.35)
                         lastDragEndTime = Date()
                     }
-                    .frame(width: 0, height: 0)
-                    .allowsHitTesting(false)
+                    .allowsHitTesting(true)
                 }
             }
         }
@@ -124,7 +123,8 @@ struct SwipeableCard<Content: View>: View {
 
 // MARK: - UIKit Horizontal Pan Gesture Installer
 
-/// Installs a UIPanGestureRecognizer on the nearest parent hosting view.
+/// Installs a UIPanGestureRecognizer on this card's own UIView wrapper.
+/// Each SwipeableCard gets its own recognizer — no shared-parent conflicts.
 /// The gesture only recognizes horizontal drags (via gestureRecognizerShouldBegin),
 /// letting ScrollView handle vertical scrolling. cancelsTouchesInView=false
 /// ensures taps still reach the SwiftUI Button.
@@ -135,25 +135,16 @@ private struct HorizontalPanGestureInstaller: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
         view.backgroundColor = .clear
-        view.isUserInteractionEnabled = false
 
-        // Defer gesture installation to after the view is added to the hierarchy
-        DispatchQueue.main.async {
-            guard let host = view.superview?.superview else { return }
-            // Remove any previously installed pan gesture (on reuse)
-            for gr in host.gestureRecognizers ?? [] where gr is HorizontalPanRecognizer {
-                host.removeGestureRecognizer(gr)
-            }
-            let pan = HorizontalPanRecognizer(
-                target: context.coordinator,
-                action: #selector(Coordinator.handlePan(_:))
-            )
-            pan.delegate = context.coordinator
-            pan.cancelsTouchesInView = false
-            host.addGestureRecognizer(pan)
-            context.coordinator.installedOn = host
-            context.coordinator.gestureRecognizer = pan
-        }
+        let pan = HorizontalPanRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handlePan(_:))
+        )
+        pan.delegate = context.coordinator
+        pan.cancelsTouchesInView = false
+        view.addGestureRecognizer(pan)
+        context.coordinator.gestureRecognizer = pan
+
         return view
     }
 
@@ -163,8 +154,8 @@ private struct HorizontalPanGestureInstaller: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
-        if let host = coordinator.installedOn, let pan = coordinator.gestureRecognizer {
-            host.removeGestureRecognizer(pan)
+        if let pan = coordinator.gestureRecognizer {
+            pan.view?.removeGestureRecognizer(pan)
         }
     }
 
@@ -175,7 +166,6 @@ private struct HorizontalPanGestureInstaller: UIViewRepresentable {
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var onDrag: (CGFloat) -> Void
         var onEnd: (CGFloat) -> Void
-        weak var installedOn: UIView?
         var gestureRecognizer: UIPanGestureRecognizer?
 
         init(onDrag: @escaping (CGFloat) -> Void, onEnd: @escaping (CGFloat) -> Void) {
@@ -212,3 +202,36 @@ private struct HorizontalPanGestureInstaller: UIViewRepresentable {
 
 /// Tagged subclass so we can find and clean up our gesture recognizers.
 private final class HorizontalPanRecognizer: UIPanGestureRecognizer {}
+
+// MARK: - Testable Gesture Helpers
+
+/// Returns true when the velocity vector is "horizontal enough" to start a swipe.
+/// The 1.2x multiplier means horizontal speed must exceed vertical by 20%.
+func isHorizontalSwipe(velocityX: CGFloat, velocityY: CGFloat) -> Bool {
+    abs(velocityX) > abs(velocityY) * 1.2
+}
+
+/// Determines whether a swipe should snap open (reveal actions) or snap closed.
+/// `dragX` is the cumulative horizontal translation (negative = leftward).
+/// `totalActionWidth` is the combined width of all action buttons.
+/// `revealThreshold` is the fraction of totalActionWidth required to trigger reveal (0-1).
+func shouldRevealActions(
+    dragX: CGFloat,
+    wasRevealed: Bool,
+    totalActionWidth: CGFloat,
+    revealThreshold: CGFloat = 0.35
+) -> Bool {
+    let base: CGFloat = wasRevealed ? -totalActionWidth : 0
+    let finalOffset = base + dragX
+    return -finalOffset > totalActionWidth * revealThreshold
+}
+
+/// Clamps the drag offset to the valid range [−totalActionWidth, 0].
+func clampedDragOffset(
+    dragX: CGFloat,
+    wasRevealed: Bool,
+    totalActionWidth: CGFloat
+) -> CGFloat {
+    let base: CGFloat = wasRevealed ? -totalActionWidth : 0
+    return min(0, max(-totalActionWidth, base + dragX))
+}
