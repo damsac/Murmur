@@ -45,7 +45,7 @@ final class MockTranscriber: Transcriber, @unchecked Sendable {
 
 // MARK: - Mock LLM Service
 
-final class MockLLMService: LLMService, @unchecked Sendable {
+final class MockLLMService: MurmurAgent, @unchecked Sendable {
     var entriesToReturn: [ExtractedEntry] = [
         ExtractedEntry(
             content: "Buy milk",

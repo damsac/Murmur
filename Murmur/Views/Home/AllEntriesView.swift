@@ -264,12 +264,24 @@ struct CategorySectionView: View {
 
             // Peek slot (collapsed section arrival preview)
             if isCollapsed && peekVisible, let peekEntry {
-                SmartListRow(
-                    entry: peekEntry,
-                    onAction: onAction,
-                    glowAccent: color,
-                    glowIntensity: 1.0
-                )
+                Group {
+                    if peekEntry.category == .list {
+                        ListCardView(
+                            entry: peekEntry,
+                            onAction: onAction,
+                            onTap: { onEntryTap(peekEntry) },
+                            glowAccent: color,
+                            glowIntensity: 1.0
+                        )
+                    } else {
+                        SmartListRow(
+                            entry: peekEntry,
+                            onAction: onAction,
+                            glowAccent: color,
+                            glowIntensity: 1.0
+                        )
+                    }
+                }
                 .padding(.horizontal, 12)
                 .transition(.opacity.combined(with: .move(edge: .top)))
                 .onTapGesture {
@@ -299,6 +311,7 @@ struct CategorySectionView: View {
                                 isArrived: arrivedEntryIDs.contains(entry.id),
                                 category: category,
                                 onAction: onAction,
+                                onTap: { onEntryTap(entry) },
                                 onGlowComplete: { onGlowComplete(entry.id) }
                             )
                         }
@@ -370,18 +383,31 @@ private struct GlowingEntryRow: View {
     let isArrived: Bool
     let category: EntryCategory
     let onAction: (Entry, EntryAction) -> Void
+    var onTap: (() -> Void)?
     let onGlowComplete: () -> Void
 
     @State private var glowIntensity: Double = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        SmartListRow(
-            entry: entry,
-            onAction: onAction,
-            glowAccent: glowIntensity > 0 ? Theme.categoryColor(category) : nil,
-            glowIntensity: glowIntensity
-        )
+        Group {
+            if entry.category == .list {
+                ListCardView(
+                    entry: entry,
+                    onAction: onAction,
+                    onTap: onTap,
+                    glowAccent: glowIntensity > 0 ? Theme.categoryColor(category) : nil,
+                    glowIntensity: glowIntensity
+                )
+            } else {
+                SmartListRow(
+                    entry: entry,
+                    onAction: onAction,
+                    glowAccent: glowIntensity > 0 ? Theme.categoryColor(category) : nil,
+                    glowIntensity: glowIntensity
+                )
+            }
+        }
         .onChange(of: isArrived) { _, newValue in
             if newValue { triggerGlow() }
         }

@@ -1,16 +1,14 @@
-// swiftlint:disable file_length
 import Foundation
 import os.log
 
 private let sseLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "SSE")
 
 // swiftlint:disable type_body_length
-/// LLMService implementation using PPQ.ai's OpenAI-compatible API with tool calling.
-public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked Sendable {
+/// MurmurAgent implementation using PPQ.ai's OpenAI-compatible API with tool calling.
+public final class PPQLLMService: MurmurAgent, StreamingMurmurAgent, @unchecked Sendable {
     private let apiKey: String
     public let model: String
     private let prompt: LLMPrompt
-    private let extractionPrompt: LLMPrompt
     private let session: URLSession
 
     /// Persistent memory content injected into the system prompt.
@@ -25,13 +23,11 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
         apiKey: String,
         model: String = "anthropic/claude-haiku-4.5",
         prompt: LLMPrompt = .entryManager,
-        extractionPrompt: LLMPrompt = .entryCreation,
         session: URLSession = .shared
     ) {
         self.apiKey = apiKey
         self.model = model
         self.prompt = prompt
-        self.extractionPrompt = extractionPrompt
         self.session = session
     }
 
@@ -101,19 +97,6 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
             toolCallGroups: parseResult.groups,
             textResponse: textResponse
         )
-    }
-
-    /// Backward-compatible extraction path for current UI flow.
-    /// Uses a create-only prompt so existing confirmation UI behavior is unchanged.
-    public func extractEntries(from transcript: String, conversation: LLMConversation) async throws -> LLMResult {
-        let turn = try await runTurn(
-            userContent: transcript,
-            prompt: extractionPrompt,
-            conversation: conversation
-        )
-
-        let parseResult = parseActions(from: turn.assistantMessage)
-        return LLMResult(entries: parseResult.actions.compactMap(\.createdEntry), usage: turn.usage)
     }
 
     // MARK: - Home Composition
@@ -528,101 +511,8 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
         return assistantMessage
     }
 
-    private struct ParseActionResult {
-        let actions: [AgentAction]
-        let failures: [ParseFailure]
-        let groups: [ToolCallGroup]
-    }
-
-    // swiftlint:disable:next cyclomatic_complexity
-    private func parseActions(from assistantMessage: [String: Any]) -> ParseActionResult {
-        guard let toolCalls = assistantMessage["tool_calls"] as? [[String: Any]] else {
-            // With toolChoice: .auto, the model may respond with text only (no actions).
-            // This is valid — return empty actions and let the caller use parseSummary().
-            return ParseActionResult(actions: [], failures: [], groups: [])
-        }
-
-        var actions: [AgentAction] = []
-        var failures: [ParseFailure] = []
-        var groups: [ToolCallGroup] = []
-
-        for toolCall in toolCalls {
-            guard let function = toolCall["function"] as? [String: Any],
-                  let name = function["name"] as? String,
-                  let argumentsString = function["arguments"] as? String,
-                  let argumentsData = argumentsString.data(using: .utf8)
-            else {
-                continue
-            }
-
-            let toolCallID = toolCall["id"] as? String ?? UUID().uuidString
-            let startIndex = actions.count
-
-            do {
-                switch name {
-                case "create_entries":
-                    let wrapper = try JSONDecoder().decode(CreateEntriesArguments.self, from: argumentsData)
-                    actions.append(contentsOf: wrapper.entries.map { .create($0.asAction) })
-
-                case "update_entries":
-                    let wrapper = try JSONDecoder().decode(UpdateEntriesArguments.self, from: argumentsData)
-                    actions.append(contentsOf: wrapper.updates.map { .update($0.asAction) })
-
-                case "complete_entries":
-                    let wrapper = try JSONDecoder().decode(EntryMutationArguments.self, from: argumentsData)
-                    actions.append(contentsOf: wrapper.entries.map {
-                        .complete(CompleteAction(id: $0.id, reason: $0.normalizedReason))
-                    })
-
-                case "archive_entries":
-                    let wrapper = try JSONDecoder().decode(EntryMutationArguments.self, from: argumentsData)
-                    actions.append(contentsOf: wrapper.entries.map {
-                        .archive(ArchiveAction(id: $0.id, reason: $0.normalizedReason))
-                    })
-
-                case "update_memory":
-                    let wrapper = try JSONDecoder().decode(UpdateMemoryArguments.self, from: argumentsData)
-                    actions.append(.updateMemory(UpdateMemoryAction(content: wrapper.content)))
-
-                case "confirm_actions":
-                    let wrapper = try JSONDecoder().decode(ConfirmActionsArguments.self, from: argumentsData)
-                    let proposed = parseProposedActions(wrapper.actions)
-                    actions.append(.confirm(ConfirmationRequest(
-                        message: wrapper.message,
-                        proposedActions: proposed
-                    )))
-
-                case "get_current_layout":
-                    actions.append(.layoutRead)
-
-                case "update_layout":
-                    let wrapper = try JSONDecoder().decode(UpdateLayoutArguments.self, from: argumentsData)
-                    let operations = wrapper.operations.compactMap { $0.asOperation }
-                    actions.append(.layoutUpdate(operations))
-
-                default:
-                    continue
-                }
-
-                let endIndex = actions.count
-                if endIndex > startIndex {
-                    groups.append(ToolCallGroup(
-                        toolCallID: toolCallID,
-                        toolName: name,
-                        actionRange: startIndex..<endIndex
-                    ))
-                }
-            } catch {
-                failures.append(ParseFailure(
-                    toolName: name,
-                    rawArguments: argumentsString,
-                    errorDescription: error.localizedDescription,
-                    toolCallID: toolCallID
-                ))
-            }
-        }
-
-        return ParseActionResult(actions: actions, failures: failures, groups: groups)
+    private func parseActions(from assistantMessage: [String: Any]) -> ToolCallParser.BatchResult {
+        ToolCallParser.parseActions(from: assistantMessage)
     }
 
     private func parseSummary(from assistantMessage: [String: Any]) -> String? {
@@ -643,34 +533,7 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
     }
 
     private func summarize(actions: [AgentAction]) -> String {
-        if actions.isEmpty {
-            return "No actions"
-        }
-
-        let createCount = actions.filter {
-            if case .create = $0 { return true }
-            return false
-        }.count
-        let updateCount = actions.filter {
-            if case .update = $0 { return true }
-            return false
-        }.count
-        let completeCount = actions.filter {
-            if case .complete = $0 { return true }
-            return false
-        }.count
-        let archiveCount = actions.filter {
-            if case .archive = $0 { return true }
-            return false
-        }.count
-
-        var parts: [String] = []
-        if createCount > 0 { parts.append("created \(createCount)") }
-        if updateCount > 0 { parts.append("updated \(updateCount)") }
-        if completeCount > 0 { parts.append("completed \(completeCount)") }
-        if archiveCount > 0 { parts.append("archived \(archiveCount)") }
-
-        return parts.joined(separator: ", ")
+        ToolCallParser.summarize(actions: actions)
     }
 
     private func parseUsage(from data: Data) -> TokenUsage {
@@ -696,58 +559,7 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
     }
 
     private func intValue(_ value: Any?) -> Int? {
-        if let int = value as? Int {
-            return int
-        }
-        if let number = value as? NSNumber {
-            return number.intValue
-        }
-        return nil
-    }
-
-    // MARK: - Confirmation Parsing
-
-    /// Parse proposed actions from a confirm_actions tool call.
-    /// Reuses the same decoding types as regular tool calls.
-    private func parseProposedActions(_ proposals: [RawProposedAction]) -> [AgentAction] {
-        var result: [AgentAction] = []
-        for proposal in proposals {
-            guard let data = proposal.argumentsData else { continue }
-            do {
-                switch proposal.tool {
-                case "create_entries":
-                    let wrapper = try JSONDecoder().decode(CreateEntriesArguments.self, from: data)
-                    result.append(contentsOf: wrapper.entries.map { .create($0.asAction) })
-                case "update_entries":
-                    let wrapper = try JSONDecoder().decode(UpdateEntriesArguments.self, from: data)
-                    result.append(contentsOf: wrapper.updates.map { .update($0.asAction) })
-                case "complete_entries":
-                    let wrapper = try JSONDecoder().decode(EntryMutationArguments.self, from: data)
-                    result.append(contentsOf: wrapper.entries.map {
-                        .complete(CompleteAction(id: $0.id, reason: $0.normalizedReason))
-                    })
-                case "archive_entries":
-                    let wrapper = try JSONDecoder().decode(EntryMutationArguments.self, from: data)
-                    result.append(contentsOf: wrapper.entries.map {
-                        .archive(ArchiveAction(id: $0.id, reason: $0.normalizedReason))
-                    })
-                default:
-                    break
-                }
-            } catch {
-                // Skip individual proposal parse failures silently
-            }
-        }
-        return deduplicateByEntryID(result)
-    }
-
-    /// If the LLM proposes conflicting actions on the same entry, keep only the first.
-    private func deduplicateByEntryID(_ actions: [AgentAction]) -> [AgentAction] {
-        var seenIDs = Set<String>()
-        return actions.filter { action in
-            guard let id = action.mutationEntryID else { return true }
-            return seenIDs.insert(id).inserted
-        }
+        ToolCallParser.intValue(value)
     }
 
     // MARK: - Context Formatting
@@ -828,319 +640,3 @@ public final class PPQLLMService: LLMService, StreamingMurmurAgent, @unchecked S
     }
 }
 // swiftlint:enable type_body_length
-
-// MARK: - Response Decoding Types
-
-struct CreateEntriesArguments: Decodable {
-    let entries: [RawCreateAction]
-}
-
-struct RawCreateAction: Decodable {
-    let content: String
-    let category: EntryCategory
-    let sourceText: String?
-    let summary: String?
-    let priority: Int?
-    let dueDate: String?
-    let cadence: HabitCadence?
-    let notes: String?
-
-    enum CodingKeys: String, CodingKey {
-        case content
-        case category
-        case sourceText = "source_text"
-        case summary
-        case priority
-        case dueDate = "due_date"
-        case cadence
-        case notes
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        content = try container.decode(String.self, forKey: .content)
-        category = try container.decode(EntryCategory.self, forKey: .category)
-        sourceText = try container.decodeIfPresent(String.self, forKey: .sourceText)
-        summary = try container.decodeIfPresent(String.self, forKey: .summary)
-        priority = try container.decodeIfPresent(Int.self, forKey: .priority)
-        dueDate = try container.decodeIfPresent(String.self, forKey: .dueDate)
-        // Defensive: unknown cadence values become nil
-        if let cadenceString = try container.decodeIfPresent(String.self, forKey: .cadence) {
-            cadence = HabitCadence(rawValue: cadenceString)
-        } else {
-            cadence = nil
-        }
-        notes = try container.decodeIfPresent(String.self, forKey: .notes)
-    }
-
-    var asAction: CreateAction {
-        let normalizedSummary = summary?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedSource = sourceText?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let finalSource: String
-        if let normalizedSource, !normalizedSource.isEmpty {
-            finalSource = normalizedSource
-        } else {
-            finalSource = content
-        }
-
-        let finalSummary: String
-        if let normalizedSummary, !normalizedSummary.isEmpty {
-            finalSummary = normalizedSummary
-        } else {
-            finalSummary = ""
-        }
-        return CreateAction(
-            content: content,
-            category: category,
-            sourceText: finalSource,
-            summary: finalSummary,
-            priority: priority.map { max(1, min(5, $0)) },
-            dueDateDescription: dueDate,
-            cadence: cadence,
-            notes: notes
-        )
-    }
-}
-
-struct UpdateEntriesArguments: Decodable {
-    let updates: [RawUpdateAction]
-}
-
-struct RawUpdateAction: Decodable {
-    let id: String
-    let fields: RawUpdateFields
-    let reason: String?
-
-    var asAction: UpdateAction {
-        let normalized = reason?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let finalReason: String
-        if let normalized, !normalized.isEmpty {
-            finalReason = normalized
-        } else {
-            finalReason = "No reason provided"
-        }
-        return UpdateAction(
-            id: id,
-            fields: fields.asFields,
-            reason: finalReason
-        )
-    }
-}
-
-struct RawUpdateFields: Decodable {
-    let content: String?
-    let summary: String?
-    let category: EntryCategory?
-    let priority: Int?
-    let dueDate: String?
-    let cadence: HabitCadence?
-    let status: AgentEntryStatus?
-    let snoozeUntil: String?
-    let checkOffHabit: Bool?
-    let notes: String?
-
-    enum CodingKeys: String, CodingKey {
-        case content
-        case summary
-        case category
-        case priority
-        case dueDate = "due_date"
-        case cadence
-        case status
-        case snoozeUntil = "snooze_until"
-        case checkOffHabit = "check_off_habit"
-        case notes
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        content = try container.decodeIfPresent(String.self, forKey: .content)
-        summary = try container.decodeIfPresent(String.self, forKey: .summary)
-        category = try container.decodeIfPresent(EntryCategory.self, forKey: .category)
-        priority = try container.decodeIfPresent(Int.self, forKey: .priority)
-        dueDate = try container.decodeIfPresent(String.self, forKey: .dueDate)
-        // Defensive: unknown cadence values become nil
-        if let cadenceString = try container.decodeIfPresent(String.self, forKey: .cadence) {
-            cadence = HabitCadence(rawValue: cadenceString)
-        } else {
-            cadence = nil
-        }
-        status = try container.decodeIfPresent(AgentEntryStatus.self, forKey: .status)
-        snoozeUntil = try container.decodeIfPresent(String.self, forKey: .snoozeUntil)
-        checkOffHabit = try container.decodeIfPresent(Bool.self, forKey: .checkOffHabit)
-        notes = try container.decodeIfPresent(String.self, forKey: .notes)
-    }
-
-    var asFields: UpdateFields {
-        UpdateFields(
-            content: content,
-            summary: summary,
-            category: category,
-            priority: priority.map { max(1, min(5, $0)) },
-            dueDateDescription: dueDate,
-            cadence: cadence,
-            status: status,
-            snoozeUntilDescription: snoozeUntil,
-            checkOffHabit: checkOffHabit,
-            notes: notes
-        )
-    }
-}
-
-private struct ComposeViewArguments: Decodable {
-    let sections: [RawComposedSection]
-    let briefing: String?
-}
-
-private struct RawComposedSection: Decodable {
-    let title: String?
-    let density: SectionDensity?
-    let items: [RawComposedItem]
-}
-
-private struct RawComposedItem: Decodable {
-    let type: String
-    let id: String?
-    let emphasis: String?
-    let badge: String?
-    let text: String?
-}
-
-struct UpdateLayoutArguments: Decodable {
-    let operations: [RawLayoutOperation]
-}
-
-struct RawLayoutOperation: Decodable {
-    let op: String
-    let title: String?
-    let density: String?
-    let position: Int?
-    let newTitle: String?
-    let entryId: String?
-    let section: String?
-    let toSection: String?
-    let toPosition: Int?
-    let emphasis: String?
-    let badge: String?
-
-    enum CodingKeys: String, CodingKey {
-        case op, title, density, position
-        case newTitle = "new_title"
-        case entryId = "entry_id"
-        case section
-        case toSection = "to_section"
-        case toPosition = "to_position"
-        case emphasis, badge
-    }
-
-    var asOperation: LayoutOperation? {
-        switch op {
-        case "add_section":
-            guard let title else { return nil }
-            let d = density.flatMap { SectionDensity(rawValue: $0) } ?? .relaxed
-            return .addSection(title: title, density: d, position: position)
-        case "remove_section":
-            guard let title else { return nil }
-            return .removeSection(title: title)
-        case "update_section":
-            guard let title else { return nil }
-            let d = density.flatMap { SectionDensity(rawValue: $0) }
-            return .updateSection(title: title, density: d, newTitle: newTitle)
-        case "insert_entry":
-            guard let entryId, let section else { return nil }
-            let e = emphasis.flatMap { EntryEmphasis(rawValue: $0) } ?? .standard
-            return .insertEntry(entryID: entryId, section: section, position: position, emphasis: e, badge: badge)
-        case "remove_entry":
-            guard let entryId else { return nil }
-            return .removeEntry(entryID: entryId)
-        case "move_entry":
-            guard let entryId, let toSection else { return nil }
-            return .moveEntry(entryID: entryId, toSection: toSection, toPosition: toPosition)
-        case "update_entry":
-            guard let entryId else { return nil }
-            let e = emphasis.flatMap { EntryEmphasis(rawValue: $0) }
-            return .updateEntry(entryID: entryId, emphasis: e, badge: badge)
-        default:
-            return nil
-        }
-    }
-}
-
-struct EntryMutationArguments: Decodable {
-    let entries: [RawEntryMutation]
-}
-
-struct UpdateMemoryArguments: Decodable {
-    let content: String
-}
-
-struct RawEntryMutation: Decodable {
-    let id: String
-    let reason: String?
-
-    var normalizedReason: String {
-        let trimmed = reason?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let trimmed, !trimmed.isEmpty {
-            return trimmed
-        }
-        return "No reason provided"
-    }
-}
-
-struct ConfirmActionsArguments: Decodable {
-    let message: String
-    let actions: [RawProposedAction]
-}
-
-struct RawProposedAction: Decodable {
-    let tool: String
-    let arguments: AnyCodable
-
-    /// Re-serialize the arguments object back to Data for reuse by existing decoders.
-    var argumentsData: Data? {
-        try? JSONSerialization.data(withJSONObject: arguments.value)
-    }
-}
-
-/// Wrapper to decode arbitrary JSON objects from the arguments field.
-struct AnyCodable: Decodable {
-    let value: Any
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let dict = try? container.decode([String: AnyCodable].self) {
-            value = dict.mapValues(\.value)
-        } else if let array = try? container.decode([AnyCodable].self) {
-            value = array.map(\.value)
-        } else if let string = try? container.decode(String.self) {
-            value = string
-        } else if let int = try? container.decode(Int.self) {
-            value = int
-        } else if let double = try? container.decode(Double.self) {
-            value = double
-        } else if let bool = try? container.decode(Bool.self) {
-            value = bool
-        } else {
-            value = NSNull()
-        }
-    }
-}
-
-// MARK: - Errors
-
-public enum PPQError: LocalizedError, Sendable {
-    case invalidResponse
-    case httpError(statusCode: Int, body: String)
-    case noToolCalls
-
-    public var errorDescription: String? {
-        switch self {
-        case .invalidResponse:
-            return "Invalid response from PPQ API"
-        case .httpError(let code, let body):
-            return "PPQ API error (HTTP \(code)): \(body)"
-        case .noToolCalls:
-            return "PPQ API returned no tool calls"
-        }
-    }
-}

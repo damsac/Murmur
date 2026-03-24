@@ -417,6 +417,7 @@ enum EntryAction {
     case unarchive
     case delete
     case checkOffHabit         // toggle done-for-period on habit entries
+    case toggleListItem(index: Int) // toggle checkbox on a list item
 }
 
 extension Entry {
@@ -466,7 +467,38 @@ extension Entry {
             }
             updatedAt = Date()
             save(in: context)
+
+        case .toggleListItem(let index):
+            toggleListItem(at: index)
+            save(in: context)
         }
+    }
+
+    /// Toggle a checkbox item in list content by its index among list items.
+    private func toggleListItem(at index: Int) {
+        var lines = content.components(separatedBy: "\n")
+        var itemIndex = 0
+        for i in lines.indices {
+            let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
+            let isListItem = trimmed.hasPrefix("- [x] ")
+                || trimmed.hasPrefix("- [ ] ")
+                || trimmed.hasPrefix("- ")
+            guard isListItem else { continue }
+            if itemIndex == index {
+                let leading = String(lines[i].prefix(while: { $0 == " " || $0 == "\t" }))
+                if trimmed.hasPrefix("- [x] ") {
+                    lines[i] = leading + "- [ ] " + String(trimmed.dropFirst(6))
+                } else if trimmed.hasPrefix("- [ ] ") {
+                    lines[i] = leading + "- [x] " + String(trimmed.dropFirst(6))
+                } else if trimmed.hasPrefix("- ") {
+                    lines[i] = leading + "- [x] " + String(trimmed.dropFirst(2))
+                }
+                break
+            }
+            itemIndex += 1
+        }
+        content = lines.joined(separator: "\n")
+        updatedAt = Date()
     }
 
     private func save(in context: ModelContext) {

@@ -7,10 +7,13 @@ struct SettingsFullView: View {
     let onTopUp: () -> Void
 
     @State private var showArchive = false
+    @State private var showHelp = false
 
     var body: some View {
         if showArchive {
             ArchiveView(onBack: { showArchive = false })
+        } else if showHelp {
+            HelpView(onBack: { showHelp = false })
         } else {
             settingsContent
         }
@@ -27,7 +30,13 @@ struct SettingsFullView: View {
                     title: "Settings",
                     showBackButton: true,
                     backAction: onBack,
-                    trailingButtons: []
+                    trailingButtons: [
+                        NavHeader.NavButton(icon: "questionmark.circle") {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                showHelp = true
+                            }
+                        }
+                    ]
                 )
 
                 ScrollView {

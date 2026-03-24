@@ -10,13 +10,12 @@ Updated when priorities shift. Either person can propose changes via PR.
 
 | Work | Owner | Status | Branch |
 |------|-------|--------|--------|
-| TestFlight prep (checklist items 3, 6, 13–20) | dam + sac | In progress | dam, PR pending |
-| Empty state fix (SacHomeView FocusTabView) | sac | Not started | — |
+| TestFlight prep (checklist items 3, 6, 13–15, 20) | dam + sac | In progress | dam, PR pending |
 | Wire error views (MicDenied, OutOfCredits, APIError) | sac + dam | Not started | — |
 
 ## Up Next
 
-- User-facing home view toggle (Settings: Scanner/Navigator/Zoned) — layout diff Phase 4
+- User-facing home view toggle (Settings: Scanner/Navigator) — Zones is now default, toggle for alternatives
 - VoiceOver accessibility + `accessibilityReduceMotion` broadly
 - Search (entries become unfindable at scale)
 - LLM cost visibility tool (usage log + Settings UI)
@@ -29,7 +28,7 @@ These need resolution. Either person can claim one and propose an answer via PR.
 - Token budget: how many active entries before truncating context?
 - Conversation lifecycle: when does multi-turn reset? Timer, explicit button, or N seconds of silence?
 - Undo stacking: independent undo for rapid actions?
-- Home view default: which variant ships to testers? (Currently DevMode-only toggle)
+- ~~Home view default~~: resolved — Zones is now the default; SacHomeView removed
 
 ## Completed
 
@@ -59,3 +58,6 @@ These need resolution. Either person can claim one and propose an answer via PR.
 | Error handling hardening design spec | 2026-03-14 | `5528c59` |
 | Due date formatting, layout animations, UI polish | 2026-03-14 | `24c4430` |
 | Simplify categories (remove `thought`, down to 7) | 2026-03-01 | various |
+| TestFlight prep: items 16–19 (export compliance, portrait lock, DevMode gate, privacy manifest) | 2026-03-22 | Phase 1 |
+| Remove SacHomeView, Zones as default home | 2026-03-22 | Phase 2 |
+| Dead code purge + code quality improvements | 2026-03-22 | Phase 3 |

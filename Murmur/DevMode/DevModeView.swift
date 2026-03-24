@@ -4,7 +4,7 @@ import MurmurCore
 struct DevModeView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("homeVariant") private var homeVariant: String = "sac"
+    @AppStorage("homeVariant") private var homeVariant: String = "zones"
     @AppStorage("colorPalette") private var colorPalette: String = "classic"
 
     var body: some View {
@@ -36,43 +36,6 @@ struct DevModeView: View {
                                     isOn: $appState.showOnboarding
                                 )
 
-                                StateToggleRow(
-                                    label: "Show Focus Card",
-                                    isOn: $appState.showFocusCard
-                                )
-
-                                // Recording state buttons
-                                HStack {
-                                    Text("Recording State")
-                                        .font(.subheadline)
-                                        .foregroundStyle(Theme.Colors.textSecondary)
-
-                                    Spacer()
-
-                                    Menu {
-                                        Button("Idle") {
-                                            appState.recordingState = .idle
-                                        }
-                                        Button("Recording") {
-                                            appState.recordingState = .recording
-                                        }
-                                        Button("Processing") {
-                                            appState.recordingState = .processing
-                                        }
-                                    } label: {
-                                        HStack(spacing: 4) {
-                                            Text(recordingStateLabel)
-                                                .font(.subheadline.weight(.medium))
-                                                .foregroundStyle(Theme.Colors.accentPurple)
-
-                                            Image(systemName: "chevron.down")
-                                                .font(Theme.Typography.badge)
-                                                .foregroundStyle(Theme.Colors.accentPurple)
-                                        }
-                                    }
-                                }
-                                .padding(.top, 4)
-
                                 // Home variant picker
                                 HStack {
                                     Text("Home View")
@@ -82,9 +45,8 @@ struct DevModeView: View {
                                     Spacer()
 
                                     Picker("", selection: $homeVariant) {
-                                        Text("Navigator").tag("sac")
-                                        Text("Scanner").tag("dam")
-                                        Text("Zones").tag("sac2")
+                                        Text("Scanner").tag("scanner")
+                                        Text("Zones").tag("zones")
                                     }
                                     .pickerStyle(.segmented)
                                     .frame(width: 210)
@@ -258,19 +220,9 @@ struct DevModeView: View {
         }
     }
 
-    private var recordingStateLabel: String {
-        switch appState.recordingState {
-        case .idle: return "Idle"
-        case .recording: return "Recording"
-        case .processing: return "Processing"
-        }
-    }
-
     private func resetAllState() {
         withAnimation {
-            appState.recordingState = .idle
             appState.showOnboarding = false
-            appState.showFocusCard = false
         }
     }
 }

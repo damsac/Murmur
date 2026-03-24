@@ -11,14 +11,6 @@ struct DamHomeView: View {
     let onSettingsTap: () -> Void
     let onAction: (Entry, EntryAction) -> Void
 
-    // Empty state pulse animations
-    @State private var pulseScale1: CGFloat = 1.0
-    @State private var pulseScale2: CGFloat = 1.0
-    @State private var pulseScale3: CGFloat = 1.0
-    @State private var pulseOpacity1: Double = 1.0
-    @State private var pulseOpacity2: Double = 0.7
-    @State private var pulseOpacity3: Double = 0.5
-
     @Namespace private var layoutNamespace
     @State private var revealedEntryIDs: Set<String> = []
     @State private var hasAnimatedInitialLoad: Bool = false
@@ -149,88 +141,10 @@ struct DamHomeView: View {
 
     @ViewBuilder
     private var emptyState: some View {
-        VStack(spacing: 0) {
-            Spacer()
-
-            VStack(spacing: 40) {
-                ZStack {
-                    Circle()
-                        .stroke(Theme.Colors.accentPurple.opacity(0.05), lineWidth: 1)
-                        .frame(width: 136, height: 136)
-                        .scaleEffect(pulseScale3)
-                        .opacity(pulseOpacity3)
-
-                    Circle()
-                        .stroke(Theme.Colors.accentPurple.opacity(0.1), lineWidth: 1)
-                        .frame(width: 112, height: 112)
-                        .scaleEffect(pulseScale2)
-                        .opacity(pulseOpacity2)
-
-                    Circle()
-                        .stroke(Theme.Colors.accentPurple.opacity(0.3), lineWidth: 2)
-                        .frame(width: 88, height: 88)
-                        .scaleEffect(pulseScale1)
-                        .opacity(pulseOpacity1)
-
-                    Button(action: onMicTap) {
-                        Image(systemName: "mic")
-                            .font(.largeTitle)
-                            .foregroundStyle(Theme.Colors.accentPurple.opacity(0.5))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Record your first voice note")
-                }
-                .onAppear { startPulseAnimation() }
-
-                VStack(spacing: 10) {
-                    Text("Say or type anything.")
-                        .font(Theme.Typography.title)
-                        .tracking(-0.5)
-                        .foregroundStyle(Theme.Colors.textPrimary)
-
-                    Text("Murmur remembers so you don't have to.")
-                        .font(Theme.Typography.body)
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                        .lineSpacing(2)
-                        .devModeActivator()
-                }
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-            }
-
-            Spacer()
-            Spacer()
-        }
-    }
-
-    // MARK: - Pulse Animation
-
-    private func startPulseAnimation() {
-        withAnimation(
-            .easeInOut(duration: 3)
-            .repeatForever(autoreverses: true)
-        ) {
-            pulseScale1 = 1.05
-            pulseOpacity1 = 0.8
-        }
-
-        withAnimation(
-            .easeInOut(duration: 3)
-            .repeatForever(autoreverses: true)
-            .delay(0.5)
-        ) {
-            pulseScale2 = 1.05
-            pulseOpacity2 = 0.5
-        }
-
-        withAnimation(
-            .easeInOut(duration: 3)
-            .repeatForever(autoreverses: true)
-            .delay(1.0)
-        ) {
-            pulseScale3 = 1.05
-            pulseOpacity3 = 0.3
-        }
+        EmptyStatePulseView(
+            onMicTap: onMicTap,
+            showDevModeActivator: true
+        )
     }
 
     // MARK: - Layout Reveal
@@ -379,19 +293,39 @@ private struct ComposedSectionView: View {
                         ForEach(Array(items.enumerated()), id: \.element.id) { _, item in
                             switch item {
                             case .entry(let entry, let composed):
-                                ComposedEntryView(
-                                    entry: entry,
-                                    emphasis: composed.emphasis,
-                                    badge: composed.badge,
-                                    activeSwipeEntryID: $activeSwipeEntryID,
-                                    swipeActionsProvider: swipeActionsProvider,
-                                    onTap: { onEntryTap(entry) },
-                                    onAction: { onAction(entry, $0) }
-                                )
-                                .matchedGeometryEffect(id: "entry-\(composed.id)", in: layoutNamespace)
-                                .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                                .opacity(isEntryRevealed(composed.id) ? 1 : 0)
-                                .scaleEffect(isEntryRevealed(composed.id) ? 1 : 0.95)
+                                if entry.category == .list {
+                                    SwipeableCard(
+                                        actions: swipeActionsProvider(entry),
+                                        activeSwipeID: $activeSwipeEntryID,
+                                        entryID: entry.id,
+                                        onTap: { onEntryTap(entry) }
+                                    ) {
+                                        ListCardView(
+                                            entry: entry,
+                                            onAction: onAction,
+                                            onTap: { onEntryTap(entry) }
+                                        )
+                                    }
+                                    .padding(.horizontal, Theme.Spacing.screenPadding)
+                                    .matchedGeometryEffect(id: "entry-\(composed.id)", in: layoutNamespace)
+                                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                                    .opacity(isEntryRevealed(composed.id) ? 1 : 0)
+                                    .scaleEffect(isEntryRevealed(composed.id) ? 1 : 0.95)
+                                } else {
+                                    ComposedEntryView(
+                                        entry: entry,
+                                        emphasis: composed.emphasis,
+                                        badge: composed.badge,
+                                        activeSwipeEntryID: $activeSwipeEntryID,
+                                        swipeActionsProvider: swipeActionsProvider,
+                                        onTap: { onEntryTap(entry) },
+                                        onAction: { onAction(entry, $0) }
+                                    )
+                                    .matchedGeometryEffect(id: "entry-\(composed.id)", in: layoutNamespace)
+                                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                                    .opacity(isEntryRevealed(composed.id) ? 1 : 0)
+                                    .scaleEffect(isEntryRevealed(composed.id) ? 1 : 0.95)
+                                }
                             case .message(let text):
                                 ComposedMessageView(text: text)
                             }

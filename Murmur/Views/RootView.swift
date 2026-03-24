@@ -19,13 +19,14 @@ struct RootView: View {
     @State private var showTextInputBar = false
     @State private var showSettings = false
     @State private var showCalendar = false
+    @State private var showHelp = false
     @State private var showTopUp = false
     @State private var showOutOfCredits = false
     @State private var isPurchasingTopUp = false
     @State private var isLoadingTopUpProducts = false
     @State private var topUpPacks: [CreditPack] = []
     @State private var topUpProductIDByCredits: [Int64: String] = [:]
-    @AppStorage("homeVariant") private var homeVariant: String = "sac"
+    @AppStorage("homeVariant") private var homeVariant: String = "zones"
     @State private var hintStep: Int = -1
     @State private var hintTimerTask: Task<Void, Never>?
     @State private var pendingDeleteEntry: Entry?
@@ -347,6 +348,9 @@ struct RootView: View {
             .sheet(isPresented: $showCalendar) {
                 CalendarView(onEntryTap: { selectedEntry = $0 })
             }
+            .sheet(isPresented: $showHelp) {
+                HelpView(onBack: { showHelp = false })
+            }
     }
 
     // MARK: - Home Content
@@ -378,7 +382,7 @@ struct RootView: View {
 
     @ViewBuilder
     private var homeContent: some View {
-        if homeVariant == "dam" {
+        if homeVariant == "scanner" {
             DamHomeView(
                 inputText: $inputText,
                 entries: activeEntries,
@@ -388,7 +392,7 @@ struct RootView: View {
                 onSettingsTap: { showSettings = true },
                 onAction: { handleEntryAction($0, $1) }
             )
-        } else if homeVariant == "sac2" {
+        } else {
             ZonedFocusHomeView(
                 inputText: $inputText,
                 entries: activeEntries,
@@ -397,18 +401,7 @@ struct RootView: View {
                 onEntryTap: { selectedEntry = $0 },
                 onKeyboardTap: { showTextInputBar = true },
                 onSettingsTap: { showSettings = true },
-                onCalendarTap: { showCalendar = true },
-                onAction: { handleEntryAction($0, $1) }
-            )
-        } else {
-            SacHomeView(
-                inputText: $inputText,
-                entries: activeEntries,
-                onMicTap: toggleRecording,
-                onSubmit: submitInput,
-                onEntryTap: { selectedEntry = $0 },
-                onKeyboardTap: { showTextInputBar = true },
-                onSettingsTap: { showSettings = true },
+                onHelpTap: { showHelp = true },
                 onCalendarTap: { showCalendar = true },
                 onAction: { handleEntryAction($0, $1) }
             )
@@ -516,7 +509,7 @@ private extension RootView {
     }
 
     var currentVariant: CompositionVariant {
-        homeVariant == "dam" ? .scanner : .navigator
+        homeVariant == "scanner" ? .scanner : .navigator
     }
 
     func handleTopUpPurchase(_ pack: CreditPack) {
@@ -603,6 +596,10 @@ private extension RootView {
         case .checkOffHabit:
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             entry.perform(.checkOffHabit, in: modelContext, preferences: notifPrefs)
+
+        case .toggleListItem(let index):
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            entry.perform(.toggleListItem(index: index), in: modelContext, preferences: notifPrefs)
 
         case .snooze(nil):
             snoozeEntry = entry

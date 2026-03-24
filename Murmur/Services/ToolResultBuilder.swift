@@ -84,6 +84,8 @@ enum ToolResultBuilder {
             return "Created [\(shortID)] '\(summary)'"
         case "update_entries":
             return "Updated [\(shortID)]"
+        case "update_list_items":
+            return "Updated list items [\(shortID)]"
         case "complete_entries":
             return "Completed [\(shortID)]"
         case "archive_entries":

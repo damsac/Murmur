@@ -226,22 +226,10 @@ public final class StreamingResponseAccumulator {
     }
 
     private func summarize(actions: [AgentAction]) -> String {
-        if actions.isEmpty { return "No actions" }
-
-        let labels: [(String, Int)] = [
-            ("created", actions.filter { if case .create = $0 { return true }; return false }.count),
-            ("updated", actions.filter { if case .update = $0 { return true }; return false }.count),
-            ("completed", actions.filter { if case .complete = $0 { return true }; return false }.count),
-            ("archived", actions.filter { if case .archive = $0 { return true }; return false }.count),
-        ]
-
-        let parts = labels.filter { $0.1 > 0 }.map { "\($0.0) \($0.1)" }
-        return parts.isEmpty ? "No actions" : parts.joined(separator: ", ")
+        ToolCallParser.summarize(actions: actions)
     }
 
     private func intValue(_ value: Any?) -> Int? {
-        if let int = value as? Int { return int }
-        if let number = value as? NSNumber { return number.intValue }
-        return nil
+        ToolCallParser.intValue(value)
     }
 }

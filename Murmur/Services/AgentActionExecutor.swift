@@ -126,6 +126,17 @@ struct AgentActionExecutor {
                 applyStatusUpdate(a.fields, to: entry, context: ctx)
                 return .updated(entryID: entry.id, previousFields: snapshot)
             }
+        case .updateListItems(let a):
+            if completedIDs.contains(a.id) { return .skipped }
+            return executeMutation(id: a.id, entries: ctx.entries) { entry in
+                let previousContent = entry.content
+                entry.content = UpdateListItemsAction.serializeToMarkdown(a.items)
+                entry.updatedAt = Date()
+                return .updated(
+                    entryID: entry.id,
+                    previousFields: FieldSnapshot.contentOnly(previousContent)
+                )
+            }
         case .complete(let a):
             let result = executeMutation(id: a.id, entries: ctx.entries) { entry in
                 guard entry.status != .completed else { return nil }
@@ -355,6 +366,34 @@ struct FieldSnapshot {
     let lastHabitCompletionDate: Date?
     let habitCompletionDates: [Date]?
 
+    private init(
+        content: String?,
+        summary: String?,
+        category: EntryCategory?,
+        priority: Int?,
+        dueDateDescription: String?,
+        dueDate: Date?,
+        cadence: HabitCadence?,
+        status: EntryStatus?,
+        snoozeUntil: Date?,
+        notes: String?,
+        lastHabitCompletionDate: Date?,
+        habitCompletionDates: [Date]?
+    ) {
+        self.content = content
+        self.summary = summary
+        self.category = category
+        self.priority = priority
+        self.dueDateDescription = dueDateDescription
+        self.dueDate = dueDate
+        self.cadence = cadence
+        self.status = status
+        self.snoozeUntil = snoozeUntil
+        self.notes = notes
+        self.lastHabitCompletionDate = lastHabitCompletionDate
+        self.habitCompletionDates = habitCompletionDates
+    }
+
     init(entry: Entry, fields: UpdateFields) {
         self.content = fields.content != nil ? entry.content : nil
         self.summary = fields.summary != nil ? entry.summary : nil
@@ -368,6 +407,24 @@ struct FieldSnapshot {
         self.notes = fields.notes != nil ? entry.notes : nil
         self.lastHabitCompletionDate = fields.checkOffHabit == true ? entry.lastHabitCompletionDate : nil
         self.habitCompletionDates = fields.checkOffHabit == true ? entry.habitCompletionDates : nil
+    }
+
+    /// Snapshot capturing only the previous content value (for list item updates).
+    static func contentOnly(_ previousContent: String) -> FieldSnapshot {
+        FieldSnapshot(
+            content: previousContent,
+            summary: nil,
+            category: nil,
+            priority: nil,
+            dueDateDescription: nil,
+            dueDate: nil,
+            cadence: nil,
+            status: nil,
+            snoozeUntil: nil,
+            notes: nil,
+            lastHabitCompletionDate: nil,
+            habitCompletionDates: nil
+        )
     }
 
     func restore(to entry: Entry) {

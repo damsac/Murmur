@@ -10,15 +10,10 @@ struct ZonedFocusHomeView: View {
     let onEntryTap: (Entry) -> Void
     let onKeyboardTap: () -> Void
     let onSettingsTap: () -> Void
+    let onHelpTap: () -> Void
     let onCalendarTap: () -> Void
     let onAction: (Entry, EntryAction) -> Void
 
-    @State private var pulseScale1: CGFloat = 1.0
-    @State private var pulseScale2: CGFloat = 1.0
-    @State private var pulseScale3: CGFloat = 1.0
-    @State private var pulseOpacity1: Double = 1.0
-    @State private var pulseOpacity2: Double = 0.7
-    @State private var pulseOpacity3: Double = 0.5
     @State private var activeSwipeEntryID: UUID?
     @State private var focusMessageVisible: Bool = false
     @State private var focusVisibleCardCount: Int = 0
@@ -50,6 +45,15 @@ struct ZonedFocusHomeView: View {
 
             Spacer()
 
+            Button(action: onHelpTap) {
+                Image(systemName: "questionmark.circle")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                    .frame(width: 28, height: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Help")
+
             Button(action: onSettingsTap) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 17, weight: .medium))
@@ -66,63 +70,7 @@ struct ZonedFocusHomeView: View {
 
     @ViewBuilder
     private var emptyState: some View {
-        VStack(spacing: 0) {
-            Spacer()
-            VStack(spacing: 40) {
-                ZStack {
-                    Circle()
-                        .stroke(Theme.Colors.accentPurple.opacity(0.05), lineWidth: 1)
-                        .frame(width: 136, height: 136)
-                        .scaleEffect(pulseScale3)
-                        .opacity(pulseOpacity3)
-                    Circle()
-                        .stroke(Theme.Colors.accentPurple.opacity(0.1), lineWidth: 1)
-                        .frame(width: 112, height: 112)
-                        .scaleEffect(pulseScale2)
-                        .opacity(pulseOpacity2)
-                    Circle()
-                        .stroke(Theme.Colors.accentPurple.opacity(0.3), lineWidth: 2)
-                        .frame(width: 88, height: 88)
-                        .scaleEffect(pulseScale1)
-                        .opacity(pulseOpacity1)
-                    Button(action: onMicTap) {
-                        Image(systemName: "mic")
-                            .font(.largeTitle)
-                            .foregroundStyle(Theme.Colors.accentPurple.opacity(0.5))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Record your first voice note")
-                }
-                .onAppear { startPulseAnimation() }
-
-                VStack(spacing: 10) {
-                    Text("Say or type anything.")
-                        .font(Theme.Typography.title)
-                        .tracking(-0.5)
-                        .foregroundStyle(Theme.Colors.textPrimary)
-                    Text("Murmur remembers so you don't have to.")
-                        .font(Theme.Typography.body)
-                        .foregroundStyle(Theme.Colors.textSecondary)
-                        .lineSpacing(2)
-                }
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-            }
-            Spacer()
-            Spacer()
-        }
-    }
-
-    private func startPulseAnimation() {
-        withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true)) {
-            pulseScale1 = 1.05; pulseOpacity1 = 0.8
-        }
-        withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true).delay(0.5)) {
-            pulseScale2 = 1.05; pulseOpacity2 = 0.5
-        }
-        withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true).delay(1.0)) {
-            pulseScale3 = 1.05; pulseOpacity3 = 0.3
-        }
+        EmptyStatePulseView(onMicTap: onMicTap)
     }
 
     // MARK: - Populated State
@@ -296,15 +244,31 @@ private struct ZonedFocusTabView: View {
                         VStack(spacing: 8) {
                             ForEach(zones.standard, id: \.entry.id) { item in
                                 if item.globalIndex < visibleCardCount {
-                                    StandardFocusCard(
-                                        entry: item.entry,
-                                        reason: item.reason,
-                                        activeSwipeEntryID: $activeSwipeEntryID,
-                                        swipeActionsProvider: swipeActionsProvider,
-                                        onAction: onAction,
-                                        onTap: { onEntryTap(item.entry) }
-                                    )
-                                    .transition(cardTransition)
+                                    if item.entry.category == .list {
+                                        SwipeableCard(
+                                            actions: swipeActionsProvider(item.entry),
+                                            activeSwipeID: $activeSwipeEntryID,
+                                            entryID: item.entry.id,
+                                            onTap: { onEntryTap(item.entry) }
+                                        ) {
+                                            ListCardView(
+                                                entry: item.entry,
+                                                onAction: onAction,
+                                                onTap: { onEntryTap(item.entry) }
+                                            )
+                                        }
+                                        .transition(cardTransition)
+                                    } else {
+                                        StandardFocusCard(
+                                            entry: item.entry,
+                                            reason: item.reason,
+                                            activeSwipeEntryID: $activeSwipeEntryID,
+                                            swipeActionsProvider: swipeActionsProvider,
+                                            onAction: onAction,
+                                            onTap: { onEntryTap(item.entry) }
+                                        )
+                                        .transition(cardTransition)
+                                    }
                                 }
                             }
                         }
@@ -684,6 +648,7 @@ private struct HabitRowView: View {
         onEntryTap: { print("Tap:", $0.summary) },
         onKeyboardTap: { print("Keyboard") },
         onSettingsTap: { print("Settings") },
+        onHelpTap: { print("Help") },
         onCalendarTap: { print("Calendar") },
         onAction: { e, a in print("Action:", a, e.summary) }
     )

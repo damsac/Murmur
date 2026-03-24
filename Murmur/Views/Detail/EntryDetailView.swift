@@ -134,54 +134,65 @@ struct EntryDetailView: View {
                             }
                             .padding(.bottom, 24)
 
-                        // MARK: Notes (inline TextEditor, always visible)
-                        Text("Notes")
-                            .font(Theme.Typography.label)
-                            .foregroundStyle(Theme.Colors.textSecondary)
-                            .padding(.bottom, 6)
-
-                        ZStack(alignment: .topLeading) {
-                            if draftNotes.isEmpty && !notesFocused {
-                                Text("Add a note…")
-                                    .font(Theme.Typography.body)
-                                    .foregroundStyle(Theme.Colors.textMuted)
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 16)
-                                    .allowsHitTesting(false)
-                            }
-                            TextEditor(text: $draftNotes)
-                                .font(Theme.Typography.body)
-                                .foregroundStyle(Theme.Colors.textPrimary)
-                                .scrollContentBackground(.hidden)
-                                .frame(minHeight: 80)
-                                .focused($notesFocused)
-                                .padding(12)
-                                .onChange(of: draftNotes) { _, newValue in
-                                    if entry.category == .list {
+                        // MARK: Notes / List items
+                        if draftCategory == .list {
+                            ListItemsEditor(
+                                content: Binding(
+                                    get: { draftNotes },
+                                    set: { newValue in
+                                        draftNotes = newValue
                                         entry.content = newValue
-                                    } else {
-                                        entry.notes = newValue
+                                        entry.updatedAt = Date()
+                                        save()
                                     }
-                                    entry.updatedAt = Date()
-                                    save()
-                                }
-                        }
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(notesFocused
-                                    ? Theme.Colors.bgCard
-                                    : Theme.Colors.bgCard.opacity(0.5))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .stroke(
-                                            notesFocused
-                                                ? Theme.Colors.accentPurple.opacity(0.3)
-                                                : Theme.Colors.borderFaint,
-                                            lineWidth: 1
-                                        )
                                 )
-                        )
-                        .padding(.bottom, 24)
+                            )
+                            .padding(.bottom, 24)
+                        } else {
+                            Text("Notes")
+                                .font(Theme.Typography.label)
+                                .foregroundStyle(Theme.Colors.textSecondary)
+                                .padding(.bottom, 6)
+
+                            ZStack(alignment: .topLeading) {
+                                if draftNotes.isEmpty && !notesFocused {
+                                    Text("Add a note…")
+                                        .font(Theme.Typography.body)
+                                        .foregroundStyle(Theme.Colors.textMuted)
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 16)
+                                        .allowsHitTesting(false)
+                                }
+                                TextEditor(text: $draftNotes)
+                                    .font(Theme.Typography.body)
+                                    .foregroundStyle(Theme.Colors.textPrimary)
+                                    .scrollContentBackground(.hidden)
+                                    .frame(minHeight: 80)
+                                    .focused($notesFocused)
+                                    .padding(12)
+                                    .onChange(of: draftNotes) { _, newValue in
+                                        entry.notes = newValue
+                                        entry.updatedAt = Date()
+                                        save()
+                                    }
+                            }
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(notesFocused
+                                        ? Theme.Colors.bgCard
+                                        : Theme.Colors.bgCard.opacity(0.5))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .stroke(
+                                                notesFocused
+                                                    ? Theme.Colors.accentPurple.opacity(0.3)
+                                                    : Theme.Colors.borderFaint,
+                                                lineWidth: 1
+                                            )
+                                    )
+                            )
+                            .padding(.bottom, 24)
+                        }
 
                         // MARK: Priority picker (inline, always visible)
                         VStack(alignment: .leading, spacing: 8) {
@@ -686,6 +697,126 @@ private struct CustomSnoozeSheet: View {
             }
         }
         .background(Theme.Colors.bgDeep)
+    }
+}
+
+// MARK: - List Items Editor
+
+private struct ListItemsEditor: View {
+    @Binding var content: String
+
+    private var items: [(index: Int, text: String, checked: Bool)] {
+        content.components(separatedBy: "\n").enumerated().compactMap { lineIndex, line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("- [x] ") {
+                return (lineIndex, String(trimmed.dropFirst(6)), true)
+            } else if trimmed.hasPrefix("- [ ] ") {
+                return (lineIndex, String(trimmed.dropFirst(6)), false)
+            } else if trimmed.hasPrefix("- ") {
+                return (lineIndex, String(trimmed.dropFirst(2)), false)
+            }
+            return nil
+        }
+    }
+
+    private var checkedCount: Int { items.filter { $0.checked }.count }
+    private var accent: Color { Theme.categoryColor(.list) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack {
+                Text("Items")
+                    .font(Theme.Typography.label)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                Spacer()
+                if !items.isEmpty {
+                    Text("\(checkedCount)/\(items.count)")
+                        .font(Theme.Typography.badge)
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                }
+            }
+            .padding(.bottom, 10)
+
+            // Item rows
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(items, id: \.index) { item in
+                    Button {
+                        toggleItem(at: item.index, currentlyChecked: item.checked)
+                    } label: {
+                        HStack(alignment: .center, spacing: 12) {
+                            Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 22))
+                                .foregroundStyle(item.checked ? accent : Theme.Colors.textTertiary)
+
+                            Text(item.text)
+                                .font(Theme.Typography.body)
+                                .foregroundStyle(item.checked ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
+                                .strikethrough(item.checked, color: Theme.Colors.textTertiary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .lineLimit(3)
+                        }
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    if item.index != items.last?.index {
+                        Rectangle()
+                            .fill(Theme.Colors.borderFaint)
+                            .frame(height: 0.5)
+                            .padding(.leading, 34)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Theme.Colors.bgCard.opacity(0.5))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Theme.Colors.borderFaint, lineWidth: 1)
+                    )
+            )
+
+            // Progress bar
+            if !items.isEmpty {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Theme.Colors.borderSubtle)
+                            .frame(height: 3)
+                        Capsule()
+                            .fill(accent)
+                            .frame(
+                                width: geo.size.width * CGFloat(checkedCount) / CGFloat(items.count),
+                                height: 3
+                            )
+                            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: checkedCount)
+                    }
+                }
+                .frame(height: 3)
+                .padding(.top, 10)
+            }
+        }
+    }
+
+    private func toggleItem(at lineIndex: Int, currentlyChecked: Bool) {
+        var lines = content.components(separatedBy: "\n")
+        guard lineIndex < lines.count else { return }
+        let line = lines[lineIndex]
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if currentlyChecked {
+            lines[lineIndex] = line.replacingOccurrences(of: "- [x] ", with: "- [ ] ")
+        } else if trimmed.hasPrefix("- [ ] ") {
+            lines[lineIndex] = line.replacingOccurrences(of: "- [ ] ", with: "- [x] ")
+        } else if trimmed.hasPrefix("- ") {
+            lines[lineIndex] = line.replacingOccurrences(of: "- ", with: "- [x] ")
+        }
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.65)) {
+            content = lines.joined(separator: "\n")
+        }
     }
 }
 
