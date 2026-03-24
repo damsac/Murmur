@@ -221,6 +221,7 @@ func shouldRevealActions(
     totalActionWidth: CGFloat,
     revealThreshold: CGFloat = 0.35
 ) -> Bool {
+    guard totalActionWidth > 0 else { return false }
     let base: CGFloat = wasRevealed ? -totalActionWidth : 0
     let finalOffset = base + dragX
     return -finalOffset > totalActionWidth * revealThreshold
