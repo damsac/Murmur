@@ -5,6 +5,7 @@ import os.log
 
 private let entryDetailLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "Entries")
 
+// swiftlint:disable:next type_body_length
 struct EntryDetailView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.modelContext) private var modelContext
