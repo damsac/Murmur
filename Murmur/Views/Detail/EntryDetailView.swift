@@ -1,5 +1,6 @@
 import SwiftUI
 import MurmurCore
+import StudioAnalytics
 import os.log
 
 private let entryDetailLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "murmur", category: "Entries")
@@ -63,11 +64,21 @@ struct EntryDetailView: View {
                                     let color = Theme.categoryColor(cat)
                                     let isSelected = draftCategory == cat
                                     Button {
+                                        let oldCategory = draftCategory
                                         draftCategory = cat
                                         entry.category = cat
                                         entry.updatedAt = Date()
                                         save()
                                         NotificationService.shared.sync(entry, preferences: notifPrefs)
+                                        if oldCategory != cat {
+                                            StudioAnalytics.track(EntryCategoryChanged(
+                                                entryId: entry.id.uuidString,
+                                                category: oldCategory.rawValue,
+                                                newCategory: cat.rawValue,
+                                                timeSinceCreationMs: Int(Date().timeIntervalSince(entry.createdAt) * 1000),
+                                                source: "user"
+                                            ))
+                                        }
                                     } label: {
                                         HStack(spacing: 6) {
                                             Circle()
@@ -124,13 +135,22 @@ struct EntryDetailView: View {
                                             )
                                     )
                             )
-                            .onChange(of: draftSummary) { _, newValue in
+                            .onChange(of: draftSummary) { oldValue, newValue in
                                 let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                                 guard !trimmed.isEmpty else { return }
                                 entry.summary = trimmed
                                 entry.updatedAt = Date()
                                 save()
                                 NotificationService.shared.sync(entry, preferences: notifPrefs)
+                                if oldValue != newValue {
+                                    StudioAnalytics.track(EntryEdited(
+                                        entryId: entry.id.uuidString,
+                                        category: entry.category.rawValue,
+                                        fieldChanged: "summary",
+                                        timeSinceCreationMs: Int(Date().timeIntervalSince(entry.createdAt) * 1000),
+                                        source: "user"
+                                    ))
+                                }
                             }
                             .padding(.bottom, 24)
 
@@ -140,10 +160,20 @@ struct EntryDetailView: View {
                                 content: Binding(
                                     get: { draftNotes },
                                     set: { newValue in
+                                        let oldValue = draftNotes
                                         draftNotes = newValue
                                         entry.content = newValue
                                         entry.updatedAt = Date()
                                         save()
+                                        if oldValue != newValue {
+                                            StudioAnalytics.track(EntryEdited(
+                                                entryId: entry.id.uuidString,
+                                                category: entry.category.rawValue,
+                                                fieldChanged: "content",
+                                                timeSinceCreationMs: Int(Date().timeIntervalSince(entry.createdAt) * 1000),
+                                                source: "user"
+                                            ))
+                                        }
                                     }
                                 )
                             )
@@ -170,10 +200,19 @@ struct EntryDetailView: View {
                                     .frame(minHeight: 80)
                                     .focused($notesFocused)
                                     .padding(12)
-                                    .onChange(of: draftNotes) { _, newValue in
+                                    .onChange(of: draftNotes) { oldValue, newValue in
                                         entry.notes = newValue
                                         entry.updatedAt = Date()
                                         save()
+                                        if oldValue != newValue {
+                                            StudioAnalytics.track(EntryEdited(
+                                                entryId: entry.id.uuidString,
+                                                category: entry.category.rawValue,
+                                                fieldChanged: "notes",
+                                                timeSinceCreationMs: Int(Date().timeIntervalSince(entry.createdAt) * 1000),
+                                                source: "user"
+                                            ))
+                                        }
                                     }
                             }
                             .background(
@@ -286,6 +325,12 @@ struct EntryDetailView: View {
             draftNotes = entry.category == .list ? entry.content : entry.notes
             draftCategory = entry.category
             draftPriority = entry.priority
+            StudioAnalytics.track(EntryDetailViewed(
+                entryId: entry.id.uuidString,
+                category: entry.category.rawValue,
+                timeSinceCreationMs: Int(Date().timeIntervalSince(entry.createdAt) * 1000),
+                source: "user"
+            ))
         }
         .sheet(isPresented: $showDueDateSheet) {
             DueDateEditSheet(
@@ -297,6 +342,13 @@ struct EntryDetailView: View {
                     save()
                     NotificationService.shared.sync(entry, preferences: notifPrefs)
                     showDueDateSheet = false
+                    StudioAnalytics.track(EntryEdited(
+                        entryId: entry.id.uuidString,
+                        category: entry.category.rawValue,
+                        fieldChanged: "dueDate",
+                        timeSinceCreationMs: Int(Date().timeIntervalSince(entry.createdAt) * 1000),
+                        source: "user"
+                    ))
                 },
                 onRemove: {
                     entry.dueDate = nil
@@ -304,6 +356,13 @@ struct EntryDetailView: View {
                     save()
                     NotificationService.shared.cancel(entry)
                     showDueDateSheet = false
+                    StudioAnalytics.track(EntryEdited(
+                        entryId: entry.id.uuidString,
+                        category: entry.category.rawValue,
+                        fieldChanged: "dueDate",
+                        timeSinceCreationMs: Int(Date().timeIntervalSince(entry.createdAt) * 1000),
+                        source: "user"
+                    ))
                 },
                 onDismiss: { showDueDateSheet = false }
             )
@@ -345,10 +404,20 @@ struct EntryDetailView: View {
     private func priorityPill(label: String, value: Int?) -> some View {
         let isSelected = draftPriority == value
         Button {
+            let oldPriority = draftPriority
             draftPriority = value
             entry.priority = value
             entry.updatedAt = Date()
             save()
+            if oldPriority != value {
+                StudioAnalytics.track(EntryEdited(
+                    entryId: entry.id.uuidString,
+                    category: entry.category.rawValue,
+                    fieldChanged: "priority",
+                    timeSinceCreationMs: Int(Date().timeIntervalSince(entry.createdAt) * 1000),
+                    source: "user"
+                ))
+            }
         } label: {
             Text(label)
                 .font(Theme.Typography.label)
