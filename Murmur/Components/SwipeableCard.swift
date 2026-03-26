@@ -102,7 +102,7 @@ struct SwipeableCard<Content: View>: View {
                         snap(reveal: -finalOffset > totalWidth * 0.35)
                         lastDragEndTime = Date()
                     }
-                    .allowsHitTesting(true)
+                    .allowsHitTesting(false)
                 }
             }
         }
