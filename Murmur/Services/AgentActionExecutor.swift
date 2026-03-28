@@ -146,8 +146,9 @@ struct AgentActionExecutor {
             }
             if case .applied(let entry, _) = result {
                 StudioAnalytics.track(EntryCompleted(
+                    entryId: entry.id.uuidString,
                     category: entry.category.rawValue,
-                    ageHours: Int(Date().timeIntervalSince(entry.createdAt) / 3600),
+                    timeSinceCreationMs: Int(Date().timeIntervalSince(entry.createdAt) * 1000),
                     source: "agent"
                 ))
             }
@@ -161,8 +162,9 @@ struct AgentActionExecutor {
             }
             if case .applied(let entry, _) = result {
                 StudioAnalytics.track(EntryArchived(
+                    entryId: entry.id.uuidString,
                     category: entry.category.rawValue,
-                    ageHours: Int(Date().timeIntervalSince(entry.createdAt) / 3600),
+                    timeSinceCreationMs: Int(Date().timeIntervalSince(entry.createdAt) * 1000),
                     source: "agent"
                 ))
             }
@@ -204,6 +206,7 @@ struct AgentActionExecutor {
         ctx.modelContext.insert(entry)
         NotificationService.shared.sync(entry, preferences: ctx.preferences)
         StudioAnalytics.track(EntryCreated(
+            entryId: entry.id.uuidString,
             category: entry.category.rawValue,
             source: ctx.source == .voice ? "voice" : "text"
         ))

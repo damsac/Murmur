@@ -550,8 +550,9 @@ private extension RootView {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             entry.perform(.complete, in: modelContext, preferences: notifPrefs)
             StudioAnalytics.track(EntryCompleted(
+                entryId: entry.id.uuidString,
                 category: entry.category.rawValue,
-                ageHours: Int(Date().timeIntervalSince(entry.createdAt) / 3600),
+                timeSinceCreationMs: Int(Date().timeIntervalSince(entry.createdAt) * 1000),
                 source: "user"
             ))
             showToast("Completed")
@@ -560,8 +561,9 @@ private extension RootView {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             entry.perform(.archive, in: modelContext, preferences: notifPrefs)
             StudioAnalytics.track(EntryArchived(
+                entryId: entry.id.uuidString,
                 category: entry.category.rawValue,
-                ageHours: Int(Date().timeIntervalSince(entry.createdAt) / 3600),
+                timeSinceCreationMs: Int(Date().timeIntervalSince(entry.createdAt) * 1000),
                 source: "user"
             ))
             showToast("Archived", type: .info)
@@ -575,8 +577,9 @@ private extension RootView {
             UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
             pendingDeleteTask?.cancel()
             pendingDeleteEntry = entry
+            let deleteEntryId = entry.id.uuidString
             let deleteCategory = entry.category.rawValue
-            let deleteAgeHours = Int(Date().timeIntervalSince(entry.createdAt) / 3600)
+            let deleteAgeMs = Int(Date().timeIntervalSince(entry.createdAt) * 1000)
             showToast("Deleted", type: .warning, actionLabel: "Undo") {
                 pendingDeleteTask?.cancel()
                 pendingDeleteEntry = nil
@@ -586,8 +589,9 @@ private extension RootView {
                 guard let pending = pendingDeleteEntry else { return }
                 pending.perform(.delete, in: modelContext, preferences: notifPrefs)
                 StudioAnalytics.track(EntryDeleted(
+                    entryId: deleteEntryId,
                     category: deleteCategory,
-                    ageHours: deleteAgeHours,
+                    timeSinceCreationMs: deleteAgeMs,
                     source: "user"
                 ))
                 pendingDeleteEntry = nil
