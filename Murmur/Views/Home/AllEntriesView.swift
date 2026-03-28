@@ -14,6 +14,7 @@ struct AllEntriesView: View {
     let onGlowComplete: (UUID) -> Void
 
     @State private var searchText = ""
+    @State private var expandedListIDs: Set<UUID> = []
 
     private static let categoryDisplayOrder: [EntryCategory] = [
         .todo, .reminder, .habit, .idea, .list, .note, .question
@@ -76,13 +77,17 @@ struct AllEntriesView: View {
                                     actions: swipeActionsProvider(entry),
                                     activeSwipeID: $activeSwipeEntryID,
                                     entryID: entry.id,
-                                    onTap: { onEntryTap(entry) }
+                                    onTap: searchTapAction(entry)
                                 ) {
                                     GlowingEntryRow(
                                         entry: entry,
                                         isArrived: arrivedEntryIDs.contains(entry.id),
                                         category: entry.category,
                                         onAction: onAction,
+                                        listExpanded: entry.category == .list ? Binding(
+                                            get: { expandedListIDs.contains(entry.id) },
+                                            set: { if $0 { expandedListIDs.insert(entry.id) } else { expandedListIDs.remove(entry.id) } }
+                                        ) : nil,
                                         onGlowComplete: { onGlowComplete(entry.id) }
                                     )
                                 }
@@ -114,6 +119,19 @@ struct AllEntriesView: View {
             }
         }
         .scrollIndicators(.hidden)
+    }
+
+    private func searchTapAction(_ entry: Entry) -> () -> Void {
+        if entry.category == .habit {
+            return { if entry.appliesToday { onAction(entry, .checkOffHabit) } }
+        } else if entry.category == .list {
+            return {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    if expandedListIDs.contains(entry.id) { expandedListIDs.remove(entry.id) } else { expandedListIDs.insert(entry.id) }
+                }
+            }
+        }
+        return { onEntryTap(entry) }
     }
 
     @ViewBuilder
@@ -163,6 +181,7 @@ struct CategorySectionView: View {
     let onGlowComplete: (UUID) -> Void
 
     @AppStorage private var isCollapsed: Bool
+    @State private var expandedListIDs: Set<UUID> = []
 
     // MARK: - Peek State (collapsed section arrival preview)
     @State private var peekEntry: Entry?
@@ -304,14 +323,18 @@ struct CategorySectionView: View {
                             actions: swipeActionsProvider(entry),
                             activeSwipeID: $activeSwipeEntryID,
                             entryID: entry.id,
-                            onTap: { onEntryTap(entry) }
+                            onTap: sectionTapAction(entry)
                         ) {
                             GlowingEntryRow(
                                 entry: entry,
                                 isArrived: arrivedEntryIDs.contains(entry.id),
                                 category: category,
                                 onAction: onAction,
-                                onTap: { onEntryTap(entry) },
+                                onTap: entry.category == .list ? nil : { onEntryTap(entry) },
+                                listExpanded: entry.category == .list ? Binding(
+                                    get: { expandedListIDs.contains(entry.id) },
+                                    set: { if $0 { expandedListIDs.insert(entry.id) } else { expandedListIDs.remove(entry.id) } }
+                                ) : nil,
                                 onGlowComplete: { onGlowComplete(entry.id) }
                             )
                         }
@@ -345,6 +368,21 @@ struct CategorySectionView: View {
             peekCount += newInSection.count
             showPeek()
         }
+    }
+
+    // MARK: - Tap Routing
+
+    private func sectionTapAction(_ entry: Entry) -> () -> Void {
+        if entry.category == .habit {
+            return { if entry.appliesToday { onAction(entry, .checkOffHabit) } }
+        } else if entry.category == .list {
+            return {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    if expandedListIDs.contains(entry.id) { expandedListIDs.remove(entry.id) } else { expandedListIDs.insert(entry.id) }
+                }
+            }
+        }
+        return { onEntryTap(entry) }
     }
 
     // MARK: - Peek Helpers
@@ -384,6 +422,7 @@ private struct GlowingEntryRow: View {
     let category: EntryCategory
     let onAction: (Entry, EntryAction) -> Void
     var onTap: (() -> Void)?
+    var listExpanded: Binding<Bool>?
     let onGlowComplete: () -> Void
 
     @State private var glowIntensity: Double = 0
@@ -397,7 +436,8 @@ private struct GlowingEntryRow: View {
                     onAction: onAction,
                     onTap: onTap,
                     glowAccent: glowIntensity > 0 ? Theme.categoryColor(category) : nil,
-                    glowIntensity: glowIntensity
+                    glowIntensity: glowIntensity,
+                    externalExpanded: listExpanded
                 )
             } else {
                 SmartListRow(

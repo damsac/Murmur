@@ -94,7 +94,7 @@ struct DamHomeView: View {
                                         badge: nil,
                                         activeSwipeEntryID: $activeSwipeEntryID,
                                         swipeActionsProvider: swipeActions(for:),
-                                        onTap: { onEntryTap(entry) },
+                                        onTap: entry.category == .habit && entry.appliesToday ? { onAction(entry, .checkOffHabit) } : { onEntryTap(entry) },
                                         onAction: { onAction(entry, $0) }
                                     )
                                 }
@@ -227,6 +227,8 @@ private struct ComposedSectionView: View {
     let swipeActionsProvider: (Entry) -> [CardSwipeAction]
     let onAction: (Entry, EntryAction) -> Void
 
+    @State private var expandedListIDs: Set<UUID> = []
+
     private var sectionSpacing: CGFloat {
         section.density == .compact ? 8 : 16
     }
@@ -298,12 +300,19 @@ private struct ComposedSectionView: View {
                                         actions: swipeActionsProvider(entry),
                                         activeSwipeID: $activeSwipeEntryID,
                                         entryID: entry.id,
-                                        onTap: { onEntryTap(entry) }
+                                        onTap: {
+                                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                                if expandedListIDs.contains(entry.id) { expandedListIDs.remove(entry.id) } else { expandedListIDs.insert(entry.id) }
+                                            }
+                                        }
                                     ) {
                                         ListCardView(
                                             entry: entry,
                                             onAction: onAction,
-                                            onTap: { onEntryTap(entry) }
+                                            externalExpanded: Binding(
+                                                get: { expandedListIDs.contains(entry.id) },
+                                                set: { if $0 { expandedListIDs.insert(entry.id) } else { expandedListIDs.remove(entry.id) } }
+                                            )
                                         )
                                     }
                                     .padding(.horizontal, Theme.Spacing.screenPadding)
@@ -318,7 +327,7 @@ private struct ComposedSectionView: View {
                                         badge: composed.badge,
                                         activeSwipeEntryID: $activeSwipeEntryID,
                                         swipeActionsProvider: swipeActionsProvider,
-                                        onTap: { onEntryTap(entry) },
+                                        onTap: entry.category == .habit && entry.appliesToday ? { onAction(entry, .checkOffHabit) } : { onEntryTap(entry) },
                                         onAction: { onAction(entry, $0) }
                                     )
                                     .matchedGeometryEffect(id: "entry-\(composed.id)", in: layoutNamespace)

@@ -6,16 +6,14 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-Out-of-credits UX: wired OutOfCreditsView into the live error path, simplified it to a minimal screen, and added DevMode tooling to test the flow.
+Real-device tap fixes: resolved two regressions introduced by the UIKit tap overlay fix — list cards navigating to detail instead of expanding, and habit circle opening detail instead of toggling.
 
 ## Recent decisions
 
-- **OutOfCreditsView wired end-to-end** — Was excluded from compilation (`Views/Errors/**` blanket exclude in project.yml). Changed to enumerate only the three still-unwired views, leaving OutOfCreditsView included.
-- **OutOfCreditsView simplified** — Stripped transcript card, balance row, token count row, "Save as raw" button, and the "Review / Here's what I heard" header. Now just: icon + "Out of tokens" + subtitle + "Top up tokens" button. The recording context was noise at the moment of running out of credits.
-- **outOfCreditsInfo simplified to Bool** — Was a `(transcript: String, duration: TimeInterval)` tuple. Now just `Bool`. No longer need the payload since the view doesn't show it.
-- **Focus tab empty state** — Added "You're all caught up." with checkmark icon when composition is loaded but has no focus clusters and is not processing.
-- **DevMode drain credits button** — Added `setBalance(_ newBalance: Int64)` (DEBUG-only) to `LocalCreditGate`, exposed as "Drain Credits to Zero" button in DevModeView for easy out-of-credits testing.
-- **project.yml exclusion fix** — Changed `Views/Errors/**` to enumerate only the three orphaned views. OutOfCreditsView now compiles.
+- **UIKit overlay intercepts all taps** — The `UITapGestureRecognizer` added to `SwipeableCard` to fix real-device tapping was too aggressive: it captures all taps including those meant for interactive subviews (list expand chevron, habit circle). SwiftUI sub-buttons are unreachable behind the UIKit overlay.
+- **Category-aware tap routing in SwipeableCard.onTap** — Rather than trying to detect which sub-element was tapped (no coordinate inspection), changed callers to route by category: lists toggle expansion, habits call `checkOffHabit`, others navigate. This keeps `SwipeableCard` API simple.
+- **Expansion state hoisted out of ListCardView** — Added `externalExpanded: Binding<Bool>?` to `ListCardView`. Falls back to internal `@State` when nil (for previews/standalone use). Parent views (AllEntriesView, ZonedFocusHomeView, DamHomeView) each hold `@State private var expandedListIDs: Set<UUID>` and pass per-entry bindings.
+- **Habit tap no longer navigates** — Tapping a habit card toggles it (if `appliesToday`). Navigation to habit detail is still available via swipe actions.
 
 ## Open questions
 
