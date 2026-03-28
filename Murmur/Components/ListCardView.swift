@@ -8,7 +8,12 @@ struct ListCardView: View {
     var glowAccent: Color?
     var glowIntensity: Double = 0
 
-    @State private var isExpanded: Bool = false
+    var externalExpanded: Binding<Bool>?
+    @State private var localExpanded: Bool = false
+    private var isExpanded: Bool { externalExpanded?.wrappedValue ?? localExpanded }
+    private func toggleExpanded() {
+        if let b = externalExpanded { b.wrappedValue.toggle() } else { localExpanded.toggle() }
+    }
 
     private var accent: Color { Theme.categoryColor(entry.category) }
 
@@ -84,7 +89,7 @@ struct ListCardView: View {
             // Expand/collapse button — right side only
             Button {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    isExpanded.toggle()
+                    toggleExpanded()
                 }
             } label: {
                 HStack(spacing: 8) {

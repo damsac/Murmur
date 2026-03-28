@@ -158,6 +158,8 @@ private struct ZonedFocusTabView: View {
     let swipeActionsProvider: (Entry) -> [CardSwipeAction]
     let onAction: (Entry, EntryAction) -> Void
 
+    @State private var expandedListIDs: Set<UUID> = []
+
     private static let maxFocusItems = 7
 
     private func urgencyScore(_ entry: Entry) -> Int {
@@ -249,12 +251,19 @@ private struct ZonedFocusTabView: View {
                                             actions: swipeActionsProvider(item.entry),
                                             activeSwipeID: $activeSwipeEntryID,
                                             entryID: item.entry.id,
-                                            onTap: { onEntryTap(item.entry) }
+                                            onTap: {
+                                                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                                    if expandedListIDs.contains(item.entry.id) { expandedListIDs.remove(item.entry.id) } else { expandedListIDs.insert(item.entry.id) }
+                                                }
+                                            }
                                         ) {
                                             ListCardView(
                                                 entry: item.entry,
                                                 onAction: onAction,
-                                                onTap: { onEntryTap(item.entry) }
+                                                externalExpanded: Binding(
+                                                    get: { expandedListIDs.contains(item.entry.id) },
+                                                    set: { if $0 { expandedListIDs.insert(item.entry.id) } else { expandedListIDs.remove(item.entry.id) } }
+                                                )
                                             )
                                         }
                                         .transition(cardTransition)
