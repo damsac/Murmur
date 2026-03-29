@@ -166,11 +166,8 @@ final class AppState {
         // Set variant on LLM service
         llmService?.compositionVariant = variant
 
-        // Check cache (variant-aware)
-        if let cached = homeCompositionStore?.load(expectedVariant: variant), cached.isFromToday {
-            homeComposition = cached
-            return
-        }
+        // Check in-memory composition — skip LLM if already loaded this session
+        if homeComposition != nil { return }
 
         guard let llmService, let creditGate else {
             homeComposition = buildDeterministicComposition(entries: entries, variant: variant)
