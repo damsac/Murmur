@@ -125,8 +125,10 @@ struct DevModeView: View {
                         // Drain Credits
                         Button {
                             Task { @MainActor in
+                                #if DEBUG
                                 await appState.creditGate?.setBalance(0)
                                 await appState.refreshCreditBalance()
+                                #endif
                             }
                         } label: {
                             HStack(spacing: 8) {
