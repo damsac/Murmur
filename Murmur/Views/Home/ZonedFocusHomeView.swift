@@ -210,12 +210,19 @@ private struct ZonedFocusTabView: View {
                     FocusLoadingView()
                         .transition(.opacity)
                 } else if let composition {
+                    let zones = zoneItems(composition: composition)
+                    let hasFocusItems = zones.hero != nil || !zones.standard.isEmpty || !zones.habits.isEmpty
+
                     // Greeting + briefing
                     VStack(alignment: .leading, spacing: 4) {
                         Text(Greeting.current + ".")
                             .font(.title3.weight(.semibold))
                             .foregroundStyle(Theme.Colors.textPrimary)
-                        if let briefing = composition.briefing {
+                        if hasFocusItems {
+                            Text("Here's what needs your attention today.")
+                                .font(.subheadline)
+                                .foregroundStyle(Theme.Colors.textSecondary)
+                        } else if let briefing = composition.briefing {
                             Text(briefing)
                                 .font(.subheadline)
                                 .foregroundStyle(Theme.Colors.textSecondary)
@@ -225,8 +232,6 @@ private struct ZonedFocusTabView: View {
                     .opacity(messageVisible ? 1 : 0)
                     .offset(y: messageVisible ? 0 : 6)
                     .padding(.bottom, 20)
-
-                    let zones = zoneItems(composition: composition)
 
                     // Zone 1 — Hero card
                     if let hero = zones.hero, 0 < visibleCardCount {
@@ -562,13 +567,17 @@ private struct HabitRowView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Image(systemName: habit.isCompletedToday ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 22))
-                .foregroundStyle(accent)
-                .animation(.spring(response: 0.3, dampingFraction: 0.65), value: habit.isCompletedToday)
-                .frame(width: 44)
-                .contentShape(Rectangle())
-                .onTapGesture { onAction(habit, .checkOffHabit) }
+            Button {
+                onAction(habit, .checkOffHabit)
+            } label: {
+                Image(systemName: habit.isCompletedToday ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 22))
+                    .foregroundStyle(accent)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.65), value: habit.isCompletedToday)
+                    .frame(width: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(habit.summary)

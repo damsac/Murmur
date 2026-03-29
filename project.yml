@@ -73,6 +73,7 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        UIRequiresFullScreen: true
     entitlements:
       path: Murmur/Murmur.entitlements
       properties:

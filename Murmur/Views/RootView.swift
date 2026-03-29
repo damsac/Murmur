@@ -340,8 +340,12 @@ struct RootView: View {
                 SettingsFullView(
                     onBack: { showSettings = false },
                     onTopUp: {
+                        showSettings = false
                         openTopUp()
-                        showTopUp = true
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(0.45))
+                            showTopUp = true
+                        }
                     }
                 )
             }
