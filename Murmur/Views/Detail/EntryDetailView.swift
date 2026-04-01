@@ -669,7 +669,16 @@ private struct DueDateEditSheet: View {
     let onRemove: () -> Void
     let onDismiss: () -> Void
 
-    @State private var hasTime: Bool = false
+    @State private var hasTime: Bool
+
+    init(date: Binding<Date>, isRemovable: Bool, onSave: @escaping () -> Void, onRemove: @escaping () -> Void, onDismiss: @escaping () -> Void) {
+        self._date = date
+        self.isRemovable = isRemovable
+        self.onSave = onSave
+        self.onRemove = onRemove
+        self.onDismiss = onDismiss
+        self._hasTime = State(initialValue: date.wrappedValue.hasTimeComponent)
+    }
 
     var body: some View {
         NavigationStack {
@@ -726,9 +735,6 @@ private struct DueDateEditSheet: View {
             }
         }
         .background(Theme.Colors.bgDeep)
-        .onAppear {
-            hasTime = date.hasTimeComponent
-        }
     }
 }
 
