@@ -367,7 +367,7 @@ struct EntryDetailView: View {
                 },
                 onDismiss: { showDueDateSheet = false }
             )
-            .presentationDetents([.medium, .large])
+            .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
         .confirmationDialog("Snooze until...", isPresented: $showSnoozeDialog) {
