@@ -256,25 +256,16 @@ private struct ZonedFocusTabView: View {
                             ForEach(zones.standard, id: \.entry.id) { item in
                                 if item.globalIndex < visibleCardCount {
                                     if item.entry.category == .list {
-                                        SwipeableCard(
-                                            actions: swipeActionsProvider(item.entry),
-                                            activeSwipeID: $activeSwipeEntryID,
-                                            entryID: item.entry.id,
-                                            onTap: {
-                                                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                                                    if expandedListIDs.contains(item.entry.id) { expandedListIDs.remove(item.entry.id) } else { expandedListIDs.insert(item.entry.id) }
-                                                }
-                                            }
-                                        ) {
-                                            ListCardView(
-                                                entry: item.entry,
-                                                onAction: onAction,
-                                                externalExpanded: Binding(
-                                                    get: { expandedListIDs.contains(item.entry.id) },
-                                                    set: { if $0 { expandedListIDs.insert(item.entry.id) } else { expandedListIDs.remove(item.entry.id) } }
-                                                )
+                                        // Lists skip SwipeableCard — UIKit overlay blocks item check-off Buttons.
+                                        ListCardView(
+                                            entry: item.entry,
+                                            onAction: onAction,
+                                            onTap: { onEntryTap(item.entry) },
+                                            externalExpanded: Binding(
+                                                get: { expandedListIDs.contains(item.entry.id) },
+                                                set: { if $0 { expandedListIDs.insert(item.entry.id) } else { expandedListIDs.remove(item.entry.id) } }
                                             )
-                                        }
+                                        )
                                         .transition(cardTransition)
                                     } else {
                                         StandardFocusCard(
