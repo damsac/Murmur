@@ -6,18 +6,20 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-Post-TestFlight bug fixes: three bugs found on first TestFlight install — stale greeting subtitle, credits button not opening, habit card taps not working.
+Post-TestFlight bug fixes (round 2): habit card taps in All tab, personalized focus briefing.
 
 ## Recent decisions
 
-- **Briefing computed from actual zones, not LLM cache** — `composition.briefing` is set once by the LLM and cached for the day. Layout refreshes update sections but not the briefing, so "All clear" persisted even after new entries arrived. Fix: derive the subtitle dynamically from computed zones — if any hero/standard/habits exist, show "Here's what needs your attention today." Only fall back to LLM briefing when zones are genuinely empty.
-- **Credits button: dismiss settings before opening top-up** — Both settings and top-up are `.sheet` modifiers on the same root view. iOS can't present two sheets simultaneously; the second one is silently swallowed. Fix: set `showSettings = false`, call `openTopUp()`, then delay 0.45s before `showTopUp = true`.
-- **Habit circle: Button instead of nested onTapGesture** — `HabitRowView` had a nested `onTapGesture` on the circle inside an outer `onTapGesture` on the whole row. On real devices, inner `onTapGesture` can eat all taps in its frame, making both the circle check-off AND row navigation unreliable. Replacing the circle with a `Button(.plain)` gives SwiftUI proper gesture priority semantics.
-- **UIKit overlay intercepts all taps** — (from previous PR) The `UITapGestureRecognizer` in `SwipeableCard` was too aggressive. Fixed with category-aware routing.
-- **Expansion state hoisted out of ListCardView** — (from previous PR) `externalExpanded: Binding<Bool>?` on `ListCardView`.
+- **Habits skip SwipeableCard in All tab** — `SwipeableCard` uses a UIKit `UITapGestureRecognizer` overlay when swipe actions are present. This overlay wins the hit-test on real devices and steals all taps before the SwiftUI Button can receive them. Habits in the All section were wrapped in `SwipeableCard`, so neither circle check-off nor row navigation worked. Fix: habits skip `SwipeableCard` entirely, rendered as plain rows with `onTapGesture` for navigation. Circle `Button(.plain)` handles check-off. Matches Focus tab behavior exactly.
+- **Briefing regenerated per app session, not per day** — Removed the daily disk cache check in `requestHomeComposition`. Composition (including briefing) is now regenerated via LLM on every app launch (when `homeComposition == nil`). Within a session, layout refreshes handle incremental updates. This ensures the greeting subtitle is always personalized to the current state of entries.
+- **Stale "all clear" safety net** — If the LLM runs early with no entries (briefing = "All clear") and entries arrive mid-session via layout refresh, the view detects the stale all-clear text and falls back to a generic "Here's what needs your attention today." This covers the edge case without requiring mid-session LLM re-composition.
+- **Briefing computed from actual zones, not LLM cache** — (from previous PR) `composition.briefing` is set once by the LLM and cached. Fix: derive the subtitle dynamically — show LLM briefing when it's not stale, fall back to hardcoded string otherwise.
+- **Credits button: dismiss settings before opening top-up** — (from previous PR) iOS can't present two sheets simultaneously. Fix: set `showSettings = false`, delay 0.45s, then `showTopUp = true`.
+- **Habit circle: Button instead of nested onTapGesture** — (from previous PR) Replacing the circle with a `Button(.plain)` gives SwiftUI proper gesture priority semantics.
 
 ## Open questions
 
+- Should habit cards in All tab also have swipe actions (Done/Snooze)? Currently removed to fix taps — could re-add with a UIKit hit-test override that lets the circle through.
 - Should swipe-to-switch-tabs ever come back? Only viable path is UIViewRepresentable. High complexity, low priority.
 - `project.yml` now has `UIRequiresFullScreen: true` — should we revisit iPad support later?
 - Is the three-zone layout (ZonedFocusHomeView) still on the roadmap, or do we consolidate on one home view?
@@ -25,4 +27,4 @@ Post-TestFlight bug fixes: three bugs found on first TestFlight install — stal
 ## What I need from dam
 
 - PPQ error signal for wiring error views (#9) — need a clear error type from PPQ auth/quota failures.
-- Confirm whether habit navigation to detail should be re-enabled (current: row tap navigates, circle tap toggles).
+- Confirm whether habit navigation to detail should be re-enabled (current: row tap navigates, circle tap toggles — both in Focus and All tabs now).

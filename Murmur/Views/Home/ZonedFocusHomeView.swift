@@ -212,18 +212,22 @@ private struct ZonedFocusTabView: View {
                 } else if let composition {
                     let zones = zoneItems(composition: composition)
                     let hasFocusItems = zones.hero != nil || !zones.standard.isEmpty || !zones.habits.isEmpty
+                    let isStaleAllClear: Bool = {
+                        guard let b = composition.briefing else { return false }
+                        let l = b.lowercased()
+                        return l.contains("all clear") || l.contains("nothing pressing") || l.contains("nothing urgent")
+                    }()
+                    let subtitle: String? = hasFocusItems
+                        ? (isStaleAllClear ? "Here's what needs your attention today." : composition.briefing)
+                        : composition.briefing
 
                     // Greeting + briefing
                     VStack(alignment: .leading, spacing: 4) {
                         Text(Greeting.current + ".")
                             .font(.title3.weight(.semibold))
                             .foregroundStyle(Theme.Colors.textPrimary)
-                        if hasFocusItems {
-                            Text("Here's what needs your attention today.")
-                                .font(.subheadline)
-                                .foregroundStyle(Theme.Colors.textSecondary)
-                        } else if let briefing = composition.briefing {
-                            Text(briefing)
+                        if let subtitle {
+                            Text(subtitle)
                                 .font(.subheadline)
                                 .foregroundStyle(Theme.Colors.textSecondary)
                         }

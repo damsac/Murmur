@@ -319,29 +319,50 @@ struct CategorySectionView: View {
             if !isCollapsed {
                 LazyVStack(spacing: 12) {
                     ForEach(entries) { entry in
-                        SwipeableCard(
-                            actions: swipeActionsProvider(entry),
-                            activeSwipeID: $activeSwipeEntryID,
-                            entryID: entry.id,
-                            onTap: sectionTapAction(entry)
-                        ) {
+                        if entry.category == .habit {
+                            // Habits skip SwipeableCard — its UIKit overlay steals taps
+                            // before the circle Button can receive them. Match Focus tab:
+                            // circle Button = check-off, row tap = navigate to detail.
                             GlowingEntryRow(
                                 entry: entry,
                                 isArrived: arrivedEntryIDs.contains(entry.id),
                                 category: category,
                                 onAction: onAction,
-                                onTap: entry.category == .list ? nil : { onEntryTap(entry) },
-                                listExpanded: entry.category == .list ? Binding(
-                                    get: { expandedListIDs.contains(entry.id) },
-                                    set: { if $0 { expandedListIDs.insert(entry.id) } else { expandedListIDs.remove(entry.id) } }
-                                ) : nil,
+                                onTap: nil,
+                                listExpanded: nil,
                                 onGlowComplete: { onGlowComplete(entry.id) }
                             )
+                            .contentShape(Rectangle())
+                            .onTapGesture { onEntryTap(entry) }
+                            .transition(.asymmetric(
+                                insertion: .opacity.combined(with: .scale(scale: 0.97)).combined(with: .offset(y: 8)),
+                                removal: .opacity.combined(with: .scale(scale: 0.95))
+                            ))
+                        } else {
+                            SwipeableCard(
+                                actions: swipeActionsProvider(entry),
+                                activeSwipeID: $activeSwipeEntryID,
+                                entryID: entry.id,
+                                onTap: sectionTapAction(entry)
+                            ) {
+                                GlowingEntryRow(
+                                    entry: entry,
+                                    isArrived: arrivedEntryIDs.contains(entry.id),
+                                    category: category,
+                                    onAction: onAction,
+                                    onTap: entry.category == .list ? nil : { onEntryTap(entry) },
+                                    listExpanded: entry.category == .list ? Binding(
+                                        get: { expandedListIDs.contains(entry.id) },
+                                        set: { if $0 { expandedListIDs.insert(entry.id) } else { expandedListIDs.remove(entry.id) } }
+                                    ) : nil,
+                                    onGlowComplete: { onGlowComplete(entry.id) }
+                                )
+                            }
+                            .transition(.asymmetric(
+                                insertion: .opacity.combined(with: .scale(scale: 0.97)).combined(with: .offset(y: 8)),
+                                removal: .opacity.combined(with: .scale(scale: 0.95))
+                            ))
                         }
-                        .transition(.asymmetric(
-                            insertion: .opacity.combined(with: .scale(scale: 0.97)).combined(with: .offset(y: 8)),
-                            removal: .opacity.combined(with: .scale(scale: 0.95))
-                        ))
                     }
                 }
                 .padding(.horizontal, 12)
@@ -507,16 +528,18 @@ struct SmartListRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             if entry.category == .habit {
-                Image(systemName: entry.isCompletedToday ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 24))
-                    .foregroundStyle(Theme.categoryColor(entry.category))
-                    .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
-                    .frame(width: 36)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        guard entry.appliesToday else { return }
-                        onAction(entry, .checkOffHabit)
-                    }
+                Button {
+                    guard entry.appliesToday else { return }
+                    onAction(entry, .checkOffHabit)
+                } label: {
+                    Image(systemName: entry.isCompletedToday ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 24))
+                        .foregroundStyle(Theme.categoryColor(entry.category))
+                        .animation(.spring(response: 0.3, dampingFraction: 0.65), value: entry.isCompletedToday)
+                        .frame(width: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             } else {
                 let dotColor = Theme.categoryColor(entry.category)
                 Circle()
