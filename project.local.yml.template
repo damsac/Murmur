@@ -17,10 +17,12 @@ settings:
     PPQ_API_KEY: ""
 
   # OPTIONAL: Studio Analytics — per-config endpoints (leave empty to disable)
+  # Production endpoint uses HTTPS + domain name — hitting the bare IP will fail
+  # TLS validation (cert CN=damsac.studio). Port 80 auto-redirects to 443.
   configs:
     Debug:
-      STUDIO_ANALYTICS_ENDPOINT: "http://localhost:8080"
+      STUDIO_ANALYTICS_ENDPOINT: "https://damsac.studio"
       STUDIO_ANALYTICS_API_KEY: "sk_test"
     Release:
-      STUDIO_ANALYTICS_ENDPOINT: "YOUR_RELEASE_ANALYTICS_ENDPOINT"
+      STUDIO_ANALYTICS_ENDPOINT: "https://damsac.studio"
       STUDIO_ANALYTICS_API_KEY: "YOUR_RELEASE_ANALYTICS_API_KEY"
