@@ -73,23 +73,34 @@ struct AllEntriesView: View {
                     } else {
                         LazyVStack(spacing: 12) {
                             ForEach(filteredEntries) { entry in
-                                SwipeableCard(
-                                    actions: swipeActionsProvider(entry),
-                                    activeSwipeID: $activeSwipeEntryID,
-                                    entryID: entry.id,
-                                    onTap: searchTapAction(entry)
-                                ) {
+                                if entry.category == .list {
                                     GlowingEntryRow(
                                         entry: entry,
                                         isArrived: arrivedEntryIDs.contains(entry.id),
                                         category: entry.category,
                                         onAction: onAction,
-                                        listExpanded: entry.category == .list ? Binding(
+                                        onTap: { onEntryTap(entry) },
+                                        listExpanded: Binding(
                                             get: { expandedListIDs.contains(entry.id) },
                                             set: { if $0 { expandedListIDs.insert(entry.id) } else { expandedListIDs.remove(entry.id) } }
-                                        ) : nil,
+                                        ),
                                         onGlowComplete: { onGlowComplete(entry.id) }
                                     )
+                                } else {
+                                    SwipeableCard(
+                                        actions: swipeActionsProvider(entry),
+                                        activeSwipeID: $activeSwipeEntryID,
+                                        entryID: entry.id,
+                                        onTap: searchTapAction(entry)
+                                    ) {
+                                        GlowingEntryRow(
+                                            entry: entry,
+                                            isArrived: arrivedEntryIDs.contains(entry.id),
+                                            category: entry.category,
+                                            onAction: onAction,
+                                            onGlowComplete: { onGlowComplete(entry.id) }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -338,6 +349,26 @@ struct CategorySectionView: View {
                                 insertion: .opacity.combined(with: .scale(scale: 0.97)).combined(with: .offset(y: 8)),
                                 removal: .opacity.combined(with: .scale(scale: 0.95))
                             ))
+                        } else if entry.category == .list {
+                            // Lists skip SwipeableCard — UIKit overlay blocks item check-off Buttons.
+                            // ListCardView handles header nav (onTap), expand/collapse (chevron),
+                            // and item check-off (row Buttons) internally — no outer tap needed.
+                            GlowingEntryRow(
+                                entry: entry,
+                                isArrived: arrivedEntryIDs.contains(entry.id),
+                                category: category,
+                                onAction: onAction,
+                                onTap: { onEntryTap(entry) },
+                                listExpanded: Binding(
+                                    get: { expandedListIDs.contains(entry.id) },
+                                    set: { if $0 { expandedListIDs.insert(entry.id) } else { expandedListIDs.remove(entry.id) } }
+                                ),
+                                onGlowComplete: { onGlowComplete(entry.id) }
+                            )
+                            .transition(.asymmetric(
+                                insertion: .opacity.combined(with: .scale(scale: 0.97)).combined(with: .offset(y: 8)),
+                                removal: .opacity.combined(with: .scale(scale: 0.95))
+                            ))
                         } else {
                             SwipeableCard(
                                 actions: swipeActionsProvider(entry),
@@ -350,11 +381,8 @@ struct CategorySectionView: View {
                                     isArrived: arrivedEntryIDs.contains(entry.id),
                                     category: category,
                                     onAction: onAction,
-                                    onTap: entry.category == .list ? nil : { onEntryTap(entry) },
-                                    listExpanded: entry.category == .list ? Binding(
-                                        get: { expandedListIDs.contains(entry.id) },
-                                        set: { if $0 { expandedListIDs.insert(entry.id) } else { expandedListIDs.remove(entry.id) } }
-                                    ) : nil,
+                                    onTap: { onEntryTap(entry) },
+                                    listExpanded: nil,
                                     onGlowComplete: { onGlowComplete(entry.id) }
                                 )
                             }

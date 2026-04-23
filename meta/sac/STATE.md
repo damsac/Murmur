@@ -6,25 +6,24 @@ What sac is working on right now. Updated with every PR.
 
 ## Current focus
 
-Post-TestFlight bug fixes (round 2): habit card taps in All tab, personalized focus briefing.
+Post-TestFlight bug fixes (round 5): due date sheet height.
 
 ## Recent decisions
 
-- **Habits skip SwipeableCard in All tab** — `SwipeableCard` uses a UIKit `UITapGestureRecognizer` overlay when swipe actions are present. This overlay wins the hit-test on real devices and steals all taps before the SwiftUI Button can receive them. Habits in the All section were wrapped in `SwipeableCard`, so neither circle check-off nor row navigation worked. Fix: habits skip `SwipeableCard` entirely, rendered as plain rows with `onTapGesture` for navigation. Circle `Button(.plain)` handles check-off. Matches Focus tab behavior exactly.
-- **Briefing regenerated per app session, not per day** — Removed the daily disk cache check in `requestHomeComposition`. Composition (including briefing) is now regenerated via LLM on every app launch (when `homeComposition == nil`). Within a session, layout refreshes handle incremental updates. This ensures the greeting subtitle is always personalized to the current state of entries.
-- **Stale "all clear" safety net** — If the LLM runs early with no entries (briefing = "All clear") and entries arrive mid-session via layout refresh, the view detects the stale all-clear text and falls back to a generic "Here's what needs your attention today." This covers the edge case without requiring mid-session LLM re-composition.
-- **Briefing computed from actual zones, not LLM cache** — (from previous PR) `composition.briefing` is set once by the LLM and cached. Fix: derive the subtitle dynamically — show LLM briefing when it's not stale, fall back to hardcoded string otherwise.
-- **Credits button: dismiss settings before opening top-up** — (from previous PR) iOS can't present two sheets simultaneously. Fix: set `showSettings = false`, delay 0.45s, then `showTopUp = true`.
-- **Habit circle: Button instead of nested onTapGesture** — (from previous PR) Replacing the circle with a `Button(.plain)` gives SwiftUI proper gesture priority semantics.
+- **DueDateEditSheet opens at .large detent** — Sheet was using `[.medium, .large]`, defaulting to medium. The graphical calendar + time wheel + toolbar buttons don't fit at medium height. Fix: use `[.large]` only so the sheet always opens with enough room.
+- **Lists skip SwipeableCard in Focus tab too** — (from PR #136) PR #135 fixed the All tab but missed the Focus tab (`ZonedFocusTabView`). Same UIKit overlay root cause: `SwipeableCard` wrapping `ListCardView` fires expand/collapse on every tap. Fix: render `ListCardView` directly with `onTap: { onEntryTap(item.entry) }` — same pattern as the All tab fix.
+- **Lists skip SwipeableCard in All tab** — (from PR #135) Same UIKit overlay root cause as habits (#134). When `SwipeableCard` wraps a `ListCardView`, the `UITapGestureRecognizer` overlay fires `sectionTapAction` (toggle expand/collapse) on every tap, including taps on item check-off Buttons. Fix: list entries skip `SwipeableCard` entirely in both the category section and search results. `ListCardView` handles navigation (header Button → `onTap`), expand/collapse (chevron Button), and item check-off (row Buttons) internally — no outer gesture wrapper needed.
+- **DueDateEditSheet hasTime initialized from binding, not onAppear** — Previously `hasTime = false` at init, then `onAppear` set it to `true` if the date had a time component. This caused a visible layout jump (date picker alone → time picker appears). Fix: custom `init` initializes `@State private var hasTime` from `date.wrappedValue.hasTimeComponent` so the correct layout renders on first frame.
+- **Top-up packs empty in TestFlight** — Not a code bug. `Product.products(for:)` returns empty because the IAP products don't exist in App Store Connect yet. The `.storekit` file is Simulator-only. Needs dam to create the three consumable products in ASC with product IDs: `com.damsac.murmur.credits.1000`, `com.damsac.murmur.credits.5000`, `com.damsac.murmur.credits.10000`.
+- **Habits skip SwipeableCard in All tab** — (from PR #134) UIKit overlay steals all taps. Habits rendered as plain rows with `onTapGesture` for navigation. Circle `Button(.plain)` handles check-off.
+- **Briefing regenerated per app session** — (from PR #134) Removed daily disk cache. LLM regenerates on every app launch.
 
 ## Open questions
 
-- Should habit cards in All tab also have swipe actions (Done/Snooze)? Currently removed to fix taps — could re-add with a UIKit hit-test override that lets the circle through.
-- Should swipe-to-switch-tabs ever come back? Only viable path is UIViewRepresentable. High complexity, low priority.
-- `project.yml` now has `UIRequiresFullScreen: true` — should we revisit iPad support later?
-- Is the three-zone layout (ZonedFocusHomeView) still on the roadmap, or do we consolidate on one home view?
+- Should habit/list cards in All tab get swipe actions back? Currently removed to fix taps — could re-add with a UIKit hit-test override.
+- Is the three-zone layout (ZonedFocusHomeView) still on the roadmap?
 
 ## What I need from dam
 
+- Create the three IAP products in App Store Connect (product IDs above) so top-up works in TestFlight.
 - PPQ error signal for wiring error views (#9) — need a clear error type from PPQ auth/quota failures.
-- Confirm whether habit navigation to detail should be re-enabled (current: row tap navigates, circle tap toggles — both in Focus and All tabs now).
