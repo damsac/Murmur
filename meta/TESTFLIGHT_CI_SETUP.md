@@ -4,7 +4,7 @@ One-time prerequisites for the `Release` workflow (`.github/workflows/release.ym
 Once these are done, pushing to `main` ships an internal TestFlight build and
 pushing a `v*` tag ships a build that's ready for external beta review.
 
-> **Note on bundle ID:** the bundle ID is `com.isaacwm23.mumur` (registered
+> **Note on bundle ID:** the bundle ID is `com.isaacwm.murmur` (registered
 > under the damsac Apple Developer team). The `damsac` namespace is the
 > GitHub org and the team in App Store Connect; the bundle ID prefix
 > happens to be Isaac-namespaced because that's what was registered first.
@@ -12,14 +12,14 @@ pushing a `v*` tag ships a build that's ready for external beta review.
 
 ## 1. Register App Group capability on the App ID
 
-The app uses the App Group `group.com.isaacwm23.mumur.shared` for sharing data
+The app uses the App Group `group.com.isaacwm.murmur.shared` for sharing data
 between the app and any future extensions. Automatic provisioning will fail
 unless this is registered as a capability on the App ID itself.
 
 1. Open [Apple Developer → Identifiers](https://developer.apple.com/account/resources/identifiers/list).
-2. Find the App ID `com.isaacwm23.mumur` (create it if missing).
+2. Find the App ID `com.isaacwm.murmur` (create it if missing).
 3. Edit → check **App Groups** under Capabilities → Configure → add
-   `group.com.isaacwm23.mumur.shared`.
+   `group.com.isaacwm.murmur.shared`.
 4. Save.
 
 ## 2. Generate an App Store Connect API key
