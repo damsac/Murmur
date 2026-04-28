@@ -107,6 +107,12 @@ jobs:
           printf '%s' "$ASC_API_KEY_P8" > "$RUNNER_TEMP/private_keys/AuthKey.p8"
           chmod 600 "$RUNNER_TEMP/private_keys/AuthKey.p8"
 
+      - name: Import Apple Distribution certificate
+        uses: Apple-Actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERT_P12 }}
+          p12-password: ${{ secrets.APPLE_CERT_PASSWORD }}
+
       - name: Download App Store provisioning profile
         uses: Apple-Actions/download-provisioning-profiles@v3
         with:
