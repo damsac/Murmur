@@ -110,6 +110,12 @@ jobs:
       - name: Generate Xcode project
         run: make generate
 
+      - name: Debug build settings
+        run: |
+          xcodebuild -project Murmur.xcodeproj -scheme Murmur -showBuildSettings -configuration Release 2>/dev/null \
+            | grep -E "^\s+(CODE_SIGN|DEVELOPMENT_TEAM|PROVISIONING|PRODUCT_BUNDLE_ID|MARKETING_VERSION|CURRENT_PROJECT_VERSION)" \
+            | sort -u
+
       - name: Write ExportOptions.plist
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
