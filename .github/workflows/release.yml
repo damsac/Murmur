@@ -85,9 +85,9 @@ jobs:
           settings:
             base:
               DEVELOPMENT_TEAM: $APPLE_TEAM_ID
-              PRODUCT_BUNDLE_IDENTIFIER_MURMUR: com.damsac.murmur
-              PRODUCT_BUNDLE_IDENTIFIER_TESTS: com.damsac.murmur.tests
-              APP_GROUP_IDENTIFIER: group.com.damsac.murmur.shared
+              PRODUCT_BUNDLE_IDENTIFIER_MURMUR: com.isaacwm.murmur
+              PRODUCT_BUNDLE_IDENTIFIER_TESTS: com.isaacwm.murmur.tests
+              APP_GROUP_IDENTIFIER: group.com.isaacwm.murmur.shared
               PPQ_API_KEY: "$PPQ_API_KEY"
             configs:
               Release:
