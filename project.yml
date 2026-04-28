@@ -14,7 +14,9 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     CODE_SIGN_STYLE: Automatic
-    CODE_SIGN_IDENTITY: "Apple Development"
+    # CODE_SIGN_IDENTITY intentionally unset: with automatic signing, Xcode
+    # picks "Apple Development" for Debug and "Apple Distribution" for archive
+    # builds. Setting it explicitly conflicts with CI's distribution override.
     STUDIO_ANALYTICS_ENDPOINT: ""
     STUDIO_ANALYTICS_API_KEY: ""
 
