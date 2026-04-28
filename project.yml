@@ -58,14 +58,15 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Murmur/Murmur.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_EMIT_LOC_STRINGS: true
+      # Override XcodeGen's target-level default of CODE_SIGN_IDENTITY=
+      # "iPhone Developer". With CODE_SIGN_STYLE=Automatic, Xcode rejects
+      # any explicit identity as a conflict — automatic signing must be
+      # the sole authority. Empty string clears xcodegen's default.
       configs:
-        # XcodeGen defaults CODE_SIGN_IDENTITY to "iPhone Developer" at the
-        # target level. Override per-config: Debug stays development, Release
-        # uses distribution so archive builds (CI + local) sign correctly.
         Debug:
-          CODE_SIGN_IDENTITY: "Apple Development"
+          CODE_SIGN_IDENTITY: ""
         Release:
-          CODE_SIGN_IDENTITY: "Apple Distribution"
+          CODE_SIGN_IDENTITY: ""
     info:
       path: Murmur/Info.plist
       properties:
