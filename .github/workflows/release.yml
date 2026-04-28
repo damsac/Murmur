@@ -107,6 +107,15 @@ jobs:
           printf '%s' "$ASC_API_KEY_P8" > "$RUNNER_TEMP/private_keys/AuthKey.p8"
           chmod 600 "$RUNNER_TEMP/private_keys/AuthKey.p8"
 
+      - name: Download App Store provisioning profile
+        uses: Apple-Actions/download-provisioning-profiles@v3
+        with:
+          bundle-id: com.isaacwm.murmur
+          profile-type: IOS_APP_STORE
+          issuer-id: ${{ secrets.ASC_API_ISSUER_ID }}
+          api-key-id: ${{ secrets.ASC_API_KEY_ID }}
+          api-private-key: ${{ secrets.ASC_API_KEY_P8 }}
+
       - name: Generate Xcode project
         run: make generate
 
@@ -130,9 +139,14 @@ jobs:
             <key>destination</key>
             <string>upload</string>
             <key>signingStyle</key>
-            <string>automatic</string>
+            <string>manual</string>
             <key>teamID</key>
             <string>$APPLE_TEAM_ID</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.isaacwm.murmur</key>
+              <string>Murmur App Store</string>
+            </dict>
             <key>uploadSymbols</key>
             <true/>
           </dict>
@@ -175,7 +189,6 @@ jobs:
             -archivePath "$RUNNER_TEMP/Murmur.xcarchive" \
             -exportPath "$RUNNER_TEMP/export" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -allowProvisioningUpdates \
             -authenticationKeyID "$ASC_API_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_API_ISSUER_ID" \
             -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey.p8" \
