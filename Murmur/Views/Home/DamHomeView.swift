@@ -208,10 +208,17 @@ struct DamHomeView: View {
             ) { onAction(entry, .archive) })
         }
 
-        actions.append(CardSwipeAction(
-            icon: "moon.zzz.fill", label: "Snooze",
-            color: Theme.Colors.accentYellow
-        ) { onAction(entry, .snooze(until: nil)) })
+        if entry.status == .snoozed {
+            actions.append(CardSwipeAction(
+                icon: "sun.max.fill", label: "Wake",
+                color: Theme.Colors.accentYellow
+            ) { onAction(entry, .wake) })
+        } else {
+            actions.append(CardSwipeAction(
+                icon: "moon.zzz.fill", label: "Snooze",
+                color: Theme.Colors.accentYellow
+            ) { onAction(entry, .snooze(until: nil)) })
+        }
 
         return actions
     }
