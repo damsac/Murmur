@@ -390,6 +390,7 @@ struct RootView: View {
             DamHomeView(
                 inputText: $inputText,
                 entries: activeEntries,
+                snoozedEntries: snoozedEntries,
                 onMicTap: toggleRecording,
                 onSubmit: submitInput,
                 onEntryTap: { selectedEntry = $0 },
@@ -400,6 +401,7 @@ struct RootView: View {
             ZonedFocusHomeView(
                 inputText: $inputText,
                 entries: activeEntries,
+                snoozedEntries: snoozedEntries,
                 onMicTap: toggleRecording,
                 onSubmit: submitInput,
                 onEntryTap: { selectedEntry = $0 },

@@ -5,6 +5,7 @@ struct ZonedFocusHomeView: View {
     @Environment(AppState.self) private var appState
     @Binding var inputText: String
     let entries: [Entry]
+    let snoozedEntries: [Entry]
     let onMicTap: () -> Void
     let onSubmit: () -> Void
     let onEntryTap: (Entry) -> Void
@@ -95,6 +96,7 @@ struct ZonedFocusHomeView: View {
             } else {
                 AllEntriesView(
                     entries: entries,
+                    snoozedEntries: snoozedEntries,
                     isProcessing: appState.conversation.isProcessing,
                     arrivedEntryIDs: appState.conversation.arrivedEntryIDs,
                     activeSwipeEntryID: $activeSwipeEntryID,
@@ -656,6 +658,7 @@ private struct HabitRowView: View {
                 cadenceRawValue: "daily"
             )
         ],
+        snoozedEntries: [],
         onMicTap: { print("Mic") },
         onSubmit: {},
         onEntryTap: { print("Tap:", $0.summary) },
