@@ -649,6 +649,15 @@ private extension RootView {
         }
     }
 
+    var snoozedEntries: [Entry] {
+        let pendingReveal = appState.conversation.pendingRevealEntryIDs
+        return entries.filter {
+            $0.status == .snoozed
+                && $0.persistentModelID != pendingDeleteEntry?.persistentModelID
+                && !pendingReveal.contains($0.id)
+        }
+    }
+
     func performSnooze(_ component: Calendar.Component, value: Int) {
         let date = Calendar.current.date(byAdding: component, value: value, to: Date())
         commitSnooze(until: date)
