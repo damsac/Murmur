@@ -5,6 +5,7 @@ struct ZonedFocusHomeView: View {
     @Environment(AppState.self) private var appState
     @Binding var inputText: String
     let entries: [Entry]
+    let snoozedEntries: [Entry]
     let onMicTap: () -> Void
     let onSubmit: () -> Void
     let onEntryTap: (Entry) -> Void
@@ -95,6 +96,7 @@ struct ZonedFocusHomeView: View {
             } else {
                 AllEntriesView(
                     entries: entries,
+                    snoozedEntries: snoozedEntries,
                     isProcessing: appState.conversation.isProcessing,
                     arrivedEntryIDs: appState.conversation.arrivedEntryIDs,
                     activeSwipeEntryID: $activeSwipeEntryID,
@@ -119,14 +121,21 @@ struct ZonedFocusHomeView: View {
     // MARK: - Swipe Actions
 
     private func swipeActions(for entry: Entry) -> [CardSwipeAction] {
-        [
+        var actions: [CardSwipeAction] = [
             CardSwipeAction(icon: "checkmark.circle.fill", label: "Done", color: Theme.Colors.accentGreen) {
                 onAction(entry, .complete)
-            },
-            CardSwipeAction(icon: "moon.zzz.fill", label: "Snooze", color: Theme.Colors.accentYellow) {
-                onAction(entry, .snooze(until: nil))
             }
         ]
+        if entry.status == .snoozed {
+            actions.append(CardSwipeAction(icon: "sun.max.fill", label: "Wake", color: Theme.Colors.accentYellow) {
+                onAction(entry, .wake)
+            })
+        } else {
+            actions.append(CardSwipeAction(icon: "moon.zzz.fill", label: "Snooze", color: Theme.Colors.accentYellow) {
+                onAction(entry, .snooze(until: nil))
+            })
+        }
+        return actions
     }
 }
 
@@ -656,6 +665,7 @@ private struct HabitRowView: View {
                 cadenceRawValue: "daily"
             )
         ],
+        snoozedEntries: [],
         onMicTap: { print("Mic") },
         onSubmit: {},
         onEntryTap: { print("Tap:", $0.summary) },

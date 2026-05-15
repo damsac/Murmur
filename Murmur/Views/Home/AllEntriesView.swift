@@ -1,10 +1,12 @@
 import SwiftUI
 import MurmurCore
+import StudioAnalytics
 
 // MARK: - All Entries View (category sections browser, shared by both home variants)
 
 struct AllEntriesView: View {
     let entries: [Entry]
+    let snoozedEntries: [Entry]
     let isProcessing: Bool
     let arrivedEntryIDs: Set<UUID>
     @Binding var activeSwipeEntryID: UUID?
@@ -15,15 +17,21 @@ struct AllEntriesView: View {
 
     @State private var searchText = ""
     @State private var expandedListIDs: Set<UUID> = []
+    @State private var showSnoozed = false
 
     private static let categoryDisplayOrder: [EntryCategory] = [
         .todo, .reminder, .habit, .idea, .list, .note, .question
     ]
 
+    private var combinedEntries: [Entry] {
+        showSnoozed ? entries + snoozedEntries : entries
+    }
+
     private var filteredEntries: [Entry] {
-        guard !searchText.isEmpty else { return entries }
+        let source = combinedEntries
+        guard !searchText.isEmpty else { return source }
         let q = searchText.lowercased()
-        return entries.filter { $0.summary.lowercased().contains(q) }
+        return source.filter { $0.summary.lowercased().contains(q) }
     }
 
     private var entriesByCategory: [(category: EntryCategory, entries: [Entry])] {
@@ -46,11 +54,14 @@ struct AllEntriesView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                // Search bar
-                searchBar
-                    .padding(.horizontal, Theme.Spacing.screenPadding)
-                    .padding(.top, 12)
-                    .padding(.bottom, 4)
+                // Search bar + snooze filter toggle
+                HStack(spacing: 8) {
+                    searchBar
+                    snoozeToggleButton
+                }
+                .padding(.horizontal, Theme.Spacing.screenPadding)
+                .padding(.top, 12)
+                .padding(.bottom, 4)
 
                 if isProcessing && searchText.isEmpty {
                     SharedProcessingDotsView()
@@ -123,7 +134,7 @@ struct AllEntriesView: View {
                             )
                         }
                     }
-                    .animation(Animations.smoothSlide, value: entries.map(\.id))
+                    .animation(Animations.smoothSlide, value: combinedEntries.map(\.id))
                 }
 
                 Color.clear.frame(height: 160)
@@ -176,6 +187,40 @@ struct AllEntriesView: View {
                         .stroke(Theme.Colors.borderSubtle, lineWidth: 1)
                 )
         )
+    }
+
+    @ViewBuilder
+    private var snoozeToggleButton: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            let newValue = !showSnoozed
+            StudioAnalytics.track(AllViewSnoozeFilterToggled(
+                enabled: newValue,
+                snoozedCount: snoozedEntries.count
+            ))
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showSnoozed = newValue
+            }
+        } label: {
+            Image(systemName: showSnoozed ? "moon.zzz.fill" : "moon.zzz")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(showSnoozed ? Theme.Colors.accentYellow : Theme.Colors.textTertiary)
+                .frame(width: 40, height: 40)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Theme.Colors.bgCard)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Theme.Colors.borderSubtle, lineWidth: 1)
+                        )
+                )
+                .shadow(
+                    color: showSnoozed ? Theme.Colors.accentYellow.opacity(0.4) : .clear,
+                    radius: showSnoozed ? 6 : 0
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(showSnoozed ? "Hide snoozed entries" : "Show snoozed entries")
     }
 }
 
@@ -530,6 +575,21 @@ struct SmartListRow: View {
 
     private var isOverdue: Bool { entry.isOverdue }
 
+    private var isSnoozed: Bool { entry.status == .snoozed }
+
+    private var snoozeText: String? {
+        guard isSnoozed, let snoozeUntil = entry.snoozeUntil else { return nil }
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+        if calendar.isDateInToday(snoozeUntil) {
+            formatter.dateFormat = "h:mm a"
+            return "Until \(formatter.string(from: snoozeUntil))"
+        }
+        if calendar.isDateInTomorrow(snoozeUntil) { return "Until tomorrow" }
+        formatter.dateFormat = "MMM d"
+        return "Until \(formatter.string(from: snoozeUntil))"
+    }
+
     private var listItems: [String] {
         guard entry.category == .list else { return [] }
         return entry.content
@@ -568,6 +628,13 @@ struct SmartListRow: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+            } else if isSnoozed {
+                let dotColor = Theme.categoryColor(entry.category)
+                Image(systemName: "moon.zzz.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(dotColor)
+                    .frame(width: 14, height: 14)
+                    .shadow(color: dotColor.opacity(0.6), radius: 4)
             } else {
                 let dotColor = Theme.categoryColor(entry.category)
                 Circle()
@@ -583,7 +650,11 @@ struct SmartListRow: View {
                     .foregroundStyle(entry.isDone ? Theme.Colors.textTertiary : Theme.Colors.textPrimary)
                     .lineLimit(2)
 
-                if entry.category == .habit, let cadence = entry.cadence {
+                if let snoozeText {
+                    Text(snoozeText)
+                        .font(.caption)
+                        .foregroundStyle(Theme.Colors.textTertiary)
+                } else if entry.category == .habit, let cadence = entry.cadence {
                     Text(cadence.displayName)
                         .font(.caption)
                         .foregroundStyle(Theme.Colors.textTertiary)
@@ -621,7 +692,7 @@ struct SmartListRow: View {
             .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
         }
         .cardStyle(accent: glowAccent, intensity: glowIntensity)
-        .opacity(entry.isDone ? 0.5 : 1.0)
+        .opacity(entry.isDone ? 0.5 : (isSnoozed ? 0.7 : 1.0))
         .animation(.easeInOut(duration: 0.2), value: entry.isCompletedToday)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(entry.category.displayName): \(entry.summary)")

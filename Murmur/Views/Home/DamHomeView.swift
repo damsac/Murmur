@@ -5,6 +5,7 @@ struct DamHomeView: View {
     @Environment(AppState.self) private var appState
     @Binding var inputText: String
     let entries: [Entry]
+    let snoozedEntries: [Entry]
     let onMicTap: () -> Void
     let onSubmit: () -> Void
     let onEntryTap: (Entry) -> Void
@@ -58,6 +59,7 @@ struct DamHomeView: View {
             } else {
                 AllEntriesView(
                     entries: entries,
+                    snoozedEntries: snoozedEntries,
                     isProcessing: appState.conversation.isProcessing,
                     arrivedEntryIDs: appState.conversation.arrivedEntryIDs,
                     activeSwipeEntryID: $activeSwipeEntryID,
@@ -206,10 +208,17 @@ struct DamHomeView: View {
             ) { onAction(entry, .archive) })
         }
 
-        actions.append(CardSwipeAction(
-            icon: "moon.zzz.fill", label: "Snooze",
-            color: Theme.Colors.accentYellow
-        ) { onAction(entry, .snooze(until: nil)) })
+        if entry.status == .snoozed {
+            actions.append(CardSwipeAction(
+                icon: "sun.max.fill", label: "Wake",
+                color: Theme.Colors.accentYellow
+            ) { onAction(entry, .wake) })
+        } else {
+            actions.append(CardSwipeAction(
+                icon: "moon.zzz.fill", label: "Snooze",
+                color: Theme.Colors.accentYellow
+            ) { onAction(entry, .snooze(until: nil)) })
+        }
 
         return actions
     }
@@ -718,6 +727,7 @@ private struct CompositionShimmerView: View {
     DamHomeView(
         inputText: $inputText,
         entries: [],
+        snoozedEntries: [],
         onMicTap: {},
         onSubmit: {},
         onEntryTap: { _ in },
@@ -775,6 +785,7 @@ private struct CompositionShimmerView: View {
                 summary: "Voice-controlled home garden watering system"
             )
         ],
+        snoozedEntries: [],
         onMicTap: {},
         onSubmit: {},
         onEntryTap: { _ in },

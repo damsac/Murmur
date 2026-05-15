@@ -89,3 +89,11 @@ struct CreditCharged: AnalyticsEvent {
     let credits: Int64
     let balanceAfter: Int64
 }
+
+// MARK: - All View Filters
+
+struct AllViewSnoozeFilterToggled: AnalyticsEvent {
+    static let eventName = "all_view.snooze_filter_toggled"
+    let enabled: Bool
+    let snoozedCount: Int
+}

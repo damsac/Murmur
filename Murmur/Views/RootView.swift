@@ -390,6 +390,7 @@ struct RootView: View {
             DamHomeView(
                 inputText: $inputText,
                 entries: activeEntries,
+                snoozedEntries: snoozedEntries,
                 onMicTap: toggleRecording,
                 onSubmit: submitInput,
                 onEntryTap: { selectedEntry = $0 },
@@ -400,6 +401,7 @@ struct RootView: View {
             ZonedFocusHomeView(
                 inputText: $inputText,
                 entries: activeEntries,
+                snoozedEntries: snoozedEntries,
                 onMicTap: toggleRecording,
                 onSubmit: submitInput,
                 onEntryTap: { selectedEntry = $0 },
@@ -617,6 +619,11 @@ private extension RootView {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             entry.perform(.snooze(until: until), in: modelContext, preferences: notifPrefs)
             showToast("Snoozed", type: .info)
+
+        case .wake:
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            entry.perform(.wake, in: modelContext, preferences: notifPrefs)
+            showToast("Awake", type: .info)
         }
     }
 
@@ -639,6 +646,15 @@ private extension RootView {
         let pendingReveal = appState.conversation.pendingRevealEntryIDs
         return entries.filter {
             $0.status == .active
+                && $0.persistentModelID != pendingDeleteEntry?.persistentModelID
+                && !pendingReveal.contains($0.id)
+        }
+    }
+
+    var snoozedEntries: [Entry] {
+        let pendingReveal = appState.conversation.pendingRevealEntryIDs
+        return entries.filter {
+            $0.status == .snoozed
                 && $0.persistentModelID != pendingDeleteEntry?.persistentModelID
                 && !pendingReveal.contains($0.id)
         }
