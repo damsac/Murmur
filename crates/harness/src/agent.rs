@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::error::HarnessError;
 use crate::llm::{
-    CompletionRequest, ContentBlock, LlmProvider, Message, Role, ToolSpec, Usage,
+    CompletionRequest, ContentBlock, LlmProvider, Message, Role, StopReason, ToolSpec, Usage,
 };
 use crate::tool::ToolRegistry;
 
@@ -21,6 +21,8 @@ pub struct TurnOutcome {
     pub messages: Vec<Message>,
     /// Token usage accumulated across every provider call in this run.
     pub usage: Usage,
+    /// Stop reason of the final provider response (Unknown for unrecognized reasons).
+    pub stop_reason: StopReason,
 }
 
 pub struct Agent {
@@ -52,9 +54,15 @@ impl Agent {
                 })
                 .await?;
             usage.add(&response.usage);
+            let stop_reason = response.stop_reason;
 
-            let tool_uses: Vec<(String, String, serde_json::Value)> = response
+            let content: Vec<ContentBlock> = response
                 .content
+                .into_iter()
+                .filter(|b| !matches!(b, ContentBlock::Unknown))
+                .collect();
+
+            let tool_uses: Vec<(String, String, serde_json::Value)> = content
                 .iter()
                 .filter_map(|b| match b {
                     ContentBlock::ToolUse { id, name, input } => {
@@ -65,8 +73,7 @@ impl Agent {
                 .collect();
 
             if tool_uses.is_empty() {
-                let text = response
-                    .content
+                let text = content
                     .iter()
                     .filter_map(|b| match b {
                         ContentBlock::Text { text } => Some(text.as_str()),
@@ -74,11 +81,11 @@ impl Agent {
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
-                messages.push(Message { role: Role::Assistant, content: response.content });
-                return Ok(TurnOutcome { text, messages, usage });
+                messages.push(Message { role: Role::Assistant, content });
+                return Ok(TurnOutcome { text, messages, usage, stop_reason });
             }
 
-            messages.push(Message { role: Role::Assistant, content: response.content });
+            messages.push(Message { role: Role::Assistant, content });
 
             let mut results = Vec::with_capacity(tool_uses.len());
             for (id, name, input) in tool_uses {
@@ -261,6 +268,25 @@ mod tests {
             &user.content[0],
             ContentBlock::ToolResult { is_error: true, content, .. } if content.contains("ghost")
         ));
+    }
+
+    #[tokio::test]
+    async fn unknown_blocks_are_dropped_and_stop_reason_surfaced() {
+        let response = CompletionResponse {
+            content: vec![
+                ContentBlock::Unknown,
+                ContentBlock::Text { text: "fine".into() },
+            ],
+            stop_reason: StopReason::Unknown,
+            usage: usage1(),
+        };
+        let (agent, _provider) = agent_with(vec![response], ToolRegistry::new());
+        let out = agent.run(vec![Message::user_text("hi")]).await.unwrap();
+        assert_eq!(out.text, "fine");
+        assert_eq!(out.stop_reason, StopReason::Unknown);
+        // the appended assistant message must not contain the Unknown block
+        let assistant = out.messages.last().unwrap();
+        assert_eq!(assistant.content, vec![ContentBlock::Text { text: "fine".into() }]);
     }
 
     #[tokio::test]

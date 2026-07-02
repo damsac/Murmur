@@ -25,6 +25,11 @@ pub enum ContentBlock {
         content: String,
         is_error: bool,
     },
+    /// Any block type this crate doesn't know yet (e.g. thinking, server_tool_use).
+    /// Lenient on purpose. Unknown blocks are dropped before messages are re-sent
+    /// to a provider (see Agent::run) — we can't faithfully round-trip them.
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -64,6 +69,10 @@ pub enum StopReason {
     EndTurn,
     ToolUse,
     MaxTokens,
+    /// Any stop reason this crate doesn't know yet (e.g. refusal, pause_turn).
+    /// Lenient on purpose: an unknown stop reason must never fail response parsing.
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -130,5 +139,18 @@ mod tests {
         let mut u = Usage { input_tokens: 10, output_tokens: 5 };
         u.add(&Usage { input_tokens: 3, output_tokens: 7 });
         assert_eq!(u, Usage { input_tokens: 13, output_tokens: 12 });
+    }
+
+    #[test]
+    fn unknown_content_block_type_parses_leniently() {
+        let v = serde_json::json!({"type": "thinking", "thinking": "hmm", "signature": "sig"});
+        let back: ContentBlock = serde_json::from_value(v).unwrap();
+        assert_eq!(back, ContentBlock::Unknown);
+    }
+
+    #[test]
+    fn unknown_stop_reason_parses_leniently() {
+        let r: StopReason = serde_json::from_value(serde_json::json!("refusal")).unwrap();
+        assert_eq!(r, StopReason::Unknown);
     }
 }
