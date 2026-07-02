@@ -21,6 +21,10 @@ Sac's mock (jobs board → capture → transformation → document review, with 
 4. **Sequencing confirmed:** live extraction (Plan 04) layers on top of end-of-session processing (Plan 03), not built first. STT (Plan 05) optimizes for mobile constraints first (model size vs. quality is an explicit onboarding-cost tradeoff).
 5. **Pacing principle:** this is a product build, not a feedback probe. Each plan lands complete — reviewed, tested, documented, next plan's seams explicit — before the next begins. No sprinting to milestones; rethinking is allowed when reviews surface better shapes.
 
+## Rev 4 amendments (frontier memory research, 2026-07-02)
+
+Survey: `docs/research/2026-07-02-agent-memory-frontier.md`. Core memory architecture validated (tiny always-in-context store, flat sectioned facts, user-visible memory, on-device). Adopted hardening: **pre-reflection snapshots** (3 rotating versions — rollback for the full-rewrite forgetting risk); **per-fact provenance** (stated/inferred/corrected + originating session); **importance-aware forgetting** (corrected facts never auto-pruned, evicted last; pure LRU rejected); **verbatim-survivor reflection rule** (protects churn signal from paraphrase noise; churn cadence is instrumented, not yet trusted — no published precedent). Vocabulary section: ≤100 curated, phonetically-confusable domain terms (iOS contextualStrings limit); it is the most aggressively curated part of memory. Episodic memory ("what did we agree at Hillside in May") is served by the session library, not fact memory — retrieval tier deferred until real usage demands it (~100+ sessions).
+
 ---
 
 ## 1. Vision

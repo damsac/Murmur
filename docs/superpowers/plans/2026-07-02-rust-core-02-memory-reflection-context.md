@@ -1409,6 +1409,267 @@ git add -A && git commit -m "docs: plan series status; clippy clean for plan 02"
 
 ---
 
+## Rev 2 amendments (frontier research, 2026-07-02)
+
+Source: `docs/research/2026-07-02-agent-memory-frontier.md`. Adopted: snapshots (SSGM dual-track rollback), per-fact provenance, importance-aware forgetting, reflection prompt hardening. The controller merges these replacements into task text at dispatch time; where a block below conflicts with the original task, **this section wins**.
+
+### A. Replaces Task 2's `MemoryEntry` and `remember` (and their tests)
+
+```rust
+/// Where a fact came from — drives eviction priority and debuggability.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FactSource {
+    /// The agent's own deduction. First to be evicted.
+    Inferred,
+    /// The user said it outright.
+    Stated,
+    /// The user corrected the agent. Never auto-pruned; last to be evicted.
+    Corrected,
+}
+
+impl FactSource {
+    pub fn rank(self) -> u8 {
+        match self {
+            FactSource::Inferred => 0,
+            FactSource::Stated => 1,
+            FactSource::Corrected => 2,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MemoryEntry {
+    pub text: String,
+    /// Unix seconds when this entry was last added, confirmed, or re-mentioned.
+    pub last_touched: u64,
+    pub source: FactSource,
+    /// Session id this fact came from, if known.
+    pub session: Option<String>,
+}
+```
+
+`remember` keeps its simple signature (defaults: `Inferred`, no session) and delegates to the full version. On an existing exact text: refresh `last_touched`; upgrade `source`/`session` only if the new source ranks higher (never downgrade):
+
+```rust
+    pub fn remember(&mut self, section: &str, text: &str, now: u64) {
+        self.remember_from(section, text, now, FactSource::Inferred, None);
+    }
+
+    pub fn remember_from(
+        &mut self,
+        section: &str,
+        text: &str,
+        now: u64,
+        source: FactSource,
+        session: Option<String>,
+    ) {
+        let entries = self.sections.entry(section.to_string()).or_default();
+        match entries.iter_mut().find(|e| e.text == text) {
+            Some(e) => {
+                e.last_touched = now;
+                if source.rank() > e.source.rank() {
+                    e.source = source;
+                    e.session = session;
+                }
+            }
+            None => entries.push(MemoryEntry {
+                text: text.to_string(),
+                last_touched: now,
+                source,
+                session,
+            }),
+        }
+    }
+```
+
+Task 2 test updates: in `remember_adds_and_touches_existing` also assert `m.sections["people"][0].source == FactSource::Inferred`; add:
+
+```rust
+    #[test]
+    fn source_upgrades_but_never_downgrades() {
+        let mut m = Memory::default();
+        m.remember_from("people", "Dev — framer", 100, FactSource::Corrected, Some("s3".into()));
+        m.remember("people", "Dev — framer", 200); // inferred touch
+        let e = &m.sections["people"][0];
+        assert_eq!(e.last_touched, 200);
+        assert_eq!(e.source, FactSource::Corrected);
+        assert_eq!(e.session.as_deref(), Some("s3"));
+        m.remember_from("people", "Dev — framer", 300, FactSource::Stated, Some("s9".into()));
+        assert_eq!(m.sections["people"][0].source, FactSource::Corrected, "no downgrade");
+    }
+```
+
+lib.rs also re-exports `FactSource`.
+
+### B. Replaces Task 3's eviction/pruning semantics (and adds tests)
+
+`prune_stale` never removes `Corrected` entries. `clamp_to_cap` evicts by ascending `(source.rank(), last_touched, section name)` — inferred-oldest first, corrected last:
+
+```rust
+    pub fn prune_stale(&mut self, now: u64, max_age_secs: u64) -> usize {
+        let cutoff = now.saturating_sub(max_age_secs);
+        let mut removed = 0;
+        self.sections.retain(|_, entries| {
+            let before = entries.len();
+            entries.retain(|e| e.source == FactSource::Corrected || e.last_touched >= cutoff);
+            removed += before - entries.len();
+            !entries.is_empty()
+        });
+        removed
+    }
+
+    pub fn clamp_to_cap(&mut self, cap: usize) -> usize {
+        let mut removed = 0;
+        while self.word_count() > cap {
+            let next = self
+                .sections
+                .iter()
+                .flat_map(|(name, entries)| {
+                    entries
+                        .iter()
+                        .map(move |e| ((e.source.rank(), e.last_touched, name.clone()), e.text.clone()))
+                })
+                .min_by(|a, b| a.0.cmp(&b.0));
+            let Some(((_, _, section), text)) = next else { break };
+            self.forget(&section, &text);
+            removed += 1;
+        }
+        removed
+    }
+```
+
+Additional Task 3 tests:
+
+```rust
+    #[test]
+    fn corrected_facts_survive_pruning_and_evict_last() {
+        let mut m = Memory::default();
+        m.remember_from("people", "Dev not Dave", 10, FactSource::Corrected, None);
+        m.remember("people", "likes early starts", 999);
+        assert_eq!(m.prune_stale(1000, 100), 1, "only the inferred fact prunes");
+        assert_eq!(m.section_texts("people"), vec!["Dev not Dave"]);
+
+        m.remember_from("a", "one two three four", 500, FactSource::Stated, None);
+        // cap forces eviction: inferred gone already; stated (rank 1) goes before corrected (rank 2)
+        m.clamp_to_cap(3);
+        assert_eq!(m.section_texts("people"), vec!["Dev not Dave"]);
+        assert!(m.sections.get("a").is_none());
+    }
+```
+
+(The original `clamp_to_cap_drops_oldest_first` test still passes: all-Inferred entries fall back to oldest-first.)
+
+### C. Adds snapshot rotation to Task 4's FileMemoryStore (and a test)
+
+Every `save` rotates up to 3 prior versions (`.1` newest … `.3` oldest) before the atomic rename; `snapshots()` returns whichever parse cleanly, newest first:
+
+```rust
+    fn rotate_snapshots(&self) {
+        for i in (1..3usize).rev() {
+            let from = self.path.with_extension(i.to_string());
+            let to = self.path.with_extension((i + 1).to_string());
+            if from.exists() {
+                let _ = std::fs::rename(&from, &to);
+            }
+        }
+        if self.path.exists() {
+            let _ = std::fs::copy(&self.path, self.path.with_extension("1"));
+        }
+    }
+
+    /// Prior memory versions, newest first (up to 3). Rollback path if a
+    /// reflection rewrite dropped something important (research rec #8).
+    pub fn snapshots(&self) -> Vec<Memory> {
+        (1..=3usize)
+            .filter_map(|i| std::fs::read_to_string(self.path.with_extension(i.to_string())).ok())
+            .filter_map(|raw| serde_json::from_str(&raw).ok())
+            .collect()
+    }
+```
+
+Call `self.rotate_snapshots();` as the first line of `save` (before parent-dir creation). Add test:
+
+```rust
+    #[test]
+    fn save_rotates_up_to_three_snapshots() {
+        let path = temp_path("snapshots");
+        let store = FileMemoryStore::new(path.clone());
+        for i in 0..5u64 {
+            let mut m = Memory::default();
+            m.remember("v", &format!("version {i}"), i);
+            store.save(&m).unwrap();
+        }
+        let snaps = store.snapshots();
+        assert_eq!(snaps.len(), 3);
+        assert_eq!(snaps[0].section_texts("v"), vec!["version 3"]);
+        assert_eq!(snaps[2].section_texts("v"), vec!["version 1"]);
+        for ext in ["1", "2", "3"] {
+            std::fs::remove_file(path.with_extension(ext)).ok();
+        }
+        std::fs::remove_file(path).ok();
+    }
+```
+
+### D. Task 5 tool gains optional `source` and a session tag
+
+`UpdateMemoryTool` gets a `session: Option<String>` field (`new`/`with_clock` set it to `None`; add builder `pub fn for_session(mut self, id: impl Into<String>) -> Self`). Input schema `properties` gains:
+
+```json
+"source": { "type": "string", "enum": ["stated", "inferred", "corrected"], "description": "how you know this; default inferred" }
+```
+
+(`required` unchanged.) In `execute`, parse `source` (default `Inferred`; unknown value → tool error) and call `mem.remember_from(section, text, (self.clock)(), source, self.session.clone())`. Add test:
+
+```rust
+    #[tokio::test]
+    async fn source_and_session_are_recorded() {
+        let store = SpyStore::new();
+        let memory = Arc::new(Mutex::new(Memory::default()));
+        let tool = UpdateMemoryTool::with_clock(memory.clone(), store, Arc::new(|| 5))
+            .for_session("s42");
+        tool.execute(serde_json::json!({"op": "remember", "section": "people", "text": "Dev", "source": "corrected"}))
+            .await
+            .unwrap();
+        let m = memory.lock().unwrap();
+        assert_eq!(m.sections["people"][0].source, FactSource::Corrected);
+        assert_eq!(m.sections["people"][0].session.as_deref(), Some("s42"));
+    }
+```
+
+(Import `FactSource` in the tool module.)
+
+### E. Task 8 engine: preserve full provenance; hardened prompt
+
+Where the engine rebuilds entries, surviving exact-text facts keep their whole prior entry (source, session, last_touched), and new facts are `Inferred`/no-session:
+
+```rust
+                let prior = current
+                    .sections
+                    .get(section)
+                    .and_then(|es| es.iter().find(|e| e.text == text))
+                    .cloned();
+                match prior {
+                    Some(e) => memory.remember_from(section, text, e.last_touched, e.source, e.session),
+                    None => memory.remember_from(section, text, now, FactSource::Inferred, None),
+                }
+```
+
+System prompt gains, after the word-limit sentence:
+
+```
+Keep facts that survive VERBATIM, character for character — do not paraphrase them. \
+When recent activity contradicts an existing fact, drop the stale fact and write the \
+corrected one; never merge the two into a blended claim. Facts marked as user \
+corrections outrank everything else — do not drop or alter them.
+```
+
+The `reflect` user message renders corrected facts with a marker so the model can honor that rule — in the memory block, append ` [corrected]` after entries whose `source == FactSource::Corrected` (do this in `reflect` when building `memory_block`, not in `Memory::to_prompt`, which stays clean for general context use). Task 8 test update: `rebuilds_memory_preserving_last_touched_for_kept_texts` asserts the surviving entry equals the FULL prior entry (source/session preserved); churn/clamp/missing-tool tests unchanged. Churn remains logged-not-trusted: the verbatim rule exists precisely so paraphrase noise doesn't fake churn (research rec #6).
+
+### F. Spec-level note (no code)
+
+Vocabulary curation (≤100 short, phonetically-confusable, domain-specific terms — iOS `contextualStrings` limit) is enforced where vocabulary is consumed and written: reflection prompt guidance lands in Plan 03's murmur-core prompts, STT-side enforcement in Plan 05.
+
 ## Self-Review Notes
 
 - **Spec coverage:** §7 memory file ✓ (Tasks 2–4), update_memory tool ✓ (Task 5), reflection replace-not-append ✓ (Task 8), 500-word cap ✓ (Tasks 2/3/8), Rev 3 adaptive cadence + corrections snap-back ✓ (Task 7), Rev 3 forgetting (staleness prune + cap + quieter-not-chattier is prompt-level, noted) ✓ (Task 3), §4 context assembler with budgets ✓ (Task 6), vocabulary→STT accessor seam ✓ (`section_texts`, Task 2). Memory-transparency UI and platform scheduling are app-layer (Plans 03+/06) — out of scope here by design.
