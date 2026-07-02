@@ -49,6 +49,7 @@ pub struct ToolSpec {
     pub input_schema: serde_json::Value,
 }
 
+/// No serde derives on purpose: each provider maps this to its own wire format.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompletionRequest {
     pub system: String,
@@ -78,6 +79,7 @@ impl Usage {
     }
 }
 
+/// No serde derives on purpose: providers parse their own wire format into this.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompletionResponse {
     pub content: Vec<ContentBlock>,
@@ -104,6 +106,8 @@ mod tests {
         let v = serde_json::to_value(&block).unwrap();
         assert_eq!(v["type"], "tool_use");
         assert_eq!(v["name"], "create_item");
+        assert_eq!(v["id"], "tu_1");
+        assert_eq!(v["input"]["title"], "mulch beds");
         let back: ContentBlock = serde_json::from_value(v).unwrap();
         assert_eq!(back, block);
     }

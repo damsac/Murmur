@@ -1,5 +1,7 @@
 #[derive(Debug, thiserror::Error)]
 pub enum HarnessError {
+    /// Provider errors are stringified at the boundary deliberately: these
+    /// errors will cross an FFI boundary later, where source chains don't travel.
     #[error("provider error: {0}")]
     Provider(String),
     #[error("unknown tool: {0}")]
