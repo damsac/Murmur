@@ -1,6 +1,7 @@
 pub mod error;
 pub mod llm;
 pub mod mock;
+pub mod tool;
 
 pub use error::HarnessError;
 pub use llm::{
@@ -8,3 +9,4 @@ pub use llm::{
     ToolSpec, Usage,
 };
 pub use mock::MockProvider;
+pub use tool::{Tool, ToolRegistry};
