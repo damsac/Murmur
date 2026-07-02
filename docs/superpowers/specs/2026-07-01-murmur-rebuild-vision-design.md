@@ -13,6 +13,14 @@ Sac's mock (jobs board → capture → transformation → document review, with 
 3. **Schedule-first home.** The home screen is a deterministic jobs board (today's sites, times, statuses), not an agent-composed focus feed. `Job` (site, client, time, status, linked sessions/artifacts) is a first-class core entity. The generative-UI layer concentrates on the capture board and artifact surfaces rather than composing the home. Supersedes the composed-home framing inherited from Murmur v1.
 4. Confirmed by the mock and kept from Rev 1: memory learns the *business* (letterhead identity, license numbers, pricing/rates vocabulary); manual parity includes voice edits against generated artifacts ("make that fourteen hundred"); deliberate stop (PAUSE/DONE split); share is the deliverable moment.
 
+## Rev 3 amendments (dam steering, 2026-07-02)
+
+1. **Adaptive reflection cadence, platform-honest.** Reflection runs when we have guaranteed compute: session end / app open. Cadence is signal-driven, not scheduled: every session at first (fast learning), stretching out once reflections stop producing meaningful memory changes; a user correction snaps cadence back up. iOS `BGProcessingTask` (opportunistic, typically overnight/charging) is a bonus deep-compression pass, never a dependency. Android may use WorkManager more freely.
+2. **Forgetting is a feature.** Three mechanisms against over-remembering: the 500-word cap (reflection compresses, never accumulates), staleness decay (people/projects unmentioned for weeks are dropped), and the memory-transparency UI as user audit. Behavioral rule: **memory makes the agent quieter, not chattier** — knowing the user better means fewer questions and fewer surfaced items, never unprompted references to remembered facts.
+3. **Vocabulary feeds two consumers (contextual biasing).** Onboarding is an interview: the agent asks trade, crew/client names, materials. Answers seed the memory vocabulary, which feeds (a) LLM context and (b) the STT contextual-biasing/hotword list (sherpa-onnx hotwords or Whisper prompt seeding — prior art: orator2's adaptive hotwords). Reflection keeps enriching it: transcription accuracy improves with use.
+4. **Sequencing confirmed:** live extraction (Plan 04) layers on top of end-of-session processing (Plan 03), not built first. STT (Plan 05) optimizes for mobile constraints first (model size vs. quality is an explicit onboarding-cost tradeoff).
+5. **Pacing principle:** this is a product build, not a feedback probe. Each plan lands complete — reviewed, tested, documented, next plan's seams explicit — before the next begins. No sprinting to milestones; rethinking is allowed when reviews surface better shapes.
+
 ---
 
 ## 1. Vision
