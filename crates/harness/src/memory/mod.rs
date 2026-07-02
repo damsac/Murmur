@@ -153,7 +153,9 @@ impl Memory {
 
     /// Drops entries until `word_count() <= cap`, evicting by ascending
     /// `(source rank, last_touched, section name)` — inferred-oldest first,
-    /// corrected last. Returns how many entries were removed.
+    /// corrected last. Ties within the same section and timestamp resolve by
+    /// insertion order (deterministic, since `min_by` keeps the first minimum
+    /// in iteration order). Returns how many entries were removed.
     pub fn clamp_to_cap(&mut self, cap: usize) -> usize {
         let mut removed = 0;
         while self.word_count() > cap {
@@ -214,7 +216,7 @@ mod tests {
         let mut m = mem_with("people", &[("Dev \u{2014} framer", 100)]);
         assert!(m.forget("people", "Dev \u{2014} framer"));
         assert!(!m.forget("people", "Dev \u{2014} framer"));
-        assert!(m.sections.get("people").is_none(), "empty sections are dropped");
+        assert!(!m.sections.contains_key("people"), "empty sections are dropped");
     }
 
     #[test]
@@ -254,7 +256,7 @@ mod tests {
         let removed = m.prune_stale(1000, 500); // older than 500s ago goes
         assert_eq!(removed, 2);
         assert_eq!(m.section_texts("people"), vec!["fresh contact"]);
-        assert!(m.sections.get("jobs").is_none());
+        assert!(!m.sections.contains_key("jobs"));
     }
 
     #[test]
@@ -266,7 +268,7 @@ mod tests {
         let removed = m.clamp_to_cap(6);
         assert_eq!(removed, 1, "dropping the oldest entry reaches the cap");
         assert_eq!(m.word_count(), 6);
-        assert!(m.sections.get("a").is_none());
+        assert!(!m.sections.contains_key("a"));
         assert_eq!(m.section_texts("b"), vec!["four five"]);
         assert_eq!(m.section_texts("c"), vec!["six seven eight nine"]);
     }
@@ -291,6 +293,15 @@ mod tests {
         // cap forces eviction: inferred gone already; stated (rank 1) goes before corrected (rank 2)
         m.clamp_to_cap(3);
         assert_eq!(m.section_texts("people"), vec!["Dev not Dave"]);
-        assert!(m.sections.get("a").is_none());
+        assert!(!m.sections.contains_key("a"));
+
+        // Corrected facts are last to go, not immune: with only Corrected
+        // entries left, clamp_to_cap still evicts to honor the cap.
+        m.remember_from("people", "prefers text over calls", 20, FactSource::Corrected, None);
+        assert_eq!(m.word_count(), 7); // "Dev not Dave" (3) + new entry (4)
+        let removed = m.clamp_to_cap(4);
+        assert_eq!(removed, 1, "oldest corrected entry is evicted");
+        assert!(m.word_count() <= 4);
+        assert_eq!(m.section_texts("people"), vec!["prefers text over calls"]);
     }
 }
