@@ -51,6 +51,7 @@ impl Agent {
                     messages: messages.clone(),
                     tools: self.tool_specs(),
                     max_tokens: self.config.max_tokens,
+                    tool_choice: None,
                 })
                 .await?;
             usage.add(&response.usage);

@@ -61,6 +61,8 @@ pub struct CompletionRequest {
     pub messages: Vec<Message>,
     pub tools: Vec<ToolSpec>,
     pub max_tokens: u32,
+    /// Force the model to call this tool by name (None = model decides).
+    pub tool_choice: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

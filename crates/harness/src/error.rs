@@ -4,6 +4,8 @@ pub enum HarnessError {
     /// errors will cross an FFI boundary later, where source chains don't travel.
     #[error("provider error: {0}")]
     Provider(String),
+    #[error("storage error: {0}")]
+    Storage(String),
     #[error("unknown tool: {0}")]
     UnknownTool(String),
     #[error("tool '{name}' failed: {message}")]

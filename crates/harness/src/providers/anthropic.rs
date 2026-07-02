@@ -42,13 +42,16 @@ struct ApiResponse {
 #[async_trait::async_trait]
 impl LlmProvider for AnthropicProvider {
     async fn complete(&self, req: CompletionRequest) -> Result<CompletionResponse, HarnessError> {
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "model": self.model,
             "max_tokens": req.max_tokens,
             "system": req.system,
             "messages": req.messages,
             "tools": req.tools,
         });
+        if let Some(name) = &req.tool_choice {
+            body["tool_choice"] = serde_json::json!({"type": "tool", "name": name});
+        }
 
         let resp = self
             .client
@@ -98,6 +101,7 @@ mod tests {
                 input_schema: serde_json::json!({"type": "object"}),
             }],
             max_tokens: 256,
+            tool_choice: None,
         }
     }
 
@@ -161,5 +165,36 @@ mod tests {
             }
             other => panic!("wrong error: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn forced_tool_choice_is_serialized_and_absent_when_none() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "content": [{"type": "text", "text": "ok"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 1, "output_tokens": 1}
+            })))
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let provider = AnthropicProvider::new("sk-test", "claude-haiku-4-5-20251001")
+            .with_base_url(server.uri());
+
+        let mut req = request();
+        req.tool_choice = Some("echo".into());
+        provider.complete(req).await.unwrap();
+
+        provider.complete(request()).await.unwrap();
+
+        let received = server.received_requests().await.unwrap();
+        let body0: serde_json::Value = serde_json::from_slice(&received[0].body).unwrap();
+        assert_eq!(body0["tool_choice"]["type"], "tool");
+        assert_eq!(body0["tool_choice"]["name"], "echo");
+        let body1: serde_json::Value = serde_json::from_slice(&received[1].body).unwrap();
+        assert!(body1.get("tool_choice").is_none());
     }
 }
