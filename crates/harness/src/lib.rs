@@ -2,6 +2,7 @@ pub mod agent;
 pub mod error;
 pub mod llm;
 pub mod mock;
+pub mod providers;
 pub mod tool;
 
 pub use agent::{Agent, AgentConfig, TurnOutcome};
@@ -11,4 +12,5 @@ pub use llm::{
     ToolSpec, Usage,
 };
 pub use mock::MockProvider;
+pub use providers::AnthropicProvider;
 pub use tool::{Tool, ToolRegistry};
