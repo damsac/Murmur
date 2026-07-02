@@ -19,7 +19,7 @@ pub use mock::MockProvider;
 pub use providers::AnthropicProvider;
 pub use memory::{FactSource, Memory, MemoryEntry, DEFAULT_WORD_CAP};
 pub use memory::store::{FileMemoryStore, MemoryStore};
-pub use memory::tool::UpdateMemoryTool;
+pub use memory::tool::{Clock, UpdateMemoryTool};
 pub use reflection::engine::{ReflectionEngine, ReflectionOutcome};
 pub use reflection::policy::{ReflectionPolicy, ReflectionSignals};
 pub use tool::{Tool, ToolRegistry};

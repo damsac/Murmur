@@ -20,6 +20,22 @@ pub struct ReflectionSignals {
     pub recent_churn: Vec<f32>,
 }
 
+impl ReflectionSignals {
+    /// Call after each completed reflection: resets the since-reflection
+    /// counters, bumps the completed count, and records the churn score
+    /// (history trimmed to the last 8 entries — more than the backoff reads).
+    pub fn record_reflection(&mut self, churn: f32) {
+        self.sessions_since_reflection = 0;
+        self.corrections_since_reflection = 0;
+        self.completed_reflections += 1;
+        self.recent_churn.push(churn);
+        if self.recent_churn.len() > 8 {
+            let excess = self.recent_churn.len() - 8;
+            self.recent_churn.drain(..excess);
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ReflectionPolicy {
     /// Reflect after every session until this many reflections have run.
@@ -122,6 +138,18 @@ mod tests {
         assert!(p.should_reflect(&signals(1, 0, 10, &[0.5])));
         // trailing high churn resets the backoff even after earlier low ones
         assert!(p.should_reflect(&signals(1, 0, 10, &[0.05, 0.05, 0.5])));
+    }
+
+    #[test]
+    fn record_reflection_resets_counters_and_trims_churn() {
+        let mut s = signals(4, 2, 7, &[0.1; 8]); // churn history already full
+        s.record_reflection(0.9);
+        assert_eq!(s.sessions_since_reflection, 0);
+        assert_eq!(s.corrections_since_reflection, 0);
+        assert_eq!(s.completed_reflections, 8);
+        assert_eq!(s.recent_churn.len(), 8, "trimmed to the last 8");
+        assert_eq!(*s.recent_churn.last().unwrap(), 0.9, "newest churn kept");
+        assert_eq!(s.recent_churn[0], 0.1, "oldest surviving entry from before");
     }
 
     #[test]

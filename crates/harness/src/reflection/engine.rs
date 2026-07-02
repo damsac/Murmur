@@ -79,6 +79,9 @@ impl ReflectionEngine {
         memory.render(true)
     }
 
+    /// Runs one reflection. Must not overlap an active session: the caller
+    /// swaps-and-persists the returned Memory, so an interleaved `update_memory`
+    /// mutation would be silently discarded.
     pub async fn reflect(
         &self,
         current: &Memory,
@@ -111,17 +114,22 @@ impl ReflectionEngine {
             })
             .await?;
 
-        let sections = response
+        let input = response
             .content
             .iter()
             .find_map(|b| match b {
-                ContentBlock::ToolUse { name, input, .. } if name == WRITE_MEMORY => {
-                    input.get("sections").and_then(|s| s.as_object()).cloned()
-                }
+                ContentBlock::ToolUse { name, input, .. } if name == WRITE_MEMORY => Some(input),
                 _ => None,
             })
             .ok_or_else(|| {
                 HarnessError::Provider("reflection response missing write_memory call".into())
+            })?;
+        let sections = input
+            .get("sections")
+            .and_then(|s| s.as_object())
+            .cloned()
+            .ok_or_else(|| {
+                HarnessError::Provider("write_memory call had malformed sections".into())
             })?;
 
         let mut memory = Memory::default();
@@ -141,6 +149,14 @@ impl ReflectionEngine {
                     None => memory.remember_from(section, text, now, FactSource::Inferred, None),
                 }
             }
+        }
+        // A legit total wipe never happens; an empty write_memory result from a
+        // confused model must not erase the user's memory. (Empty current with
+        // an empty result stays OK — first-run case.)
+        if !current.sections.is_empty() && memory.sections.is_empty() {
+            return Err(HarnessError::Provider(
+                "reflection produced empty memory from non-empty input".into(),
+            ));
         }
         memory.clamp_to_cap(self.word_cap);
 
@@ -294,6 +310,44 @@ mod tests {
         }]));
         let engine = ReflectionEngine::new(provider);
         let err = engine.reflect(&Memory::default(), &[], 999).await.unwrap_err();
-        assert!(matches!(err, HarnessError::Provider(msg) if msg.contains("write_memory")));
+        assert!(matches!(err, HarnessError::Provider(msg) if msg.contains("missing write_memory call")));
+    }
+
+    #[tokio::test]
+    async fn malformed_sections_is_a_distinct_error() {
+        let provider = Arc::new(MockProvider::new(vec![CompletionResponse {
+            content: vec![ContentBlock::ToolUse {
+                id: "tu_1".into(),
+                name: "write_memory".into(),
+                input: serde_json::json!({ "sections": "not an object" }),
+            }],
+            stop_reason: StopReason::ToolUse,
+            usage: Usage::default(),
+        }]));
+        let engine = ReflectionEngine::new(provider);
+        let err = engine.reflect(&Memory::default(), &[], 999).await.unwrap_err();
+        assert!(matches!(err, HarnessError::Provider(msg) if msg.contains("malformed sections")));
+    }
+
+    #[tokio::test]
+    async fn empty_result_from_non_empty_memory_is_an_error() {
+        let provider = Arc::new(MockProvider::new(vec![write_memory_response(
+            serde_json::json!({}),
+        )]));
+        let engine = ReflectionEngine::new(provider);
+        let err = engine.reflect(&current_memory(), &[], 999).await.unwrap_err();
+        assert!(matches!(err, HarnessError::Provider(msg) if msg.contains("empty memory")));
+    }
+
+    #[tokio::test]
+    async fn empty_result_from_empty_memory_is_ok() {
+        // first-run case: nothing known, nothing learned
+        let provider = Arc::new(MockProvider::new(vec![write_memory_response(
+            serde_json::json!({}),
+        )]));
+        let engine = ReflectionEngine::new(provider);
+        let out = engine.reflect(&Memory::default(), &[], 999).await.unwrap();
+        assert!(out.memory.sections.is_empty());
+        assert_eq!(out.churn, 0.0);
     }
 }

@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::error::HarnessError;
 use crate::memory::store::MemoryStore;
-use crate::memory::{FactSource, Memory};
+use crate::memory::{FactSource, Memory, DEFAULT_WORD_CAP};
 use crate::tool::Tool;
 
 /// Injectable clock (unix seconds) so tests are deterministic.
@@ -25,6 +25,9 @@ pub struct UpdateMemoryTool {
     store: Arc<dyn MemoryStore>,
     clock: Clock,
     session: Option<String>,
+    /// Word cap enforced after every successful remember (spec §7: memory never
+    /// grows unbounded, even between reflections).
+    pub word_cap: usize,
 }
 
 impl UpdateMemoryTool {
@@ -37,7 +40,7 @@ impl UpdateMemoryTool {
         store: Arc<dyn MemoryStore>,
         clock: Clock,
     ) -> Self {
-        UpdateMemoryTool { memory, store, clock, session: None }
+        UpdateMemoryTool { memory, store, clock, session: None, word_cap: DEFAULT_WORD_CAP }
     }
 
     /// Tags every fact this tool records with a session id.
@@ -91,6 +94,7 @@ impl Tool for UpdateMemoryTool {
             match op {
                 "remember" => {
                     mem.remember_from(section, text, (self.clock)(), source, self.session.clone());
+                    mem.clamp_to_cap(self.word_cap);
                 }
                 "forget" => {
                     if !mem.forget(section, text) {
@@ -218,6 +222,21 @@ mod tests {
         // Contract: the in-memory mutation is applied even when persistence fails.
         let m = memory.lock().unwrap();
         assert_eq!(m.section_texts("people"), vec!["Dev"]);
+    }
+
+    #[tokio::test]
+    async fn remember_enforces_word_cap() {
+        let store = SpyStore::new();
+        let (mut tool, memory) = tool_with(store);
+        tool.word_cap = 4;
+        tool.execute(serde_json::json!({"op": "remember", "section": "notes", "text": "one two three"}))
+            .await
+            .unwrap();
+        tool.execute(serde_json::json!({"op": "remember", "section": "notes", "text": "four five six seven"}))
+            .await
+            .unwrap();
+        let m = memory.lock().unwrap();
+        assert!(m.word_count() <= 4, "cap enforced after every remember");
     }
 
     #[tokio::test]
