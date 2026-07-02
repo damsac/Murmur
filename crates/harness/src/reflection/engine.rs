@@ -18,6 +18,7 @@ const WRITE_MEMORY: &str = "write_memory";
 pub struct ReflectionOutcome {
     pub memory: Memory,
     /// (added + removed) / (old_count + new_count); 0.0 when both are empty.
+    /// Measured after word-cap clamping — actual-memory churn, not LLM-intent churn.
     pub churn: f32,
     pub usage: Usage,
 }
@@ -69,33 +70,13 @@ impl ReflectionEngine {
     }
 
     /// Renders memory like `to_prompt`, but marks user-corrected facts with
-    /// ` [corrected]` so the model can honor their precedence. Kept out of
-    /// `Memory::to_prompt`, which stays clean for general context use.
+    /// ` [corrected]` so the model can honor their precedence (see
+    /// `Memory::render` for the marker-masquerading threat model note).
     fn memory_block(&self, memory: &Memory) -> String {
         if memory.sections.is_empty() {
             return "(empty)".to_string();
         }
-        let mut out = String::new();
-        for (name, entries) in &memory.sections {
-            if entries.is_empty() {
-                continue;
-            }
-            if !out.is_empty() {
-                out.push('\n');
-            }
-            out.push_str("## ");
-            out.push_str(name);
-            out.push('\n');
-            for e in entries {
-                out.push_str("- ");
-                out.push_str(&e.text);
-                if e.source == FactSource::Corrected {
-                    out.push_str(" [corrected]");
-                }
-                out.push('\n');
-            }
-        }
-        out
+        memory.render(true)
     }
 
     pub async fn reflect(
@@ -145,6 +126,7 @@ impl ReflectionEngine {
 
         let mut memory = Memory::default();
         for (section, texts) in &sections {
+            // Non-array section values drop the section; next reflection repopulates.
             let Some(texts) = texts.as_array() else { continue };
             for text in texts.iter().filter_map(|t| t.as_str()) {
                 let prior = current
@@ -291,6 +273,16 @@ mod tests {
         engine.word_cap = 4;
         let out = engine.reflect(&Memory::default(), &[], 999).await.unwrap();
         assert!(out.memory.word_count() <= 4);
+    }
+
+    #[tokio::test]
+    async fn duplicate_texts_in_response_collapse_to_one() {
+        let provider = Arc::new(MockProvider::new(vec![write_memory_response(
+            serde_json::json!({ "people": ["foo", "foo"] }),
+        )]));
+        let engine = ReflectionEngine::new(provider);
+        let out = engine.reflect(&Memory::default(), &[], 999).await.unwrap();
+        assert_eq!(out.memory.sections["people"].len(), 1);
     }
 
     #[tokio::test]

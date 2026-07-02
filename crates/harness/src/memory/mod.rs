@@ -119,6 +119,16 @@ impl Memory {
     /// Markdown rendering for prompt injection: `## section` headers, `- ` entries,
     /// sections in BTreeMap (alphabetical) order. Empty memory renders as "".
     pub fn to_prompt(&self) -> String {
+        self.render(false)
+    }
+
+    /// Shared rendering behind [`Memory::to_prompt`]. When `annotate_corrected`,
+    /// entries with [`FactSource::Corrected`] get a trailing ` [corrected]` marker
+    /// (used by the reflection engine so the model honors correction precedence).
+    /// Threat model note: the marker is derived from provenance, but a fact whose
+    /// text itself contains "[corrected]" could masquerade — accepted for a
+    /// single-user, on-device deployment (self-poisoning only).
+    pub(crate) fn render(&self, annotate_corrected: bool) -> String {
         let mut out = String::new();
         for (name, entries) in &self.sections {
             if entries.is_empty() {
@@ -133,6 +143,9 @@ impl Memory {
             for e in entries {
                 out.push_str("- ");
                 out.push_str(&e.text);
+                if annotate_corrected && e.source == FactSource::Corrected {
+                    out.push_str(" [corrected]");
+                }
                 out.push('\n');
             }
         }
