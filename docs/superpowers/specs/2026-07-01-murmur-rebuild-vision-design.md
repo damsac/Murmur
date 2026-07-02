@@ -1,8 +1,17 @@
 # Murmur Rebuild — Vision & Design
 
-**Date:** 2026-07-01
+**Date:** 2026-07-01 (Rev 2, same day — post sac mock review)
 **Status:** Approved by dam (this session). Pending sac review.
-**Supersedes:** the current Swift/SwiftUI codebase. This is a ground-up rebuild in a fresh repo under the Murmur brand.
+**Supersedes:** the current Swift/SwiftUI codebase. This is a ground-up rebuild in a fresh repo under the Murmur brand (working title in sac's design study: SITEWALK).
+
+## Rev 2 amendments (sac's design study, `SITEWALK — DS-01`)
+
+Sac's mock (jobs board → capture → transformation → document review, with landscape/property-mgmt/inspection trade templates) sharpened the product. Decisions taken with dam:
+
+1. **Capture-first; artifacts are a pluggable seam.** The core commitment of v1 is: capture the session, learn the user, reason about the transcript. Which *artifacts* get generated (reports, priced estimates, move-out reports, inspection reports, todos…) is deliberately not fixed yet — the architecture must make artifact types easy to add (an `Artifact` abstraction + registered generators over session data), but v1 does not commit to specific document templates. The mock's estimate/report documents are the likely direction, not a locked scope.
+2. **Live in-session extraction, offline-degradable.** During recording, a cheap incremental agent pass extracts typed items onto a live "Captured" board (ITEM / PART / PRICE / SAFETY-class tags) as they're spoken. The final pass at session end assembles results within a <8s "transformation" budget (no spinner — content streams in). If offline mid-session, the live board simply lags and catches up when processing queues; live extraction is an enhancement, never a dependency. This supersedes "process at end + checkpoints" in §6 and refines R1: the user watches structured items, never raw transcript.
+3. **Schedule-first home.** The home screen is a deterministic jobs board (today's sites, times, statuses), not an agent-composed focus feed. `Job` (site, client, time, status, linked sessions/artifacts) is a first-class core entity. The generative-UI layer concentrates on the capture board and artifact surfaces rather than composing the home. Supersedes the composed-home framing inherited from Murmur v1.
+4. Confirmed by the mock and kept from Rev 1: memory learns the *business* (letterhead identity, license numbers, pricing/rates vocabulary); manual parity includes voice edits against generated artifacts ("make that fourteen hundred"); deliberate stop (PAUSE/DONE split); share is the deliverable moment.
 
 ---
 
