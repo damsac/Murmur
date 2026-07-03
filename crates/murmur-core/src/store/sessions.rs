@@ -307,10 +307,14 @@ impl Store {
 
     /// The session-end call (Plan 03 review: dual-call contract). Ends the
     /// recording AND records the session for reflection cadence in one place
-    /// so callers can't forget the bookkeeping half.
+    /// so callers can't forget the bookkeeping half. Both writes commit in
+    /// one transaction — a failure can't leave an AwaitingProcessing session
+    /// with an under-counted reflection cadence.
     pub fn end_and_record_session(&self, id: &str) -> Result<Session, CoreError> {
+        let tx = self.conn.unchecked_transaction()?;
         let session = self.end_session(id)?;
         self.record_session_completed()?;
+        tx.commit()?;
         Ok(session)
     }
 
@@ -318,9 +322,9 @@ impl Store {
     /// The processing pipeline calls this before (re)processing so a Failed
     /// retry can't duplicate extracted outputs. Returns rows tombstoned.
     pub fn clear_session_outputs(&self, session_id: &str) -> Result<usize, CoreError> {
-        self.get_session(session_id)?;
         let now = self.now() as i64;
         let tx = self.conn.unchecked_transaction()?;
+        self.get_session(session_id)?;
         let items = tx.execute(
             "UPDATE items SET deleted_at = ?1, updated_at = ?1
              WHERE session_id = ?2 AND deleted_at IS NULL",
@@ -674,5 +678,34 @@ mod tests {
             s.clear_session_outputs("nope"),
             Err(CoreError::NotFound { entity: "session", .. })
         ));
+    }
+
+    #[test]
+    fn clear_session_outputs_on_failed_session() {
+        let s = store();
+        let session = s.start_session(None).unwrap();
+        s.end_session(&session.id).unwrap();
+        s.add_item(&session.id, "todo", "stale").unwrap();
+        s.mark_session_failed(&session.id).unwrap();
+        assert_eq!(s.clear_session_outputs(&session.id).unwrap(), 1);
+        assert_eq!(s.get_session(&session.id).unwrap().status, SessionStatus::Failed);
+    }
+
+    #[test]
+    fn processed_session_summary_carries_full_lifecycle_fields() {
+        let s = store();
+        let session = s.start_session(None).unwrap();
+        s.append_transcript(&session.id, "walked the deck").unwrap();
+        let s = s.with_clock(Arc::new(|| 2000));
+        s.end_session(&session.id).unwrap();
+        s.mark_session_processed(&session.id, "the summary").unwrap();
+
+        let summaries = s.list_session_summaries().unwrap();
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].id, session.id);
+        assert_eq!(summaries[0].status, SessionStatus::Processed);
+        assert_eq!(summaries[0].summary.as_deref(), Some("the summary"));
+        assert_eq!(summaries[0].ended_at, Some(2000));
+        assert_eq!(summaries[0].transcript_chars, 15);
     }
 }
