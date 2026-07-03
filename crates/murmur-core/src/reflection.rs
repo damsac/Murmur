@@ -88,6 +88,18 @@ impl Store {
         Ok(())
     }
 
+    /// Reflection success exit (the coordinator calls this): records the
+    /// reflection signals AND logs the LLM cost in one transaction — a crash
+    /// between the two can't leave a recorded reflection with unlogged spend
+    /// (or vice versa). Mirrors `finish_session_processed`.
+    pub fn finish_reflection(&self, churn: f32, usage: &harness::Usage) -> Result<(), CoreError> {
+        let tx = self.conn.unchecked_transaction()?;
+        self.record_reflection(churn)?;
+        self.record_llm_usage(None, "reflection", usage)?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Activity feed for `ReflectionEngine::reflect`: ended sessions since the
     /// last reflection, oldest→newest, at most `max_sessions` MOST RECENT.
     /// Uses the pipeline summary when present, else a bounded transcript
@@ -170,6 +182,25 @@ mod tests {
         assert_eq!(signals.completed_reflections, 1);
         assert_eq!(signals.recent_churn, vec![0.4]);
         assert_eq!(s.last_reflected_at().unwrap(), 1000);
+    }
+
+    #[test]
+    fn finish_reflection_records_signals_and_logs_cost() {
+        let s = store();
+        s.record_session_completed().unwrap();
+        s.finish_reflection(0.3, &harness::Usage { input_tokens: 200, output_tokens: 40 })
+            .unwrap();
+        let signals = s.reflection_signals().unwrap();
+        assert_eq!(signals.completed_reflections, 1);
+        assert_eq!(signals.sessions_since_reflection, 0);
+        assert_eq!(signals.recent_churn, vec![0.3]);
+        assert_eq!(s.last_reflected_at().unwrap(), 1000);
+        assert_eq!(s.usage_totals().unwrap(), (200, 40), "reflection cost logged");
+        let purpose: String = s
+            .conn
+            .query_row("SELECT purpose FROM llm_usage", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(purpose, "reflection");
     }
 
     #[test]

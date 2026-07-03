@@ -76,7 +76,7 @@ async fn site_walk_end_to_end() {
     assert_eq!(results.len(), 1);
     assert!(results[0].1.is_ok());
 
-    {
+    let processing_totals = {
         let s = store.lock().unwrap();
         let processed = s.get_session(&session.id).unwrap();
         assert_eq!(processed.status, SessionStatus::Processed);
@@ -89,7 +89,8 @@ async fn site_walk_end_to_end() {
         // the session library sees the summary without the transcript
         let summaries = s.list_session_summaries().unwrap();
         assert_eq!(summaries[0].summary.as_deref(), Some("Deck walk: framing fix planned, lumber ordered."));
-    }
+        (input, output)
+    };
 
     // Reflection: warmup cadence -> reflect on the session's summary.
     let coordinator = ReflectionCoordinator::new(
@@ -104,6 +105,13 @@ async fn site_walk_end_to_end() {
     let churn = coordinator.maybe_reflect().await.unwrap();
     assert!(churn.is_some());
     assert_eq!(memory.lock().unwrap().section_texts("people"), vec!["Dev — framer"]);
-    let signals = store.lock().unwrap().reflection_signals().unwrap();
+    let s = store.lock().unwrap();
+    let signals = s.reflection_signals().unwrap();
     assert_eq!(signals.completed_reflections, 1);
+    // reflection cost is logged on top of the processing spend (R9 wiring)
+    let (input_after, output_after) = s.usage_totals().unwrap();
+    assert!(
+        input_after > processing_totals.0 && output_after > processing_totals.1,
+        "reflection usage adds to the spend meter"
+    );
 }

@@ -68,6 +68,13 @@ impl ReflectionCoordinator {
     /// Returns `Some(churn)` when a reflection ran, `None` when skipped.
     /// On engine failure: memory and signals are untouched (the pre-reflection
     /// snapshot save has already rotated, which is harmless), error returned.
+    ///
+    /// Post-swap persist-failure divergence: if the post-swap
+    /// `memory_store.save(&outcome.memory)` fails, the in-memory `Memory`
+    /// holds the NEW memory but disk holds the OLD one (the pre-reflection
+    /// snapshot). Signals are not reset, so the next `maybe_reflect` will
+    /// fire again; a restart silently loads the OLD memory until the next
+    /// successful reflection persists.
     pub async fn maybe_reflect(&self) -> Result<Option<f32>, CoreError> {
         // Store guard: policy + activity gates — drop before taking memory guard
         // (no overlapping locks; Batch C review: never hold store guard across
@@ -113,9 +120,7 @@ impl ReflectionCoordinator {
         }
         self.memory_store.save(&outcome.memory).map_err(CoreError::Agent)?;
 
-        let store = self.locked_store()?;
-        store.record_reflection(outcome.churn)?;
-        store.record_llm_usage(None, "reflection", &outcome.usage)?;
+        self.locked_store()?.finish_reflection(outcome.churn, &outcome.usage)?;
         Ok(Some(outcome.churn))
     }
 }
@@ -215,6 +220,23 @@ mod tests {
         assert_eq!(signals.completed_reflections, 1);
         assert_eq!(signals.sessions_since_reflection, 0);
         assert_eq!(store.usage_totals().unwrap(), (200, 40));
+    }
+
+    #[tokio::test]
+    async fn second_call_after_success_is_skipped() {
+        let (coordinator, _memory, memory_store, _store) = coordinator_with(
+            vec![write_memory_response(serde_json::json!({"people": ["Dev — framer"]}))],
+            store_with_ended_session(),
+        );
+        assert!(coordinator.maybe_reflect().await.unwrap().is_some());
+        // reset signals gate the second call: no reflection, no extra saves
+        let churn = coordinator.maybe_reflect().await.unwrap();
+        assert!(churn.is_none());
+        assert_eq!(
+            memory_store.saved.lock().unwrap().len(),
+            2,
+            "only the first run's snapshot + swap saves"
+        );
     }
 
     #[tokio::test]
