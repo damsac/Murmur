@@ -157,3 +157,16 @@ pub struct LlmUsageRow {
     pub created_at: u64,
     pub device_id: String,
 }
+
+/// Transcript-free projection for lists and queue polling (Plan 03 review:
+/// full `Session` structs carry 50-100KB transcripts; lists must not).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SessionSummary {
+    pub id: String,
+    pub job_id: Option<String>,
+    pub status: SessionStatus,
+    pub summary: Option<String>,
+    pub started_at: u64,
+    pub ended_at: Option<u64>,
+    pub transcript_chars: u64,
+}

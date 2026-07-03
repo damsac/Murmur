@@ -1,12 +1,15 @@
 use rusqlite::Row;
 
-use crate::domain::{Session, SessionStatus};
+use crate::domain::{Session, SessionStatus, SessionSummary};
 use crate::error::CoreError;
 use crate::ids::new_id;
 use crate::store::Store;
 
 const SESSION_COLS: &str =
     "id, job_id, status, transcript, summary, started_at, ended_at, created_at, updated_at, device_id";
+
+const SUMMARY_COLS: &str =
+    "id, job_id, status, summary, started_at, ended_at, length(transcript) AS transcript_chars";
 
 fn session_from_row(row: &Row) -> Result<Session, CoreError> {
     let status_raw: String = row.get("status").map_err(CoreError::Sqlite)?;
@@ -24,6 +27,22 @@ fn session_from_row(row: &Row) -> Result<Session, CoreError> {
         created_at: row.get::<_, i64>("created_at").map_err(CoreError::Sqlite)? as u64,
         updated_at: row.get::<_, i64>("updated_at").map_err(CoreError::Sqlite)? as u64,
         device_id: row.get("device_id").map_err(CoreError::Sqlite)?,
+    })
+}
+
+fn summary_from_row(row: &Row) -> Result<SessionSummary, CoreError> {
+    let status_raw: String = row.get("status").map_err(CoreError::Sqlite)?;
+    Ok(SessionSummary {
+        id: row.get("id").map_err(CoreError::Sqlite)?,
+        job_id: row.get("job_id").map_err(CoreError::Sqlite)?,
+        status: SessionStatus::parse(&status_raw)?,
+        summary: row.get("summary").map_err(CoreError::Sqlite)?,
+        started_at: row.get::<_, i64>("started_at").map_err(CoreError::Sqlite)? as u64,
+        ended_at: row
+            .get::<_, Option<i64>>("ended_at")
+            .map_err(CoreError::Sqlite)?
+            .map(|v| v as u64),
+        transcript_chars: row.get::<_, i64>("transcript_chars").map_err(CoreError::Sqlite)? as u64,
     })
 }
 
@@ -253,6 +272,67 @@ impl Store {
         )?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// Session library / UI listing without transcripts. Reverse-chron.
+    pub fn list_session_summaries(&self) -> Result<Vec<SessionSummary>, CoreError> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {SUMMARY_COLS} FROM sessions WHERE deleted_at IS NULL
+             ORDER BY started_at DESC, id DESC"
+        ))?;
+        let mut rows = stmt.query([])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(summary_from_row(row)?);
+        }
+        Ok(out)
+    }
+
+    /// Queue polling without transcripts (processing pull, zombie sweep).
+    pub fn list_session_summaries_by_status(
+        &self,
+        status: SessionStatus,
+    ) -> Result<Vec<SessionSummary>, CoreError> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {SUMMARY_COLS} FROM sessions WHERE status = ?1 AND deleted_at IS NULL
+             ORDER BY started_at DESC, id DESC"
+        ))?;
+        let mut rows = stmt.query([status.as_str()])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(summary_from_row(row)?);
+        }
+        Ok(out)
+    }
+
+    /// The session-end call (Plan 03 review: dual-call contract). Ends the
+    /// recording AND records the session for reflection cadence in one place
+    /// so callers can't forget the bookkeeping half.
+    pub fn end_and_record_session(&self, id: &str) -> Result<Session, CoreError> {
+        let session = self.end_session(id)?;
+        self.record_session_completed()?;
+        Ok(session)
+    }
+
+    /// Tombstones all live items and artifacts of a session (one transaction).
+    /// The processing pipeline calls this before (re)processing so a Failed
+    /// retry can't duplicate extracted outputs. Returns rows tombstoned.
+    pub fn clear_session_outputs(&self, session_id: &str) -> Result<usize, CoreError> {
+        self.get_session(session_id)?;
+        let now = self.now() as i64;
+        let tx = self.conn.unchecked_transaction()?;
+        let items = tx.execute(
+            "UPDATE items SET deleted_at = ?1, updated_at = ?1
+             WHERE session_id = ?2 AND deleted_at IS NULL",
+            rusqlite::params![now, session_id],
+        )?;
+        let artifacts = tx.execute(
+            "UPDATE artifacts SET deleted_at = ?1, updated_at = ?1
+             WHERE session_id = ?2 AND deleted_at IS NULL",
+            rusqlite::params![now, session_id],
+        )?;
+        tx.commit()?;
+        Ok(items + artifacts)
     }
 }
 
@@ -539,5 +619,60 @@ mod tests {
         assert_eq!(ids(SessionStatus::AwaitingProcessing), vec![awaiting.id]);
         assert_eq!(ids(SessionStatus::Processed), vec![processed.id]);
         assert!(ids(SessionStatus::Failed).is_empty());
+    }
+
+    #[test]
+    fn summaries_are_light_and_reverse_chron() {
+        let s = store().with_clock(Arc::new(|| 100));
+        let a = s.start_session(None).unwrap();
+        s.append_transcript(&a.id, "0123456789").unwrap();
+        let s = s.with_clock(Arc::new(|| 200));
+        let b = s.start_session(None).unwrap();
+
+        let summaries = s.list_session_summaries().unwrap();
+        assert_eq!(summaries.len(), 2);
+        assert_eq!(summaries[0].id, b.id);
+        assert_eq!(summaries[1].id, a.id);
+        assert_eq!(summaries[1].transcript_chars, 10);
+        assert!(summaries[1].summary.is_none());
+    }
+
+    #[test]
+    fn summaries_by_status_filter() {
+        let s = store();
+        let a = s.start_session(None).unwrap();
+        s.end_session(&a.id).unwrap();
+        let _recording = s.start_session(None).unwrap();
+        let queued = s.list_session_summaries_by_status(SessionStatus::AwaitingProcessing).unwrap();
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].id, a.id);
+    }
+
+    #[test]
+    fn end_and_record_session_does_both() {
+        let s = store();
+        let session = s.start_session(None).unwrap();
+        let ended = s.end_and_record_session(&session.id).unwrap();
+        assert_eq!(ended.status, SessionStatus::AwaitingProcessing);
+        assert_eq!(s.reflection_signals().unwrap().sessions_since_reflection, 1);
+    }
+
+    #[test]
+    fn clear_session_outputs_tombstones_live_children() {
+        let s = store();
+        let session = s.start_session(None).unwrap();
+        s.add_item(&session.id, "todo", "one").unwrap();
+        s.add_artifact(&session.id, "report", "t", "b").unwrap();
+        let cleared = s.clear_session_outputs(&session.id).unwrap();
+        assert_eq!(cleared, 2);
+        assert!(s.list_items_for_session(&session.id).unwrap().is_empty());
+        assert!(s.list_artifacts_for_session(&session.id).unwrap().is_empty());
+        // idempotent: nothing left to clear
+        assert_eq!(s.clear_session_outputs(&session.id).unwrap(), 0);
+        // missing session errors
+        assert!(matches!(
+            s.clear_session_outputs("nope"),
+            Err(CoreError::NotFound { entity: "session", .. })
+        ));
     }
 }
