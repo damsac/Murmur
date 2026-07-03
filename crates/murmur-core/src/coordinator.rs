@@ -133,6 +133,9 @@ mod tests {
 
     use super::*;
 
+    type CoordinatorFixture =
+        (ReflectionCoordinator, Arc<Mutex<Memory>>, Arc<SpyMemoryStore>, Arc<Mutex<Store>>);
+
     /// Records every save so tests can assert the snapshot-then-swap order.
     struct SpyMemoryStore {
         saved: Mutex<Vec<Memory>>,
@@ -175,7 +178,7 @@ mod tests {
     fn coordinator_with(
         responses: Vec<CompletionResponse>,
         store: Store,
-    ) -> (ReflectionCoordinator, Arc<Mutex<Memory>>, Arc<SpyMemoryStore>, Arc<Mutex<Store>>) {
+    ) -> CoordinatorFixture {
         let memory = Arc::new(Mutex::new(Memory::default()));
         let memory_store = SpyMemoryStore::new();
         let store = Arc::new(Mutex::new(store));
