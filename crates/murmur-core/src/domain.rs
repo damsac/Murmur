@@ -1,0 +1,146 @@
+//! Domain entities (spec §2, Rev 2 §3: Job is first-class; artifacts are a seam).
+//! Plain serde data — these types cross the FFI boundary in Plan 07.
+
+use serde::{Deserialize, Serialize};
+
+use crate::error::CoreError;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobStatus {
+    Active,
+    Done,
+    Archived,
+}
+
+impl JobStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            JobStatus::Active => "active",
+            JobStatus::Done => "done",
+            JobStatus::Archived => "archived",
+        }
+    }
+
+    pub fn parse(s: &str) -> Result<Self, CoreError> {
+        match s {
+            "active" => Ok(JobStatus::Active),
+            "done" => Ok(JobStatus::Done),
+            "archived" => Ok(JobStatus::Archived),
+            other => Err(CoreError::Corrupt(format!("unknown job status: {other}"))),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionStatus {
+    /// Audio/transcript still coming in.
+    Recording,
+    /// Ended; queued for the processing pipeline (Plan 04). Offline-safe.
+    AwaitingProcessing,
+    /// Pipeline finished; summary and artifacts exist.
+    Processed,
+    /// Pipeline failed; retryable.
+    Failed,
+}
+
+impl SessionStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SessionStatus::Recording => "recording",
+            SessionStatus::AwaitingProcessing => "awaiting_processing",
+            SessionStatus::Processed => "processed",
+            SessionStatus::Failed => "failed",
+        }
+    }
+
+    pub fn parse(s: &str) -> Result<Self, CoreError> {
+        match s {
+            "recording" => Ok(SessionStatus::Recording),
+            "awaiting_processing" => Ok(SessionStatus::AwaitingProcessing),
+            "processed" => Ok(SessionStatus::Processed),
+            "failed" => Ok(SessionStatus::Failed),
+            other => Err(CoreError::Corrupt(format!("unknown session status: {other}"))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Job {
+    pub id: String,
+    pub name: String,
+    pub client: Option<String>,
+    pub site: Option<String>,
+    /// Unix seconds; None = unscheduled/backlog.
+    pub scheduled_at: Option<u64>,
+    pub status: JobStatus,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub device_id: String,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct NewJob {
+    pub name: String,
+    pub client: Option<String>,
+    pub site: Option<String>,
+    pub scheduled_at: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Session {
+    pub id: String,
+    pub job_id: Option<String>,
+    pub status: SessionStatus,
+    pub transcript: String,
+    /// Filled by the processing pipeline (Plan 04); also feeds reflection activity.
+    pub summary: Option<String>,
+    pub started_at: u64,
+    pub ended_at: Option<u64>,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub device_id: String,
+}
+
+/// A typed item extracted from (or manually added to) a session.
+/// `kind` is a free string by design — conventions: "todo", "decision",
+/// "note", "safety", "part", "price". New kinds must not require a migration.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CapturedItem {
+    pub id: String,
+    pub session_id: String,
+    pub kind: String,
+    pub text: String,
+    pub done: bool,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub device_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Contact {
+    pub id: String,
+    pub name: String,
+    pub trade: Option<String>,
+    pub phone: Option<String>,
+    pub notes: Option<String>,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub device_id: String,
+}
+
+/// The artifact seam (Rev 2 §1): generated documents of any kind hang off a
+/// session. `kind` is a free string ("report", "estimate", …); generators
+/// register in Plan 04. `body` is markdown (or JSON for structured kinds).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Artifact {
+    pub id: String,
+    pub session_id: String,
+    pub kind: String,
+    pub title: String,
+    pub body: String,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub device_id: String,
+}

@@ -26,7 +26,6 @@ fn system_clock() -> u64 {
         .as_secs()
 }
 
-#[allow(dead_code)]
 pub struct Store {
     pub(crate) conn: Connection,
     pub(crate) device_id: String,
@@ -54,7 +53,6 @@ impl Store {
         self
     }
 
-    #[allow(dead_code)]
     pub(crate) fn now(&self) -> u64 {
         (self.clock)()
     }
