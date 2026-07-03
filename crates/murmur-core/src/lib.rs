@@ -1,6 +1,7 @@
 pub mod domain;
 pub mod error;
 pub mod ids;
+pub mod pipeline;
 pub mod reflection;
 pub mod store;
 

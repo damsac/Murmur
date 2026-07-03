@@ -656,11 +656,13 @@ dependencies = [
 name = "murmur-core"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "harness",
  "rusqlite",
  "serde",
  "serde_json",
  "thiserror",
+ "tokio",
  "uuid",
 ]
 
