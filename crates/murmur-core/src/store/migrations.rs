@@ -7,6 +7,7 @@ use crate::error::CoreError;
 pub(crate) const MIGRATIONS: &[&str] = &[
     // v1: initial schema (spec §9: timestamps + device id on every row, tombstones)
     r#"
+    -- all *_at columns are unix epoch-seconds
     CREATE TABLE jobs (
         id           TEXT PRIMARY KEY,
         name         TEXT NOT NULL,
@@ -70,23 +71,71 @@ pub(crate) const MIGRATIONS: &[&str] = &[
         deleted_at INTEGER
     );
 
+    -- local-only bookkeeping: not synced, so no timestamps/device_id/tombstone
     CREATE TABLE reflection_state (
         id                INTEGER PRIMARY KEY CHECK (id = 1),
         signals           TEXT NOT NULL,
         last_reflected_at INTEGER NOT NULL DEFAULT 0
     );
 
-    CREATE INDEX idx_sessions_started ON sessions(started_at);
-    CREATE INDEX idx_items_session ON items(session_id);
-    CREATE INDEX idx_artifacts_session ON artifacts(session_id);
+    CREATE INDEX idx_jobs_scheduled ON jobs(scheduled_at);
+    CREATE INDEX idx_sessions_started ON sessions(started_at) WHERE deleted_at IS NULL;
+    CREATE INDEX idx_items_session ON items(session_id) WHERE deleted_at IS NULL;
+    CREATE INDEX idx_artifacts_session ON artifacts(session_id) WHERE deleted_at IS NULL;
     "#,
 ];
 
 pub(crate) fn migrate(conn: &Connection) -> Result<(), CoreError> {
+    migrate_with(conn, MIGRATIONS)
+}
+
+/// Applies pending migrations from `migrations`. Each one is all-or-nothing:
+/// the DDL and the `user_version` bump commit in a single transaction, so a
+/// mid-batch failure rolls back cleanly instead of leaving partial tables
+/// behind with a stale version.
+fn migrate_with(conn: &Connection, migrations: &[&str]) -> Result<(), CoreError> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
-    for (i, sql) in MIGRATIONS.iter().enumerate().skip(version as usize) {
-        conn.execute_batch(sql)?;
-        conn.pragma_update(None, "user_version", (i + 1) as i64)?;
+    for (i, sql) in migrations.iter().enumerate().skip(version as usize) {
+        let result = conn.execute_batch(&format!(
+            "BEGIN;\n{}\nPRAGMA user_version = {};\nCOMMIT;",
+            sql,
+            i + 1
+        ));
+        if let Err(e) = result {
+            // A mid-batch failure leaves the explicit BEGIN open on the
+            // connection; roll it back so the connection stays usable.
+            if !conn.is_autocommit() {
+                conn.execute_batch("ROLLBACK;")?;
+            }
+            return Err(e.into());
+        }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_migration_rolls_back_cleanly() {
+        let conn = Connection::open_in_memory().unwrap();
+        let broken: &[&str] = &[MIGRATIONS[0], "CREATE TABLE broken (;"];
+        let err = migrate_with(&conn, broken);
+        assert!(err.is_err(), "broken migration must surface an error");
+
+        // v1 committed; the broken v2 rolled back entirely.
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 1);
+
+        // Re-running with a fixed second migration succeeds.
+        let fixed: &[&str] = &[MIGRATIONS[0], "CREATE TABLE fixed (id TEXT PRIMARY KEY);"];
+        migrate_with(&conn, fixed).unwrap();
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+    }
 }

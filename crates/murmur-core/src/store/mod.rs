@@ -18,6 +18,7 @@ use rusqlite::Connection;
 
 use crate::error::CoreError;
 
+// epoch-seconds
 fn system_clock() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
