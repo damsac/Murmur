@@ -80,6 +80,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
 
     CREATE INDEX idx_jobs_scheduled ON jobs(scheduled_at);
     CREATE INDEX idx_sessions_started ON sessions(started_at) WHERE deleted_at IS NULL;
+    CREATE INDEX idx_sessions_job ON sessions(job_id) WHERE deleted_at IS NULL;
     CREATE INDEX idx_items_session ON items(session_id) WHERE deleted_at IS NULL;
     CREATE INDEX idx_artifacts_session ON artifacts(session_id) WHERE deleted_at IS NULL;
     "#,

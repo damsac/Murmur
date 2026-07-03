@@ -5,26 +5,22 @@ use crate::error::CoreError;
 use crate::ids::new_id;
 use crate::store::Store;
 
-fn job_from_row(row: &Row) -> Result<Job, rusqlite::Error> {
-    Ok(Job {
-        id: row.get("id")?,
-        name: row.get("name")?,
-        client: row.get("client")?,
-        site: row.get("site")?,
-        scheduled_at: row.get::<_, Option<i64>>("scheduled_at")?.map(|v| v as u64),
-        // status parsed by the caller — see note below
-        status: JobStatus::Active,
-        created_at: row.get::<_, i64>("created_at")? as u64,
-        updated_at: row.get::<_, i64>("updated_at")? as u64,
-        device_id: row.get("device_id")?,
-    })
-}
-
-fn job_from_row_full(row: &Row) -> Result<Job, CoreError> {
+fn job_from_row(row: &Row) -> Result<Job, CoreError> {
     let status_raw: String = row.get("status").map_err(CoreError::Sqlite)?;
-    let mut job = job_from_row(row).map_err(CoreError::Sqlite)?;
-    job.status = JobStatus::parse(&status_raw)?;
-    Ok(job)
+    Ok(Job {
+        id: row.get("id").map_err(CoreError::Sqlite)?,
+        name: row.get("name").map_err(CoreError::Sqlite)?,
+        client: row.get("client").map_err(CoreError::Sqlite)?,
+        site: row.get("site").map_err(CoreError::Sqlite)?,
+        scheduled_at: row
+            .get::<_, Option<i64>>("scheduled_at")
+            .map_err(CoreError::Sqlite)?
+            .map(|v| v as u64),
+        status: JobStatus::parse(&status_raw)?,
+        created_at: row.get::<_, i64>("created_at").map_err(CoreError::Sqlite)? as u64,
+        updated_at: row.get::<_, i64>("updated_at").map_err(CoreError::Sqlite)? as u64,
+        device_id: row.get("device_id").map_err(CoreError::Sqlite)?,
+    })
 }
 
 const JOB_COLS: &str = "id, name, client, site, scheduled_at, status, created_at, updated_at, device_id";
@@ -67,7 +63,7 @@ impl Store {
         ))?;
         let mut rows = stmt.query([id])?;
         match rows.next()? {
-            Some(row) => job_from_row_full(row),
+            Some(row) => job_from_row(row),
             None => Err(CoreError::NotFound { entity: "job", id: id.to_string() }),
         }
     }
@@ -82,7 +78,7 @@ impl Store {
         let mut rows = stmt.query([])?;
         let mut jobs = Vec::new();
         while let Some(row) = rows.next()? {
-            jobs.push(job_from_row_full(row)?);
+            jobs.push(job_from_row(row)?);
         }
         Ok(jobs)
     }

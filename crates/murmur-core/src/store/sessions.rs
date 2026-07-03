@@ -116,10 +116,20 @@ impl Store {
         summary: Option<&str>,
     ) -> Result<Session, CoreError> {
         let session = self.get_session(id)?;
-        if session.status == SessionStatus::Recording {
-            return Err(CoreError::InvalidState(
-                "session is still recording".to_string(),
-            ));
+        // Allowlist: Processed/Failed are only reachable FROM AwaitingProcessing
+        // (first attempt) or Failed (retry path). Processed is terminal.
+        match session.status {
+            SessionStatus::AwaitingProcessing | SessionStatus::Failed => {}
+            SessionStatus::Recording => {
+                return Err(CoreError::InvalidState(
+                    "session is still recording".to_string(),
+                ));
+            }
+            SessionStatus::Processed => {
+                return Err(CoreError::InvalidState(
+                    "session already processed".to_string(),
+                ));
+            }
         }
         match summary {
             Some(text) => self.conn.execute(
@@ -152,6 +162,21 @@ impl Store {
              ORDER BY started_at DESC, id DESC"
         ))?;
         let mut rows = stmt.query([])?;
+        let mut sessions = Vec::new();
+        while let Some(row) = rows.next()? {
+            sessions.push(session_from_row(row)?);
+        }
+        Ok(sessions)
+    }
+
+    /// Sessions linked to one job, reverse-chronological (Plan 04: job detail
+    /// screen).
+    pub fn list_sessions_by_job(&self, job_id: &str) -> Result<Vec<Session>, CoreError> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {SESSION_COLS} FROM sessions WHERE job_id = ?1 AND deleted_at IS NULL
+             ORDER BY started_at DESC, id DESC"
+        ))?;
+        let mut rows = stmt.query([job_id])?;
         let mut sessions = Vec::new();
         while let Some(row) = rows.next()? {
             sessions.push(session_from_row(row)?);
@@ -263,6 +288,57 @@ mod tests {
     }
 
     #[test]
+    fn processed_is_terminal() {
+        let s = store();
+        let session = s.start_session(None).unwrap();
+        s.end_session(&session.id).unwrap();
+        s.mark_session_processed(&session.id, "done.").unwrap();
+        assert!(matches!(
+            s.mark_session_processed(&session.id, "again?"),
+            Err(CoreError::InvalidState(_))
+        ));
+        assert!(matches!(
+            s.mark_session_failed(&session.id),
+            Err(CoreError::InvalidState(_))
+        ));
+    }
+
+    #[test]
+    fn failed_session_can_retry_to_processed() {
+        let s = store();
+        let session = s.start_session(None).unwrap();
+        s.end_session(&session.id).unwrap();
+        s.mark_session_failed(&session.id).unwrap();
+        let done = s.mark_session_processed(&session.id, "retry worked.").unwrap();
+        assert_eq!(done.status, SessionStatus::Processed);
+        assert_eq!(done.summary.as_deref(), Some("retry worked."));
+    }
+
+    #[test]
+    fn list_sessions_by_job_filters() {
+        let s = store();
+        let job_a = s.create_job(NewJob { name: "a".into(), ..Default::default() }).unwrap();
+        let job_b = s.create_job(NewJob { name: "b".into(), ..Default::default() }).unwrap();
+        let sa1 = s.start_session(Some(&job_a.id)).unwrap();
+        let sb1 = s.start_session(Some(&job_b.id)).unwrap();
+        s.start_session(None).unwrap(); // unlinked — never listed by job
+        let for_a: Vec<_> = s
+            .list_sessions_by_job(&job_a.id)
+            .unwrap()
+            .into_iter()
+            .map(|x| x.id)
+            .collect();
+        assert_eq!(for_a, vec![sa1.id]);
+        let for_b: Vec<_> = s
+            .list_sessions_by_job(&job_b.id)
+            .unwrap()
+            .into_iter()
+            .map(|x| x.id)
+            .collect();
+        assert_eq!(for_b, vec![sb1.id]);
+    }
+
+    #[test]
     fn library_lists_reverse_chronological() {
         let s = store().with_clock(Arc::new(|| 100));
         let a = s.start_session(None).unwrap();
@@ -279,5 +355,13 @@ mod tests {
         s.delete_session(&session.id).unwrap();
         assert!(matches!(s.get_session(&session.id), Err(CoreError::NotFound { .. })));
         assert!(s.list_sessions().unwrap().is_empty());
+        // the row still exists (tombstone, not erase)
+        let raw: i64 = s
+            .conn
+            .query_row("SELECT COUNT(*) FROM sessions WHERE id = ?1", [&session.id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(raw, 1);
     }
 }
