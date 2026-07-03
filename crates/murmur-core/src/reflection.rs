@@ -98,7 +98,11 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT s.summary, s.transcript, j.name
              FROM sessions s LEFT JOIN jobs j ON j.id = s.job_id
-             WHERE s.deleted_at IS NULL AND s.ended_at IS NOT NULL AND s.ended_at > ?1
+             -- >= not >: last_reflected_at is stamped AFTER the reflection runs, so a
+             -- session ending between the activity query and the stamp would land exactly
+             -- ON the boundary and be orphaned forever by >; >= can at worst re-include
+             -- a boundary session once (harmless), never lose one.
+             WHERE s.deleted_at IS NULL AND s.ended_at IS NOT NULL AND s.ended_at >= ?1
              ORDER BY s.ended_at DESC, s.id DESC
              LIMIT ?2",
         )?;
@@ -209,6 +213,21 @@ mod tests {
         let activity = s.activity_for_reflection(10).unwrap();
         assert_eq!(activity.len(), 1);
         assert!(activity[0].contains("new session words"));
+    }
+
+    #[test]
+    fn activity_includes_session_ending_exactly_at_last_reflection() {
+        let s = store().with_clock(Arc::new(|| 2000));
+        s.record_reflection(0.1).unwrap();
+        // a session that starts AND ends at the same second the reflection was
+        // stamped must not be orphaned by the boundary comparison
+        let a = s.start_session(None).unwrap();
+        s.append_transcript(&a.id, "boundary session words").unwrap();
+        s.end_session(&a.id).unwrap();
+
+        let activity = s.activity_for_reflection(10).unwrap();
+        assert_eq!(activity.len(), 1);
+        assert!(activity[0].contains("boundary session words"));
     }
 
     #[test]

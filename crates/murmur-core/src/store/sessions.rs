@@ -434,6 +434,25 @@ mod tests {
     }
 
     #[test]
+    fn search_escapes_underscore_and_backslash() {
+        let s = store();
+        let a = s.start_session(None).unwrap();
+        s.append_transcript(&a.id, "15_min standup").unwrap();
+        let b = s.start_session(None).unwrap();
+        s.append_transcript(&b.id, "15xmin standup").unwrap();
+        let hits = s.search_sessions("15_min").unwrap();
+        assert_eq!(hits.len(), 1, "_ must match literally, not as single-char wildcard");
+        assert_eq!(hits[0].id, a.id);
+        let _ = b;
+
+        let c = s.start_session(None).unwrap();
+        s.append_transcript(&c.id, r"path C:\jobs\johnson").unwrap();
+        let hits = s.search_sessions(r"\jobs").unwrap();
+        assert_eq!(hits.len(), 1, "literal backslash matches only sessions containing one");
+        assert_eq!(hits[0].id, c.id);
+    }
+
+    #[test]
     fn empty_or_blank_query_returns_nothing() {
         let s = store();
         let a = s.start_session(None).unwrap();

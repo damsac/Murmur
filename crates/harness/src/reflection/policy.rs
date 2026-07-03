@@ -9,6 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ReflectionSignals {
     /// Sessions completed since the last reflection ran.
     pub sessions_since_reflection: u32,
