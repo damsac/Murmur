@@ -33,9 +33,13 @@ import Foundation
 #if canImport(MurmurCoreFFI)
 import MurmurCoreFFI
 
-private typealias FFIMurmurEngine = MurmurCoreFFI.MurmurEngine
-private typealias FFIWalkSession = MurmurCoreFFI.WalkSession
-private typealias FFIEngineConfig = MurmurCoreFFI.EngineConfig
+// Not `private`: MurmurEngine's `init(config:)` takes FFIEngineConfig, so the
+// typealias needs at least the same (internal) access as the initializer —
+// a `private` alias here forces the initializer to be `fileprivate` too,
+// which breaks construction from GalleryApp (Task 11 Step 3).
+typealias FFIMurmurEngine = MurmurCoreFFI.MurmurEngine
+typealias FFIWalkSession = MurmurCoreFFI.WalkSession
+typealias FFIEngineConfig = MurmurCoreFFI.EngineConfig
 private typealias FFIDocumentPayload = MurmurCoreFFI.DocumentPayload
 private typealias FFIDocLine = MurmurCoreFFI.DocLine
 private typealias FFIBoardItem = MurmurCoreFFI.BoardItem
@@ -68,6 +72,9 @@ final class MurmurEngine: WalkEngine {
         self.engine = FFIMurmurEngine(config: config)
     }
 
+    // BoardItem.id is a Rust-side string uuid; parsed once here and threaded
+    // through to CapturedFixture.id (Fixtures.swift) so ids stay stable
+    // across boardUpdated snapshots (Plan 07 Task 10/Self-Review).
     func begin(trade: TradeFixture) -> AsyncStream<WalkEvent> {
         // A second begin() cancels the first stream cleanly (Self-Review:
         // per-session stream lifetime) — finish the old continuation before

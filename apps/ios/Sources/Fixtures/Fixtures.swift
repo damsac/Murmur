@@ -21,11 +21,24 @@ struct JobFixture: Identifiable {
 }
 
 struct CapturedFixture: Identifiable {
-    let id = UUID()
+    let id: UUID
     let tag: TagFixture
     let text: String
     let right: String
     var photos: Int = 0
+
+    // Explicit init (not the implicit memberwise one) so callers that don't
+    // care about identity keep getting a fresh UUID (fixtures, DemoWalkEngine
+    // snapshots), while MurmurEngine's real-core adapter can thread the
+    // core-assigned BoardItem.id through — ids must be stable across
+    // `boardUpdated` snapshots for ForEach/lastCapturedID (Plan 07 Task 10).
+    init(id: UUID = UUID(), tag: TagFixture, text: String, right: String, photos: Int = 0) {
+        self.id = id
+        self.tag = tag
+        self.text = text
+        self.right = right
+        self.photos = photos
+    }
 }
 
 struct DocRowFixture: Identifiable {

@@ -20,6 +20,7 @@ import MurmurCoreFFI
 /// demos still run with zero backend. `nil` here means "use AppModel's
 /// DemoWalkEngine default." Delete nothing (D10) — every existing launch arg
 /// keeps working.
+@MainActor
 private func resolveEngine(demo: Bool) -> WalkEngine? {
     if demo { return nil }
     #if canImport(MurmurCoreFFI)
@@ -81,6 +82,7 @@ struct AppRoot: View {
     private let live: Bool
     private let autoflowRounds: Int
 
+    @MainActor
     init(live: Bool, demo: Bool, autoflowRounds: Int) {
         self.live = live
         self.autoflowRounds = autoflowRounds

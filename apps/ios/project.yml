@@ -6,12 +6,17 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.9"
+packages:
+  MurmurCoreFFI:
+    path: Packages/MurmurCoreFFI
 targets:
   SitewalkGallery:
     type: application
     platform: iOS
     sources:
       - Sources
+    dependencies:
+      - package: MurmurCoreFFI
     info:
       path: Sources/App/Info.plist
       properties:
