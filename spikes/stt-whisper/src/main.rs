@@ -4,8 +4,8 @@
 // NOT a workspace member. Nothing here is production code.
 
 mod bench;
+mod stream;
 mod wer;
-// stream (Task 3) module is wired in when that task lands.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -156,10 +156,11 @@ fn main() {
         "bench" => bench::run(&flags),
         "accuracy" => wer::run_accuracy(&flags),
         "bias" => wer::run_bias(&flags),
-        // "stream" => wired in Task 3
+        "stream" => stream::run(&flags),
         _ => {
             eprintln!("usage: stt-whisper-spike <bench|stream|accuracy|bias> [flags]");
             eprintln!("  bench    --model M --audio A");
+            eprintln!("  stream   --model M --audio A --chunk 5 --overlap 1");
             eprintln!("  accuracy --model M --audio A --reference R [--snr DB]");
             eprintln!("  bias     --model M --audio A --reference R --terms T [--snr DB]");
             std::process::exit(2);

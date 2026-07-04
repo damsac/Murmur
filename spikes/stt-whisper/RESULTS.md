@@ -38,10 +38,48 @@ mono. Each model measured in its own process (peak RSS is that model's own high-
 > optimistic proxy; even a pessimistic 5–10× iPhone slowdown keeps `base`/`small` comfortably
 > real-time. Feasibility + performance bars: **cleared with large margin.**
 
-## Table 2 — Streaming / append-only (chosen model from Table 1)
+## Table 2 — Streaming / append-only (chosen model: small.en, `jargon1.wav`)
 
-| Chunk (s) | Overlap (s) | Boundary re-transcription % | Finalize latency (s) | Append-only derivable? | Notes |
+| Chunk (s) | Overlap (s) | Boundary re-transcription % | Finalize latency (s) | Append-only derivable? | Notes (streaming WER vs. reference) |
 |-----------|-------------|-----------------------------|----------------------|------------------------|-------|
+| 3 | 1 | 87 | 2.0 max / 1.1 avg | invariant yes (unit-tested) | naive-finalize 80%; **dedup-reassembly 28%** |
+| 5 | 1 | 95 | 3.0 max / 1.8 avg | invariant yes (unit-tested) | naive-finalize 80%; **dedup-reassembly 19%** |
+| 5 | 2 | 75 | 3.0 max / 2.3 avg | invariant yes (unit-tested) | naive-finalize 77%; **dedup-reassembly 29%** |
+| 10 | 2 | 75 | 8.0 max / 4.6 avg | invariant yes (unit-tested) | naive-finalize 25%; **dedup-reassembly 20%** |
+| 15 | 3 | 77 | 13.0 max / 7.0 avg | invariant yes (unit-tested) | naive-finalize 18%; **dedup-reassembly 11%** |
+| 30 | 5 | 30 | 27.3 max / 14.9 avg | invariant yes (unit-tested) | naive-finalize 12%; **dedup-reassembly 5%** (≈ batch) |
+
+> **Bounded re-decode:** yes — each chunk is decoded exactly once with a fixed overlap; no
+> unbounded re-transcription. **Append-only invariant:** proven and unit-tested
+> (`finalized_stream_is_append_only`, `no_double_emit_of_overlap`) — a word committed by an early
+> chunk is never revised by a later one, even when the later chunk re-transcribes the overlap
+> differently.
+>
+> **The finalize rule matters enormously.** Two reassembly rules were measured:
+> - **Naive time-horizon finalize** (commit segments older than `chunk_end − overlap`): lossy on
+>   short chunks (77–80% WER at 3–5 s) — whisper re-segments each chunk differently, so
+>   segment-level time-tiling drops content that falls in the deferral gaps.
+> - **LocalAgreement-style text-overlap dedup** (merge consecutive chunks on longest suffix/prefix
+>   token match — a ~30-line function, `reassemble_dedup`, the technique `whisper_streaming` uses):
+>   recovers most of the loss. At **5 s chunk / 1 s overlap → 19% WER with max finalize latency
+>   3.0 s (avg 1.8 s)**. At 3 s/1 s → 28% WER at ≤2 s latency.
+>
+> **Boundary re-transcription is high (75–95%) for short chunks** — whisper heavily re-segments
+> the overlap window, confirming that finalize must operate at the **word/token level**, not the
+> segment level.
+>
+> **The latency ↔ accuracy tension:** short chunks give low finalize latency but higher streaming
+> WER (whisper is trained on 30 s windows, so short isolated chunks transcribe worse); 30 s chunks
+> reach batch-quality (5%) but 15–27 s finalize latency. **The ≤3 s-latency sweet spot (5 s/1 s)
+> costs ~19% WER — ~4× the batch WER (5%) of the same model.**
+>
+> **Verdict for the Plan 05 cursor contract:** an append-only, bounded-overlap, dedup-able,
+> ≤3 s-latency finalized stream **is derivable** — but only with a LocalAgreement word-level
+> finalize (not the naive segment rule), and live streaming WER is materially worse than batch.
+> **Implication:** live in-session extraction is viable as a *preview/provisional* stream;
+> end-of-session `process()` on the full audio (Table 3 WER, ~5%) should remain the
+> **authoritative** pass. The LocalAgreement finalize is tractable (the spike's 30-line proto
+> already recovers most content) — a Plan 06 engineering item, not a blocker.
 
 ## Table 3 — Accuracy & biasing (per model × condition)
 
