@@ -11,7 +11,9 @@
       let pkgs = nixpkgs.legacyPackages.${system};
       in {
         devShells.default = pkgs.mkShell {
-          packages = with pkgs; [ cargo rustc clippy rustfmt rust-analyzer ];
+          packages = with pkgs; [ cargo rustc clippy rustfmt rust-analyzer cmake clang ];
+          # bindgen (whisper-rs-sys) needs libclang on its path for `--features whisper`:
+          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
         };
       });
 }
