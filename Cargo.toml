@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/harness", "crates/murmur-core", "crates/evals", "crates/stt"]
+members = ["crates/harness", "crates/murmur-core", "crates/evals", "crates/stt", "crates/ffi"]
 exclude = ["spikes"]   # prefix match — NOT "spikes/*" (workspace.exclude is not glob; cargo #11405)
 
 [workspace.dependencies]
