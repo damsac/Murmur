@@ -57,6 +57,7 @@ impl LlmProvider for AnthropicProvider {
             .client
             .post(format!("{}/v1/messages", self.base_url))
             .header("x-api-key", &self.api_key)
+            .header("authorization", format!("Bearer {}", self.api_key))
             .header("anthropic-version", "2023-06-01")
             .json(&body)
             .send()
@@ -165,6 +166,26 @@ mod tests {
             }
             other => panic!("wrong error: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn sends_bearer_and_x_api_key_for_ppq_compat() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .and(header("authorization", "Bearer sk-test"))
+            .and(header("x-api-key", "sk-test"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "content": [{"type": "text", "text": "ok"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 1, "output_tokens": 1}
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let provider = AnthropicProvider::new("sk-test", "claude-haiku-4-5")
+            .with_base_url(server.uri());
+        provider.complete(request()).await.unwrap();
     }
 
     #[tokio::test]
