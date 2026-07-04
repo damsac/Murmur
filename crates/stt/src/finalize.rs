@@ -66,17 +66,16 @@ impl Finalizer {
     ///     FIRST decode of the disputed overlap and appending only the genuinely-new
     ///     suffix. Stays O(overlap).
     ///
-    ///     CAVEAT (word-level timestamps would fix this): `end_ms` is
-    ///     segment-coarse — every word from one whisper segment shares its end.
-    ///     The fallback is exact only when the decoder isolates the overlap in
-    ///     its own early-ending segment (as our scripted tests do). When real
-    ///     whisper lumps the overlap into a longer phrase-level segment, a
-    ///     divergent overlap can still (a) duplicate — the covering segment ends
-    ///     past `pending_max_end`, so nothing is dropped — or (b) drop
-    ///     genuinely-new words that share the covered segment's `end_ms`. Worst
-    ///     case degrades toward the spike's append-all behavior (its 19% WER
-    ///     already prices that in); the real fix is per-word timestamps (whisper
-    ///     token_timestamps), carried to the accuracy-hardening pass.
+    /// CAVEAT (word-level timestamps would fix this): `end_ms` is segment-coarse —
+    /// every word from one whisper segment shares its end. The fallback is exact
+    /// only when the decoder isolates the overlap in its own early-ending segment
+    /// (as our scripted tests do). When real whisper lumps the overlap into a
+    /// longer phrase-level segment, a divergent overlap can still (a) duplicate —
+    /// the covering segment ends past `pending_max_end`, so nothing is dropped —
+    /// or (b) drop genuinely-new words that share the covered segment's `end_ms`.
+    /// Worst case degrades toward the spike's append-all behavior (its 19% WER
+    /// already prices that in); the real fix is per-word timestamps (whisper
+    /// token_timestamps), carried to the accuracy-hardening pass.
     fn merge(&mut self, new_words: Vec<Word>) {
         if self.pending.is_empty() {
             self.pending = new_words;
