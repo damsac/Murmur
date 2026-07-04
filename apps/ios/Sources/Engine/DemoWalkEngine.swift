@@ -13,6 +13,11 @@ final class DemoWalkEngine: WalkEngine {
     private var trade: TradeFixture = Fixtures.landscape
     private var seenText = ""
     private var firedItems: Set<Int> = []
+    /// Cumulative matched items, in match order. `BoardItem.id` must be
+    /// stable across snapshots (ForEach/lastCapturedID rely on it), so this
+    /// keeps one fixture array and yields it — it never rebuilds fixtures
+    /// per event (Task 10).
+    private var board: [CapturedFixture] = []
 
     /// Per-trade trigger phrases, index-aligned with `trade.captured`.
     private static let triggers: [String: [String]] = [
@@ -26,6 +31,7 @@ final class DemoWalkEngine: WalkEngine {
         self.trade = trade
         seenText = ""
         firedItems = []
+        board = []
         var cont: AsyncStream<WalkEvent>.Continuation!
         let stream = AsyncStream<WalkEvent> { cont = $0 }
         continuation = cont
@@ -35,11 +41,16 @@ final class DemoWalkEngine: WalkEngine {
     func append(transcript: String) {
         seenText += transcript.lowercased()
         let phrases = Self.triggers[trade.key] ?? []
+        var changed = false
         for (index, phrase) in phrases.enumerated() where !firedItems.contains(index) {
             if seenText.contains(phrase), index < trade.captured.count {
                 firedItems.insert(index)
-                continuation?.yield(.itemCaptured(trade.captured[index]))
+                board.append(trade.captured[index])
+                changed = true
             }
+        }
+        if changed {
+            continuation?.yield(.boardUpdated(board))
         }
     }
 

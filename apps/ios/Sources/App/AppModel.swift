@@ -30,6 +30,15 @@ final class AppModel {
     var isPaused = false
     var walkStart = Date()
     var pausedElapsed: TimeInterval = 0
+    /// Most-recently-captured item's id, tracked explicitly from the event
+    /// loop (Plan 07 D3/Task 10) — under whole-board `boardUpdated` replace,
+    /// "array tail == most-recently-captured" is NOT load-bearing: a
+    /// re-extraction mints new ids mid-swap and store ordering is insertion
+    /// order, not mention order. `addPhoto()` pins by this id, never by
+    /// array position. Which item a photo pins to is ultimately a core
+    /// concern (HANDOFF open Q3, photo sync schema — Deferred 6); until that
+    /// lands, "most-recently-captured id" is the honest interim rule.
+    var lastCapturedID: UUID?
 
     // Review state
     var document: DocumentModel?
@@ -73,8 +82,11 @@ final class AppModel {
             guard let self else { return }
             for await event in events {
                 switch event {
-                case .itemCaptured(let item):
-                    withAnimation(.easeOut(duration: 0.25)) { self.items.append(item) }
+                case .boardUpdated(let items):
+                    withAnimation(.easeOut(duration: 0.25)) { self.items = items }
+                    // Track the newest by id, NOT array position (see
+                    // `lastCapturedID` doc comment).
+                    self.lastCapturedID = items.last?.id
                 }
             }
         }
@@ -97,8 +109,9 @@ final class AppModel {
     }
 
     func addPhoto() {
-        guard let lastIndex = items.indices.last else { return }
-        items[lastIndex].photos += 1
+        guard let id = lastCapturedID,
+              let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        items[idx].photos += 1
     }
 
     func discardWalk() {

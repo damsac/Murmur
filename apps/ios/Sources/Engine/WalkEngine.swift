@@ -14,8 +14,11 @@ import Foundation
 // down. The engine owns extraction and never receives audio.
 
 enum WalkEvent {
-    /// A structured item landed on the live board.
-    case itemCaptured(CapturedFixture)
+    /// A whole-board snapshot, delivered once per live pass (batched by
+    /// construction — Plan 07 D3). The live→authoritative swap at finish is
+    /// just the terminal snapshot this carries; SwiftUI's `ForEach(id:)`
+    /// computes the visual diff from the assigned array.
+    case boardUpdated([CapturedFixture])
 }
 
 struct DocumentModel {
