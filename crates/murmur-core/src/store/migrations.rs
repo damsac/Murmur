@@ -111,6 +111,16 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE sessions ADD COLUMN template TEXT;
     "#,
+    // v4: document_sequences (Plan 07 D5) — per-doc-kind monotonic counters
+    // for minting document numbers (EST-0001, etc.). Local bookkeeping, same
+    // posture as reflection_state: no tombstone/sync fields, device-local.
+    r#"
+    CREATE TABLE document_sequences (
+        doc_kind  TEXT PRIMARY KEY,
+        next      INTEGER NOT NULL,
+        device_id TEXT NOT NULL
+    );
+    "#,
 ];
 
 pub(crate) fn migrate(conn: &Connection) -> Result<(), CoreError> {

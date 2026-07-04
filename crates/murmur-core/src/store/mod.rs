@@ -6,6 +6,7 @@ pub(crate) mod migrations;
 
 mod artifacts;
 mod contacts;
+mod documents;
 mod items;
 mod jobs;
 mod sessions;
