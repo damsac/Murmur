@@ -1,10 +1,12 @@
 //! Live in-session extraction (spec Rev 2 §2): while a session is *recording*,
 //! cheap incremental agent passes lift clearly-stated items onto a live board
 //! as they're spoken. End-of-session `process()` (Plan 04) stays the source of
-//! truth — it tombstones every live item (`Store::clear_session_outputs`) and
-//! re-creates the authoritative set. The live board therefore *swaps* when
-//! processing lands; the UI re-queries `list_items_for_session` on the session's
-//! status change (Recording → Processed).
+//! truth. It runs against the still-visible live board and, in the finish
+//! transaction, **swaps** it out: `source=live` items (and prior-run
+//! `authoritative` leftovers) are tombstoned as the new authoritative set
+//! commits (`Store::finish_session_processed`). A failed process leaves the
+//! live board intact. The UI re-queries `list_items_for_session` on the
+//! status change.
 //!
 //! `maybe_extract` snapshots the session as `Recording` before running its
 //! multi-turn agent loop; a pass that finds the session no longer recording at
@@ -168,11 +170,7 @@ impl LiveExtractor {
         ]);
 
         let mut registry = ToolRegistry::new();
-        registry.register(AddItemTool::gated(
-            self.store.clone(),
-            &self.session_id,
-            SessionStatus::Recording,
-        ));
+        registry.register(AddItemTool::live(self.store.clone(), &self.session_id));
         let agent = Agent::new(
             self.provider.clone(),
             registry,
@@ -254,7 +252,6 @@ mod tests {
             if !self.fired.swap(true, Ordering::SeqCst) {
                 let store = self.store.lock().unwrap();
                 store.end_and_record_session(&self.session_id).unwrap();
-                store.clear_session_outputs(&self.session_id).unwrap();
             }
             self.inner.complete(req).await
         }

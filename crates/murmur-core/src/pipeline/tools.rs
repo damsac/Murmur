@@ -48,26 +48,54 @@ const VALID_KINDS: [&str; 6] = ["todo", "decision", "note", "safety", "part", "p
 pub struct AddItemTool {
     store: Arc<Mutex<Store>>,
     session_id: String,
+    source: crate::domain::ItemSource,
     /// When set, `execute` only writes if the session's CURRENT status
     /// matches — checked atomically with the insert (see
     /// `Store::add_item_if_status`). Used by `LiveExtractor` to close the
     /// status-gate TOCTOU: a live pass that outlives end-of-session
     /// processing must not insert a stale item (pipeline::live module docs).
     required_status: Option<SessionStatus>,
+    /// When set, each inserted item's id is pushed here so the end-of-session
+    /// swap knows what THIS run created (Plan 06a design problem 1).
+    created_ids: Option<Arc<Mutex<Vec<String>>>>,
 }
 
 impl AddItemTool {
+    /// Manual, ungated write (source=Manual). Kept for direct/test use.
     pub fn new(store: Arc<Mutex<Store>>, session_id: &str) -> Self {
-        AddItemTool { store, session_id: session_id.to_string(), required_status: None }
-    }
-
-    /// An `AddItemTool` that only writes while the session's status matches
-    /// `required`, checked atomically with the write.
-    pub fn gated(store: Arc<Mutex<Store>>, session_id: &str, required: SessionStatus) -> Self {
         AddItemTool {
             store,
             session_id: session_id.to_string(),
-            required_status: Some(required),
+            source: crate::domain::ItemSource::Manual,
+            required_status: None,
+            created_ids: None,
+        }
+    }
+
+    /// Live in-session write (source=Live), gated to `Recording`.
+    pub fn live(store: Arc<Mutex<Store>>, session_id: &str) -> Self {
+        AddItemTool {
+            store,
+            session_id: session_id.to_string(),
+            source: crate::domain::ItemSource::Live,
+            required_status: Some(SessionStatus::Recording),
+            created_ids: None,
+        }
+    }
+
+    /// Authoritative processing write (source=Authoritative), ungated, records
+    /// each new id into `created_ids` for the finish swap.
+    pub fn authoritative(
+        store: Arc<Mutex<Store>>,
+        session_id: &str,
+        created_ids: Arc<Mutex<Vec<String>>>,
+    ) -> Self {
+        AddItemTool {
+            store,
+            session_id: session_id.to_string(),
+            source: crate::domain::ItemSource::Authoritative,
+            required_status: None,
+            created_ids: Some(created_ids),
         }
     }
 }
@@ -103,18 +131,19 @@ impl Tool for AddItemTool {
         }
         let text = req_nonempty_str(&input, "text", "add_item")?;
         let guard = lock(&self.store, "add_item")?;
-        match self.required_status {
-            None => {
-                guard.add_item(&self.session_id, kind, text).map_err(|e| tool_err("add_item", e.to_string()))?;
-            }
-            Some(required) => {
-                let written = guard
-                    .add_item_if_status(&self.session_id, kind, text, required, crate::domain::ItemSource::Live)
-                    .map_err(|e| tool_err("add_item", e.to_string()))?;
-                if written.is_none() {
-                    return Err(tool_err("add_item", "session no longer recording"));
-                }
-            }
+        let item = match self.required_status {
+            None => guard
+                .add_item_with_source(&self.session_id, kind, text, self.source)
+                .map_err(|e| tool_err("add_item", e.to_string()))?,
+            Some(required) => guard
+                .add_item_if_status(&self.session_id, kind, text, required, self.source)
+                .map_err(|e| tool_err("add_item", e.to_string()))?
+                .ok_or_else(|| tool_err("add_item", "session no longer recording"))?,
+        };
+        if let Some(sink) = &self.created_ids {
+            sink.lock()
+                .map_err(|_| tool_err("add_item", "created-ids lock poisoned"))?
+                .push(item.id.clone());
         }
         Ok(format!("added {kind}: {text}"))
     }
@@ -329,9 +358,8 @@ mod tests {
 
     #[tokio::test]
     async fn gated_add_item_writes_when_status_matches() {
-        use crate::domain::SessionStatus;
         let (store, sid) = shared_store_with_session();
-        let tool = super::AddItemTool::gated(store.clone(), &sid, SessionStatus::Recording);
+        let tool = super::AddItemTool::live(store.clone(), &sid);
         let out = tool
             .execute(serde_json::json!({"kind": "todo", "text": "order lumber"}))
             .await
@@ -342,10 +370,9 @@ mod tests {
 
     #[tokio::test]
     async fn gated_add_item_errors_and_writes_nothing_when_status_changed() {
-        use crate::domain::SessionStatus;
         let (store, sid) = shared_store_with_session();
         store.lock().unwrap().end_and_record_session(&sid).unwrap(); // Recording -> AwaitingProcessing
-        let tool = super::AddItemTool::gated(store.clone(), &sid, SessionStatus::Recording);
+        let tool = super::AddItemTool::live(store.clone(), &sid);
         let err = tool
             .execute(serde_json::json!({"kind": "todo", "text": "order lumber"}))
             .await
@@ -355,6 +382,29 @@ mod tests {
             "got: {err}"
         );
         assert!(store.lock().unwrap().list_items_for_session(&sid).unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn live_tool_writes_live_source_when_recording() {
+        use crate::domain::ItemSource;
+        let (store, sid) = shared_store_with_session();
+        let tool = super::AddItemTool::live(store.clone(), &sid);
+        tool.execute(serde_json::json!({"kind":"todo","text":"order lumber"})).await.unwrap();
+        let items = store.lock().unwrap().list_items_for_session(&sid).unwrap();
+        assert_eq!(items[0].source, ItemSource::Live);
+    }
+
+    #[tokio::test]
+    async fn authoritative_tool_writes_source_and_records_the_id() {
+        use crate::domain::ItemSource;
+        let (store, sid) = shared_store_with_session();
+        let sink = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let tool = super::AddItemTool::authoritative(store.clone(), &sid, sink.clone());
+        tool.execute(serde_json::json!({"kind":"todo","text":"order lumber"})).await.unwrap();
+        let items = store.lock().unwrap().list_items_for_session(&sid).unwrap();
+        assert_eq!(items[0].source, ItemSource::Authoritative);
+        assert_eq!(sink.lock().unwrap().as_slice(), &[items[0].id.clone()],
+            "the finish tx learns which items this run created");
     }
 
     #[tokio::test]

@@ -1,6 +1,7 @@
 //! End-of-session processing (spec §6): transcript in, structured records +
-//! summary out. Reprocessing is idempotent — prior outputs are tombstoned
-//! first, so a Failed retry can't duplicate todos.
+//! summary out. Reprocessing is idempotent — the old board is **swapped out
+//! in the finish transaction** (source-aware), so a Failed retry can't
+//! duplicate todos and a *failure* leaves the live board intact.
 
 pub mod tools;
 
@@ -73,7 +74,8 @@ impl SessionProcessor {
     /// processed — status is re-validated only at the exit write, so a
     /// concurrent tombstone would produce a silent no-op or a store error.
     pub async fn process(&self, session_id: &str) -> Result<ProcessOutcome, CoreError> {
-        // Phase 0: validate, clear prior outputs, snapshot the transcript.
+        // Phase 0: validate, sweep prior FAILED-run authoritative leftovers
+        // (never the live board), snapshot the transcript.
         let transcript = {
             let store = self.locked()?;
             let session = store.get_session(session_id)?;
@@ -86,7 +88,10 @@ impl SessionProcessor {
                     session.status.as_str()
                 )));
             }
-            store.clear_session_outputs(session_id)?;
+            // Sweep a prior FAILED attempt's authoritative leftovers (+ artifacts)
+            // so repeated retries can't accumulate duplicate todos. Never touches
+            // the live board (the safety net) or manual items.
+            store.clear_authoritative_outputs(session_id)?;
             session.transcript
         };
 
@@ -100,6 +105,7 @@ impl SessionProcessor {
                 session_id,
                 "(empty session)",
                 &usage,
+                &[],
             )?;
             return Ok(ProcessOutcome { session, usage });
         }
@@ -118,16 +124,23 @@ impl SessionProcessor {
             budget_tokens: self.transcript_budget_tokens,
         }]);
 
-        // Phase 1+2: extraction agent pass, then forced summary.
+        // Phase 1+2: extraction agent pass, then forced summary. The id sink
+        // records which items THIS run created, for the finish swap.
         let mut usage = Usage::default();
-        let result =
-            self.run_llm_phases(session_id, &assembled.text, &memory_prompt, &mut usage).await;
+        let created_ids = Arc::new(Mutex::new(Vec::<String>::new()));
+        let result = self
+            .run_llm_phases(session_id, &assembled.text, &memory_prompt, &mut usage, created_ids.clone())
+            .await;
 
         // Exit: persist outcome + cost atomically, success or not.
         let store = self.locked()?;
         match result {
             Ok(summary) => {
-                let session = store.finish_session_processed(session_id, &summary, &usage)?;
+                let ids = created_ids
+                    .lock()
+                    .map_err(|_| CoreError::InvalidState("created-ids lock poisoned".into()))?
+                    .clone();
+                let session = store.finish_session_processed(session_id, &summary, &usage, &ids)?;
                 Ok(ProcessOutcome { session, usage })
             }
             Err(e) => {
@@ -145,9 +158,10 @@ impl SessionProcessor {
         assembled_transcript: &str,
         memory_prompt: &str,
         usage: &mut Usage,
+        created_ids: Arc<Mutex<Vec<String>>>,
     ) -> Result<String, harness::HarnessError> {
         let mut registry = ToolRegistry::new();
-        registry.register(AddItemTool::new(self.store.clone(), session_id));
+        registry.register(AddItemTool::authoritative(self.store.clone(), session_id, created_ids));
         registry.register(UpsertContactTool::new(self.store.clone()));
         registry.register(WriteReportTool::new(self.store.clone(), session_id));
         registry.register(
@@ -344,6 +358,90 @@ mod tests {
             1,
             "attempt 1's item was cleared before retry"
         );
+    }
+
+    #[tokio::test]
+    async fn live_item_survives_a_failed_process_then_is_swapped_on_retry() {
+        use crate::domain::ItemSource;
+        let store = Store::open_in_memory("device-a").unwrap();
+        let session = store.start_session(None).unwrap();
+        store.add_item_with_source(&session.id, "todo", "live capture", ItemSource::Live).unwrap();
+        store.append_transcript(&session.id, "order the framing lumber today").unwrap();
+        store.end_and_record_session(&session.id).unwrap();
+        let sid = session.id.clone();
+        let store = Arc::new(Mutex::new(store));
+        // attempt 1 fails (summary returns no tool); attempt 2 succeeds.
+        let processor = SessionProcessor::new(
+            Arc::new(MockProvider::new(vec![
+                end_turn("no extraction"), end_turn("no summary tool"),
+                tool_use("add_item", serde_json::json!({"kind":"todo","text":"order 12 2x10s"})),
+                end_turn("done"),
+                summary_response("Lumber ordered."),
+            ])),
+            store.clone(), Arc::new(Mutex::new(Memory::default())), Arc::new(NullMemoryStore),
+        );
+        assert!(processor.process(&sid).await.is_err());
+        // R7: the live board survived the failure.
+        assert_eq!(store.lock().unwrap().list_items_for_session(&sid).unwrap().len(), 1);
+        processor.process(&sid).await.unwrap();
+        // swap: live capture gone, exactly the authoritative item remains.
+        let items = store.lock().unwrap().list_items_for_session(&sid).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].text, "order 12 2x10s");
+        assert_eq!(items[0].source, ItemSource::Authoritative);
+    }
+
+    /// REQUIRED (review): repeated FAILED retries must not accumulate duplicate
+    /// authoritative todos. The Phase-0 scoped clear bounds them to one in-flight
+    /// attempt while the live board (safety net) and manual items persist.
+    #[tokio::test]
+    async fn repeated_failed_retries_do_not_accumulate_authoritative_dupes() {
+        use crate::domain::ItemSource;
+        let store = Store::open_in_memory("device-a").unwrap();
+        let session = store.start_session(None).unwrap();
+        let sid = session.id.clone();
+        store.add_item_with_source(&sid, "todo", "live capture", ItemSource::Live).unwrap();
+        store.add_item_with_source(&sid, "note", "manual note", ItemSource::Manual).unwrap();
+        store.append_transcript(&sid, "order the framing lumber today").unwrap();
+        store.end_and_record_session(&sid).unwrap();
+        let store = Arc::new(Mutex::new(store));
+
+        // Two attempts that extract one authoritative item then fail on summary,
+        // then a success.
+        let processor = SessionProcessor::new(
+            Arc::new(MockProvider::new(vec![
+                tool_use("add_item", serde_json::json!({"kind":"todo","text":"order lumber"})),
+                end_turn("done"), end_turn("no summary tool"),          // attempt 1 fails
+                tool_use("add_item", serde_json::json!({"kind":"todo","text":"order lumber"})),
+                end_turn("done"), end_turn("no summary tool"),          // attempt 2 fails
+                tool_use("add_item", serde_json::json!({"kind":"todo","text":"order 12 2x10s"})),
+                end_turn("done"), summary_response("Lumber ordered."),  // attempt 3 succeeds
+            ])),
+            store.clone(), Arc::new(Mutex::new(Memory::default())), Arc::new(NullMemoryStore),
+        );
+
+        let auth = |s: &Store| s.list_items_for_session(&sid).unwrap()
+            .into_iter().filter(|i| i.source == ItemSource::Authoritative).count();
+        let live = |s: &Store| s.list_items_for_session(&sid).unwrap()
+            .into_iter().any(|i| i.source == ItemSource::Live);
+
+        assert!(processor.process(&sid).await.is_err());
+        { let s = store.lock().unwrap();
+          assert!(live(&s), "live board survives failure #1");
+          assert_eq!(auth(&s), 1, "one attempt's authoritative items after failure #1"); }
+
+        assert!(processor.process(&sid).await.is_err());
+        { let s = store.lock().unwrap();
+          assert!(live(&s), "live board survives failure #2");
+          assert_eq!(auth(&s), 1, "still one attempt's worth — the entry clear bounds dupes"); }
+
+        processor.process(&sid).await.unwrap();
+        let s = store.lock().unwrap();
+        let items = s.list_items_for_session(&sid).unwrap();
+        assert_eq!(items.len(), 2, "exactly this-run authoritative + the manual entry");
+        assert!(items.iter().any(|i| i.text == "order 12 2x10s" && i.source == ItemSource::Authoritative));
+        assert!(items.iter().any(|i| i.text == "manual note" && i.source == ItemSource::Manual));
+        assert!(!items.iter().any(|i| i.source == ItemSource::Live), "live board swapped out on success");
     }
 
     #[tokio::test]
