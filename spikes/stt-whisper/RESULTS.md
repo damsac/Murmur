@@ -74,4 +74,15 @@ _(Filled in Task 6 against the exit criteria.)_
 - **whisper-rs** (tazz4843) `=0.16.0` — MIT. https://crates.io/crates/whisper-rs
 - **whisper-rs-sys** `0.15.0` — MIT.
 - **hound** `3.5.1` — MIT/Apache-2.0.
-- ggml Whisper models — see model download section below (filled in Task 1).
+- **ggml Whisper models** — MIT (OpenAI Whisper weights). Fetched by `download-models.sh` from
+  `https://huggingface.co/ggerganov/whisper.cpp` (see script note: the plan named `ggml-org`,
+  which returns 401 today; ggerganov serves the same MIT weights directly):
+  - `ggml-tiny.en-q5_1.bin` — q5_1, 31 MB
+  - `ggml-base.en-q5_1.bin` — q5_1, 57 MB
+  - `ggml-small.en-q5_1.bin` — q5_1, 182 MB
+  - `ggml-large-v3-turbo-q5_0.bin` — q5_0, 548 MB
+- **distil-large-v3 ggml** — MIT (HuggingFace distil-whisper).
+  `https://huggingface.co/distil-whisper/distil-large-v3-ggml` → `ggml-distil-large-v3.bin`,
+  1.5 GB. **Note:** this is the **f16 (unquantized)** ggml conversion — distil-whisper does not
+  publish a q5_0 ggml, so Table 1's "Quant" for this row is f16, not q5_0 as the plan template
+  assumed. Recorded as a deviation.
