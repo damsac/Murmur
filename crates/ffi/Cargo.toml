@@ -12,7 +12,7 @@ edition = "2021"
 crate-type = ["cdylib", "staticlib", "lib"]
 
 [dependencies]
-uniffi = "0.28"
+uniffi = { version = "0.28", features = ["tokio"] }
 murmur-core = { path = "../murmur-core" }
 harness = { path = "../harness" }
 tokio = { workspace = true, features = ["sync"] }
