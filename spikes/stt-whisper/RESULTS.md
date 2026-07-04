@@ -45,8 +45,41 @@ mono. Each model measured in its own process (peak RSS is that model's own high-
 
 ## Table 3 — Accuracy & biasing (per model × condition)
 
+Corpus: `jargon1.wav` (59.8 s, construction/trade jargon), macOS `say` TTS (spike-grade proxy —
+see below). Reference = the verbatim script. 21 of the 44 curated terms appear in this clip's
+reference (the rest belong to `jargon2`). "noisy" = synthetic additive white noise at +10 dB SNR
+(reproducible, fixed-seed) — a proxy for jobsite ambience.
+
 | Model | Audio clip | Noise cond. | WER % | Target-term recall (no bias) | Target-term recall (initial_prompt) | Recall Δ (pp) | Hallucination flag | Notes |
 |-------|-----------|-------------|-------|------------------------------|-------------------------------------|---------------|--------------------|-------|
+| tiny.en | jargon1 | quiet | 9.9 | — | — | — | no | WER-only run |
+| tiny.en | jargon1 | noisy +10dB | 18.1 | — | — | — | no | WER-only run |
+| base.en | jargon1 | quiet | 5.8 | 81% (17/21) | 90% | **+10** | no | 44-term initial_prompt |
+| base.en | jargon1 | noisy +10dB | 11.7 | 71% (15/21) | 90% | **+19** | no | 44-term initial_prompt |
+| small.en | jargon1 | quiet | 4.7 | 86% (18/21) | 100% | **+14** | no | 44-term initial_prompt |
+| small.en | jargon1 | noisy +10dB | 11.7 | 71% (15/21) | 90% | **+19** | no | 44-term initial_prompt |
+| large-v3-turbo | jargon1 | quiet | 6.4 | 86% (18/21) | 90% | +5 | no | 44-term initial_prompt |
+| large-v3-turbo | jargon1 | noisy +10dB | 8.8 | 86% (18/21) | 95% | +10 | no | 44-term initial_prompt |
+
+> **Accuracy (kill-question 4):** every candidate model clears the spike bars (≤10% clean,
+> ≤20% noisy). `small.en` best on clean (4.7%); `large-v3-turbo` most noise-robust (8.8% noisy).
+> `base.en`/`small.en` clear both bars.
+>
+> **Biasing (kill-question 3):** `initial_prompt` injection of the curated vocabulary gives a
+> **measurable positive term-recall lift with zero hallucination** across all models — +10 pp
+> (base, quiet), +14 pp (small, quiet), and +19 pp for base/small under noise (where un-biased
+> recall drops and the prompt recovers it). This is a **stronger result than the plan predicted**
+> (the survey expected `initial_prompt` to be mechanically mismatched / near-useless). The
+> hallucination heuristic (length blow-up or ≥5× token repetition) fired on **none** of the runs.
+>
+> **Caveats that keep this spike-grade, not production:** (1) TTS audio is cleaner and more
+> uniform than a human on a real jobsite — absolute WER is optimistic and real biasing may induce
+> more hallucination; (2) only the 21 clip-relevant terms could lift (the prompt carried all 44);
+> a full 100-term list against unrelated audio is the case most likely to hallucinate and is
+> untested here; (3) recall is measured on contiguous n-gram presence, a coarse proxy. The
+> **direction and magnitude** are what the decision needs, and both favor Option B. The deeper
+> trie/logit-bias decoder (survey §4, 19–22% B-WER lit. gains) remains the higher-payoff
+> follow-on, but this result shows it is an **optimization, not a prerequisite** for a usable v1.
 
 ## Table 4 — iPhone tier (optional, real device)
 
