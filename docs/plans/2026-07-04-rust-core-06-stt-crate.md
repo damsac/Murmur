@@ -80,9 +80,10 @@ let tail = stream.end()?;               // decodes remaining buffered audio, fin
 
 - [ ] **Step 1: Root workspace + crate manifest + dev shell**
 
-Root `Cargo.toml` — add the member (keep `exclude = ["spikes"]`):
+Root `Cargo.toml` — add the member; **keep the existing `exclude` line verbatim** (the spike must stay quarantined):
 ```toml
 members = ["crates/harness", "crates/murmur-core", "crates/evals", "crates/stt"]
+exclude = ["spikes"]   # prefix match — NOT "spikes/*" (workspace.exclude is not glob; cargo #11405)
 ```
 
 `crates/stt/Cargo.toml`:
@@ -243,6 +244,23 @@ impl Default for SttConfig {
             language: "en".into(),
             max_bias_terms: 100,
         }
+    }
+}
+
+impl SttConfig {
+    /// Reject configs the pipeline math can't honor. `overlap_secs >= chunk_secs`
+    /// makes the finalize horizon (`chunk_len_ms − overlap_ms`, u64) underflow and
+    /// leaves no forward progress per window, so it is a `Config` error. Called by
+    /// `SttStream::with_model` (the production constructor); `with_decoder` also
+    /// guards the horizon with `saturating_sub` for the test/FFI seam.
+    pub fn validate(&self) -> Result<(), SttError> {
+        if self.overlap_secs >= self.chunk_secs {
+            return Err(SttError::Config(format!(
+                "overlap_secs ({}) must be < chunk_secs ({})",
+                self.overlap_secs, self.chunk_secs
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -420,71 +438,101 @@ git add -A && git commit -m "feat(stt): Chunker — bounded-memory PCM windowing
 
 ---
 
-### Task 3: LocalAgreement word-level finalizer — the quality lever (pure)
+### Task 3: Time-anchored overlap-merge finalizer — the quality lever (pure)
 
 **Files:** create `crates/stt/src/finalize.rs`.
 
-This is the plan's single most important algorithm. `RESULTS.md` Table 2: the naive segment-level time-horizon rule is 80% WER; **word-level LocalAgreement dedup is 19%**. We productionize the spike's `reassemble_dedup` idea into an *incremental* finalizer that emits append-only tokens as consecutive chunk hypotheses agree, and exposes the un-agreed tail as the volatile preview.
+This is the plan's single most important algorithm, and it is the **measured-good pathway** from `RESULTS.md` Table 2 — the *dedup-reassembly* result (5 s/1 s → **19% WER at ≤3 s latency**), **not** the naive segment-level time-horizon rule (80% at the same chunk size). We productionize the spike's `reassemble_dedup` (its longest suffix/prefix token merge, `spikes/stt-whisper/src/stream.rs`) into an *incremental* finalizer, and gate finalization on the spike's time horizon (`chunk_end − overlap`, `stream.rs::finalize`).
 
-**Algorithm (LocalAgreement-2, word level):** keep `committed: Vec<String>` (finalized tokens, never revised) and `prev_hyp: Vec<String>` (the previous chunk's full token hypothesis). On each new chunk, tokenize its text into `new_hyp`. The safe-to-commit prefix is the **longest common prefix of `prev_hyp` and `new_hyp`, beyond what's already committed** — two consecutive decodes agreeing on a token is the LocalAgreement confirmation. Append those tokens to `committed` and emit them. On `flush` (final window), commit the entire remaining hypothesis (no successor will confirm it — the spike's ∞-horizon flush). Preview tail = `new_hyp[committed.len()..]` joined.
+**Why the first design was wrong (the bug this task fixes):** the `Chunker` (Task 2) emits fixed-size, time-shifted windows decoded *standalone* and drops consumed audio for bounded memory. So window *k*'s hypothesis and window *k+1*'s hypothesis start at **different instants** (4 s apart, overlapping by 1 s) — `k+1` is **not** a superstring of `k`. A prefix-agreement rule (`common_prefix_len` at position 0) therefore matches nothing mid-session, finalizes nothing, and dumps the whole transcript at `end()`. The fix uses **both signals the pipeline already has**: absolute time (from `Window.start_sample`, plus each `RawSegment`'s `start_cs`/`end_cs`) to place words on a real timeline and decide the finalize horizon, and the spike's **text-overlap suffix/prefix merge** to stitch the ~1 s overlap region without duplicating it.
 
-Carry the spike's three invariants as tests: append-only (committed never revised), no double-emit of overlap, overlap merge.
+**Algorithm.** State is a single bounded buffer `pending: Vec<Word>` where `Word { text, start_ms, end_ms }` carries each word's absolute time (all words in one whisper segment share that segment's coarse span — v1 accepts segment-granular time; word-precise is Deferred 4). Per window (`window_start_ms`, its `RawSegment`s, and a `horizon_ms`):
+1. **Words + time:** expand segments into `Word`s, `start_ms = window_start_ms + start_cs·10`, `end_ms = window_start_ms + end_cs·10` (centiseconds→ms).
+2. **Merge (spike `reassemble_dedup` + time fallback):** find the largest *k* (≤ ~40) where `pending`'s last *k* word *texts* equal the new window's first *k* word texts; append only `new_words[k..]`. This dedups the re-decoded overlap when it re-transcribed identically (the **precise text seam**). When the overlap re-decoded *differently* the text match fails (`best == 0`); an all-or-nothing text merge would then append the *entire* new window and duplicate the overlap phrase. So a **time fallback** (coarse seam, first-decode-wins) kicks in: drop the prefix of `new_words` whose `end_ms` ≤ the max `end_ms` already in `pending` — those cover audio the finalizer already holds — keeping the first decode of the disputed overlap and appending only the genuinely-new suffix. The merge **only ever appends** to `pending` and never rewrites an existing entry.
+3. **Finalize before the horizon (spike `finalize`):** drain from the front of `pending` every word whose `end_ms ≤ horizon_ms` and emit it. For a normal window `horizon_ms = window_start_ms + chunk_len − overlap` — which is exactly where the **next** window begins, so those words will never be re-decoded (safe to finalize). The final (flush) window uses `horizon_ms = u64::MAX`, committing everything.
 
-- [ ] **Step 1: Write the failing tests** (`crates/stt/src/finalize.rs`, bottom)
+**Bounded memory / bounded tail:** after each window, `pending` holds only words at/after the horizon — roughly the overlap region plus the current window's straddling tail, **O(one chunk)**, never the session. **Append-only:** finalized words leave `pending` and are never touched again; a later window's re-decode of already-finalized audio can't even occur (that audio is behind the window and was dropped by the Chunker), so a committed word is never revised. When the overlap re-decodes *differently* (e.g. `needs work`→`needs word`, or `drain`→`drane`), the merge's **time fallback keeps the first decode and drops the divergent re-decode**, so the disagreement costs at most a single first-decode-wins word (priced into the measured 19% WER) — it does **not** duplicate or revise emitted output. *(Without that fallback, the all-or-nothing text merge would append the whole re-decoded window on any partial disagreement, duplicating the overlap phrase into the committed stream — the failure mode Task 3's disagreement test now guards against.)*
+
+**Prose walk on "the quick brown fox…" (5 s chunk / 1 s overlap → 4 s step):** windows are [0,5 s], [4,9 s], [8,13 s]. Say the speaker's words fall at: `the`@0.2 `quick`@1 `brown`@2 `fox`@3 `jumps`@4.2 `over`@5 `the`@6 `lazy`@7 `dog`@8.2 `near`@9 `the`@10 `old`@11 `red`@12.2 `barn`@13 (segment end-times, seconds).
+- **W0** [0,5 s], horizon 4 s: pending = all of W0's words. `the quick brown fox` (ends ≤4 s) → **finalized**; `jumps`@4.2 held. `pending=[jumps]`.
+- **W1** [4,9 s], horizon 8 s: new head re-decodes `jumps`@4.2 (the overlap) then `over the lazy dog`. Merge: pending tail `jumps` == new head `jumps` (k=1) → append `over the lazy dog`. Finalize ≤8 s → **`jumps over the lazy`** emitted; `dog`@8.2 held. `pending=[dog]`.
+- **W2** [8,13 s], horizon 12 s: merge dedups `dog`, appends `near the old red barn`. Finalize ≤12 s → **`dog near the old`**; `red`@12.2 `barn`@13 held.
+- **end()** flush (horizon ∞): merge the short final window (re-says `red barn`, deduped), finalize all → **`red barn`**.
+Output, in order, append-only, tail never exceeding ~2 words: `the quick brown fox` · `jumps over the lazy` · `dog near the old` · `red barn`.
+> **On the one-word-per-second framing:** the walk assigns each word its own time for readability, but word times are actually **segment-coarse** — every word expanded from one `RawSegment` shares that segment's absolute span (Deferred 4). So a multi-word segment finalizes **atomically**: all its words leave `pending` together the moment the segment's shared `end_ms` clears the horizon (never split mid-segment). The one-word-per-segment cadence above is illustrative only.
+
+- [ ] **Step 1: Write the failing tests** (`crates/stt/src/finalize.rs`, bottom) — the REALISTIC time-shifted composition model: each window's segments start at chunk-relative `cs=0`, only the overlap words repeat, and one test injects an overlap disagreement.
 
 ```rust
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::decoder::RawSegment;
 
-    fn toks(s: &str) -> Vec<String> {
-        s.split_whitespace().map(str::to_string).collect()
+    fn seg(cs0: i64, cs1: i64, t: &str) -> RawSegment {
+        RawSegment { start_cs: cs0, end_cs: cs1, text: t.into() }
+    }
+    fn words(ws: &[Word]) -> Vec<&str> {
+        ws.iter().map(|w| w.text.as_str()).collect()
     }
 
     #[test]
-    fn commits_only_the_agreed_prefix_across_two_hypotheses() {
+    fn finalizes_incrementally_across_time_shifted_windows() {
         let mut f = Finalizer::new();
-        // chunk 0 hypothesis — nothing to confirm it yet → nothing final.
-        assert_eq!(f.ingest(toks("the french drain is")), Vec::<String>::new());
-        // chunk 1 agrees on "the french drain is", extends with "backing up".
-        // The tail "backing up" is NOT yet confirmed (only one hypothesis has it).
-        assert_eq!(f.ingest(toks("the french drain is backing up")), toks("the french drain is"));
-        assert_eq!(f.preview(), "backing up");
+        // window 0 [0,5s], horizon 4000: last segment straddles 4s → held.
+        let e0 = f.ingest(0, &[seg(0, 180, "order twelve"), seg(180, 360, "two by tens"),
+                               seg(360, 480, "for the")], 4_000);
+        assert_eq!(words(&e0), vec!["order", "twelve", "two", "by", "tens"]);
+        assert_eq!(f.preview(), "for the", "the straddling tail is held, not emitted");
+        // window 1 [4s,9s], horizon 8000: head re-says the "for the" overlap.
+        let e1 = f.ingest(4_000, &[seg(0, 80, "for the"), seg(80, 300, "deck framing"),
+                                   seg(300, 480, "today now")], 8_000);
+        assert_eq!(words(&e1), vec!["for", "the", "deck", "framing"]);
+        // starvation guard: incremental progress, not one end-of-session dump.
+        assert!(e0.len() + e1.len() >= 9, "words finalize as windows arrive");
     }
 
     #[test]
-    fn append_only_never_revises_a_committed_word() {
+    fn overlap_word_is_finalized_exactly_once() {
         let mut f = Finalizer::new();
-        f.ingest(toks("the french drain"));
-        f.ingest(toks("the french drain along")); // commits "the french drain"
-        // A later chunk re-transcribes the overlap DIFFERENTLY ("drane"): the
-        // committed words must stand — no revision.
-        let emitted = f.ingest(toks("the french drane along the fence"));
-        // agreement of prev("the french drain along") vs new("the french drane along the fence")
-        // beyond committed(3): prev[3]="along", new[3]="along" agree → commit "along".
-        assert_eq!(emitted, toks("along"));
-        assert_eq!(f.committed_text(), "the french drain along");
+        let e0 = f.ingest(0, &[seg(0, 180, "hello there"), seg(360, 480, "friend")], 4_000);
+        // "friend" ends 4800 > horizon 4000 → held for the overlap.
+        let e1 = f.ingest(4_000, &[seg(0, 80, "friend"), seg(80, 300, "good day")], 8_000);
+        let all: Vec<&str> = words(&e0).into_iter().chain(words(&e1)).collect();
+        assert_eq!(all.iter().filter(|w| **w == "friend").count(), 1, "overlap emitted once");
     }
 
     #[test]
-    fn no_double_emit_of_overlap() {
+    fn append_only_holds_under_overlap_disagreement() {
         let mut f = Finalizer::new();
-        f.ingest(toks("hello world again"));
-        let e = f.ingest(toks("hello world again now")); // commit "hello world again"
-        assert_eq!(e, toks("hello world again"));
-        // Same tokens re-fed must not re-emit.
-        let e2 = f.ingest(toks("hello world again now then"));
-        assert_eq!(e2, toks("now"));
+        let e0 = f.ingest(0, &[seg(0, 180, "the french drain"), seg(180, 480, "needs work")], 4_000);
+        assert_eq!(words(&e0), vec!["the", "french", "drain"]); // ends ≤4000; "needs work" held
+        // Window 1 re-decodes the overlap "needs work" DIFFERENTLY as "needs word":
+        // the all-or-nothing text merge finds no match (best=0), so the TIME-ANCHORED
+        // fallback drops the re-decoded overlap (end_ms ≤ pending's max end 4800) and
+        // keeps W0's first decode, appending only the genuinely-new suffix.
+        let e1 = f.ingest(4_000, &[seg(0, 80, "needs word"), seg(80, 400, "before the pour")], 8_000);
+
+        let all: Vec<&str> = words(&e0).into_iter().chain(words(&e1)).collect();
+        // Committed stream is exactly the first-decode reading with the overlap
+        // present ONCE — no "needs work needs word" duplication (the bug this fixes).
+        assert_eq!(all, vec!["the", "french", "drain", "needs", "work", "before", "the", "pour"]);
+        // First decode of the disputed word wins; the divergent re-decode is gone.
+        assert!(!all.contains(&"word"), "divergent second decode never reaches committed output");
+        assert_eq!(all.iter().filter(|w| **w == "work").count(), 1, "disputed overlap not duplicated");
+        // Genuinely-new content still finalizes.
+        assert!(all.contains(&"before") && all.contains(&"pour"));
     }
 
     #[test]
-    fn flush_commits_the_entire_remaining_tail() {
+    fn flush_emits_only_the_bounded_tail() {
         let mut f = Finalizer::new();
-        f.ingest(toks("order twelve two by tens"));
-        f.ingest(toks("order twelve two by tens for the deck")); // commits first 5
+        let e0 = f.ingest(0, &[seg(0, 180, "alpha beta"), seg(360, 480, "gamma delta")], 4_000);
+        assert_eq!(words(&e0), vec!["alpha", "beta"]);
+        assert_eq!(f.preview(), "gamma delta", "tail bounded to the straddling segment");
         let tail = f.flush();
-        assert_eq!(tail, toks("for the deck"), "flush finalizes the unconfirmed tail");
-        assert!(f.flush().is_empty());
+        assert_eq!(words(&tail), vec!["gamma", "delta"], "flush finalizes only the held tail");
+        assert!(f.flush().is_empty(), "flush is idempotent");
     }
 }
 ```
@@ -492,15 +540,25 @@ mod tests {
 - [ ] **Step 2: Implement** (`crates/stt/src/finalize.rs`)
 
 ```rust
-/// Incremental LocalAgreement-2 word-level finalizer (spike `RESULTS.md` Table 2:
-/// 19% streaming WER at ≤3 s latency vs 80% for naive segment finalize). Commits
-/// a token once two consecutive chunk hypotheses agree on it in position; the
-/// committed stream is append-only — a committed word is never revised, even when
-/// a later chunk re-transcribes the overlap differently.
+use crate::decoder::RawSegment;
+
+/// A finalized-or-pending word with absolute time. All words expanded from one
+/// whisper segment share that segment's coarse span (v1; word-precise deferred).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Word {
+    pub text: String,
+    pub start_ms: u64,
+    pub end_ms: u64,
+}
+
+/// Incremental, time-anchored overlap-merge finalizer — the productionized
+/// `reassemble_dedup` + `finalize` from `spikes/stt-whisper/src/stream.rs`
+/// (`RESULTS.md` Table 2: 19% WER at ≤3 s latency, vs 80% for naive segment
+/// finalize). `pending` is bounded to ~one chunk; the emitted stream is
+/// append-only (a finalized word is never revised).
 #[derive(Default)]
 pub struct Finalizer {
-    committed: Vec<String>,
-    prev_hyp: Vec<String>,
+    pending: Vec<Word>,
     flushed: bool,
 }
 
@@ -509,64 +567,100 @@ impl Finalizer {
         Self::default()
     }
 
-    /// Feed the full token hypothesis for the latest chunk. Returns the tokens
-    /// newly finalized by this chunk (may be empty). `hyp` is the whole chunk's
-    /// text tokenized — the finalizer aligns it against the committed prefix.
-    pub fn ingest(&mut self, hyp: Vec<String>) -> Vec<String> {
-        // Longest common prefix of prev and new hypotheses = the LocalAgreement
-        // confirmation. Commit only what extends beyond what's already committed.
-        let agree = common_prefix_len(&self.prev_hyp, &hyp);
-        let mut newly = Vec::new();
-        if agree > self.committed.len() {
-            newly = hyp[self.committed.len()..agree].to_vec();
-            self.committed.extend_from_slice(&newly);
-        }
-        self.prev_hyp = hyp;
-        newly
+    /// Merge one decoded window (`window_start_ms` + its segments) into `pending`
+    /// via the spike's suffix/prefix text overlap, then finalize every word whose
+    /// segment ends at/before `horizon_ms` (= next window's start for a normal
+    /// window; `u64::MAX` for the flush window). Returns newly finalized words.
+    pub fn ingest(&mut self, window_start_ms: u64, segs: &[RawSegment], horizon_ms: u64) -> Vec<Word> {
+        let new_words = words_from_segments(window_start_ms, segs);
+        self.merge(new_words);
+        self.finalize_before(horizon_ms)
     }
 
-    /// Preview tail: the un-finalized remainder of the latest hypothesis (volatile;
-    /// shown greyed, never persisted).
-    pub fn preview(&self) -> String {
-        if self.prev_hyp.len() > self.committed.len() {
-            self.prev_hyp[self.committed.len()..].join(" ")
-        } else {
-            String::new()
-        }
-    }
-
-    /// Final window: no successor will confirm the tail, so commit all of it
-    /// (spike's ∞-horizon flush). Returns the newly-finalized tail.
-    pub fn flush(&mut self) -> Vec<String> {
+    /// Final window with no successor: commit the entire remaining tail.
+    pub fn flush(&mut self) -> Vec<Word> {
         if self.flushed {
             return Vec::new();
         }
         self.flushed = true;
-        if self.prev_hyp.len() > self.committed.len() {
-            let tail = self.prev_hyp[self.committed.len()..].to_vec();
-            self.committed.extend_from_slice(&tail);
-            tail
-        } else {
-            Vec::new()
+        self.finalize_before(u64::MAX)
+    }
+
+    /// Volatile preview (un-finalized tail) for greyed UI. Never persisted.
+    pub fn preview(&self) -> String {
+        self.pending.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" ")
+    }
+
+    /// Merge one decoded window's words into `pending`, deduping the re-decoded
+    /// overlap. Only ever appends — existing `pending` words stand (append-only).
+    /// TWO seams:
+    ///   • **Precise (text) seam** — spike `reassemble_dedup`: the largest *k*
+    ///     where `pending`'s last *k* word texts equal the new window's first *k*.
+    ///     When the overlap re-decoded identically, this stitches it exactly.
+    ///   • **Coarse (time) seam** — first-decode-wins fallback when the text match
+    ///     fails (`best == 0`). An all-or-nothing text merge that finds no match
+    ///     would append the ENTIRE new window, so a *partially disagreeing* overlap
+    ///     (e.g. "needs work" re-decoded as "needs word") would duplicate the
+    ///     overlap phrase into the finalized (committed) stream. Instead, use the
+    ///     absolute timestamps we deliberately kept: drop the prefix of `new_words`
+    ///     whose `end_ms` ≤ the max `end_ms` already in `pending` — those are
+    ///     re-transcriptions of audio the finalizer already holds — keeping the
+    ///     FIRST decode of the disputed overlap and appending only the genuinely-new
+    ///     suffix. Cost of a disagreement is thus "first-decode-wins on the disputed
+    ///     word" (a possible single-word error, priced into WER), NOT duplication.
+    ///     Stays O(overlap).
+    fn merge(&mut self, new_words: Vec<Word>) {
+        if self.pending.is_empty() {
+            self.pending = new_words;
+            return;
+        }
+        let maxk = self.pending.len().min(new_words.len()).min(40);
+        let mut best = 0;
+        for k in (1..=maxk).rev() {
+            let tail = &self.pending[self.pending.len() - k..];
+            if tail.iter().map(|w| &w.text).eq(new_words[..k].iter().map(|w| &w.text)) {
+                best = k;
+                break;
+            }
+        }
+        if best > 0 {
+            self.pending.extend(new_words.into_iter().skip(best)); // precise seam
+            return;
+        }
+        // Coarse seam: no text match → drop the time-covered prefix, keep first decode.
+        let pending_max_end = self.pending.iter().map(|w| w.end_ms).max().unwrap_or(0);
+        self.pending.extend(new_words.into_iter().skip_while(|w| w.end_ms <= pending_max_end));
+    }
+
+    /// Drain and return the front run of words whose segment ends ≤ horizon
+    /// (spike `finalize`: `seg.end <= chunk_end − overlap`).
+    fn finalize_before(&mut self, horizon_ms: u64) -> Vec<Word> {
+        let cut = self.pending.iter().position(|w| w.end_ms > horizon_ms).unwrap_or(self.pending.len());
+        self.pending.drain(..cut).collect()
+    }
+}
+
+fn words_from_segments(window_start_ms: u64, segs: &[RawSegment]) -> Vec<Word> {
+    let mut out = Vec::new();
+    for s in segs {
+        let start_ms = window_start_ms + (s.start_cs.max(0) as u64) * 10;
+        let end_ms = window_start_ms + (s.end_cs.max(0) as u64) * 10;
+        for tok in s.text.split_whitespace() {
+            out.push(Word { text: tok.to_string(), start_ms, end_ms });
         }
     }
-
-    pub fn committed_text(&self) -> String {
-        self.committed.join(" ")
-    }
-}
-
-fn common_prefix_len(a: &[String], b: &[String]) -> usize {
-    a.iter().zip(b).take_while(|(x, y)| x == y).count()
+    out
 }
 ```
-> **Design note for reviewers:** this is prefix-agreement LocalAgreement, not the spike's suffix/prefix *merge* (`reassemble_dedup`). Prefix-agreement is the incremental form: it emits finalized tokens as the stream grows, which is exactly the append-only cursor contract Plan 05 needs, whereas `reassemble_dedup` reconstructs a whole string in one shot (fine for a batch WER measurement, wrong for live emission). Both share the "align tokens, never revise committed" core. The word-level operation (not segment level) is what `RESULTS.md` proved matters (boundary re-transcription 75–95% at the segment level). **Field-tuning of the agreement rule (LocalAgreement-2 vs -n, punctuation/casing normalization before compare) is the expected iteration surface — measured against the spike's corpus.**
+> **Design note for reviewers:** this is the spike's *measured-good* dedup-reassembly, incrementalized — not the naive time-horizon rule (80% WER) and not a prefix-agreement rule (which assumes a shared start anchor the time-shifted Chunker never provides). Time places words and sets the finalize horizon; the text suffix/prefix merge stitches the overlap. `pending` stays O(one chunk). **Expected field-tuning surface:** the merge window (40), punctuation/casing normalization before the text compare, and horizon slack — all measured against the spike corpus, none change this shape.
+>
+> **WER-transfer caveat:** the spike's 19% figure (`RESULTS.md` Table 2, 5 s/1 s) was measured on `reassemble_dedup` running against the *full untruncated* chunk history and scored end-of-session. This bounded-pending incremental form searches only ~one chunk of `pending`, so it can find shorter matches near the finalized boundary. The number is *expected to transfer* at the 5 s/1 s defaults but was **not re-measured** for the incremental finalizer — re-run the spike's WER harness against this shape before treating 19% as a committed production number.
 
 - [ ] **Step 3: Verify** `cargo test -p stt finalize` — green.
 
 - [ ] **Step 4: Commit**
 ```bash
-git add -A && git commit -m "feat(stt): LocalAgreement word-level append-only finalizer (the quality lever)"
+git add -A && git commit -m "feat(stt): time-anchored overlap-merge finalizer (productionized spike dedup)"
 ```
 
 ---
@@ -626,47 +720,54 @@ mod tests {
     fn seg(cs0: i64, cs1: i64, t: &str) -> RawSegment {
         RawSegment { start_cs: cs0, end_cs: cs1, text: t.into() }
     }
+    fn text(v: &[FinalizedSegment]) -> Vec<&str> {
+        v.iter().map(|s| s.text.as_str()).collect()
+    }
 
     #[test]
     fn bias_prompt_is_passed_to_every_decode() {
-        // 5s window at 16kHz = 80_000 samples; push two windows' worth.
+        // 9 s of PCM → two 5 s/1 s windows, both drained in one poll() call.
         let decoder = ScriptedDecoder::new(vec![
             vec![seg(0, 300, "the french drain")],
-            vec![seg(0, 300, "the french drain is backing")],
+            vec![seg(0, 80, "drain"), seg(80, 300, "is backing")],
         ]);
         let stream = SttStream::with_decoder(
             Box::new(decoder),
             SttConfig::default(),
             &["french drain".to_string()],
         );
-        stream.push_pcm(&vec![0.0; 144_000]); // 9 s → two windows ready
-        stream.poll().unwrap();
+        stream.push_pcm(&vec![0.0; 144_000]);
         stream.poll().unwrap();
         // The scripted decoder recorded the prompt each decode saw.
-        // (accessor exposed on the whisper-free path for exactly this assertion)
         let prompts = stream.debug_captured_prompts();
+        assert_eq!(prompts.len(), 2, "both ready windows decoded");
         assert!(prompts.iter().all(|p| p.as_deref() == Some("Terms used in this session: french drain.")));
     }
 
     #[test]
-    fn poll_yields_append_only_segments_and_end_flushes_tail() {
+    fn poll_finalizes_incrementally_and_end_flushes_bounded_tail() {
+        // REALISTIC time-shifted composition (NOT superstrings): window k+1's
+        // segments start at chunk-relative cs=0, four seconds later in absolute
+        // time; only the 1 s overlap words repeat.
         let decoder = ScriptedDecoder::new(vec![
-            vec![seg(0, 300, "order twelve two by tens")],
-            vec![seg(0, 400, "order twelve two by tens for the deck")],
+            // window 0 [0,5s]: "for the" straddles the 4 s horizon → held
+            vec![seg(0, 180, "order twelve"), seg(180, 360, "two by tens"), seg(360, 480, "for the")],
+            // window 1 [4,9s]: head re-says the "for the" overlap, "today" straddles 8 s
+            vec![seg(0, 80, "for the"), seg(80, 300, "deck framing"), seg(300, 480, "today")],
+            // flush window [8,~9s]: re-says the "today" overlap
+            vec![seg(0, 80, "today")],
         ]);
         let stream = SttStream::with_decoder(Box::new(decoder), SttConfig::default(), &[]);
-        stream.push_pcm(&vec![0.0; 144_000]);
-        let a = stream.poll().unwrap(); // chunk 0: nothing confirmed yet
-        assert!(a.is_empty());
-        let b = stream.poll().unwrap(); // chunk 1 agrees → commits the prefix
-        assert_eq!(b.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(),
-                   vec!["order", "twelve", "two", "by", "tens"]);
-        let tail = stream.end().unwrap(); // flush finalizes the unconfirmed tail
-        assert_eq!(tail.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(),
-                   vec!["for", "the", "deck"]);
-        // absolute timestamps are monotonic (append-only in time too)
+        stream.push_pcm(&vec![0.0; 144_000]); // 9 s → W0 + W1 both ready
+        let live = stream.poll().unwrap();     // one poll drains BOTH ready windows
+        assert_eq!(text(&live),
+            vec!["order", "twelve", "two", "by", "tens", "for", "the", "deck", "framing"]);
+        assert_eq!(stream.preview_tail(), "today", "the straddling tail is held, bounded");
+        let tail = stream.end().unwrap();      // flush finalizes only the held tail
+        assert_eq!(text(&tail), vec!["today"]);
+        // append-only in time: start_ms non-decreasing across the whole stream.
         let mut prev = 0;
-        for s in b.iter().chain(tail.iter()) {
+        for s in live.iter().chain(tail.iter()) {
             assert!(s.start_ms >= prev);
             prev = s.start_ms;
         }
@@ -679,12 +780,21 @@ mod tests {
         stream.push_pcm(&vec![0.0; 1000]); // far short of a window
         assert!(stream.poll().unwrap().is_empty(), "no decode, no scripted panic");
     }
+
+    #[test]
+    fn config_rejects_overlap_ge_chunk() {
+        assert!(SttConfig::default().validate().is_ok());
+        let bad = SttConfig { chunk_secs: 5.0, overlap_secs: 5.0, ..SttConfig::default() };
+        assert!(matches!(bad.validate(), Err(SttError::Config(_))), "overlap == chunk rejected");
+        let worse = SttConfig { chunk_secs: 5.0, overlap_secs: 6.0, ..SttConfig::default() };
+        assert!(matches!(worse.validate(), Err(SttError::Config(_))), "overlap > chunk rejected");
+    }
 }
 ```
 
 - [ ] **Step 4: Implement `SttStream`** (`crates/stt/src/lib.rs`)
 
-Threading: two mutexes, strict order **engine → input** (never reverse). `push_pcm` takes `input` only (short); `poll`/`preview_tail`/`end` take `engine`, and `poll` briefly takes `input` inside to drain. No thread, no channel, no callback → no deadlock. Emits one `FinalizedSegment` per newly-committed token, with absolute ms derived from the window's `start_sample` (the whole finalized batch shares the chunk's coarse time span — good enough for the live board; word-precise timestamps are Deferred).
+Threading: two mutexes, strict order **engine → input** (never reverse). `push_pcm` takes `input` only (short); `poll`/`preview_tail`/`end` take `engine`, and `poll` briefly takes `input` inside to drain. No thread, no channel, no callback → no deadlock. Emits one `FinalizedSegment` per newly-finalized `Word`, each carrying its whisper segment's absolute `start_ms`/`end_ms` (all words from one segment share that coarse span — good enough for the live board; word-precise timestamps are Deferred 4). `decode_window` computes the finalize horizon from the window's absolute start and hands the raw segments (not a flattened word list) to the finalizer.
 
 ```rust
 use std::sync::Mutex;
@@ -729,6 +839,7 @@ impl SttStream {
     #[cfg(feature = "whisper")]
     pub fn with_model(model: &std::path::Path, cfg: SttConfig, vocab: &[String])
         -> Result<Self, SttError> {
+        cfg.validate()?; // reject overlap ≥ chunk before opening the model
         let decoder = whisper::WhisperDecoder::open(model, &cfg.language)?;
         Ok(Self::with_decoder(Box::new(decoder), cfg, vocab))
     }
@@ -776,33 +887,39 @@ impl SttStream {
             self.decode_window(&mut eng, w, &mut out)?;
         }
         if let Some(w) = eng.chunker.flush() {
-            let start_ms = self.sample_to_ms(w.start_sample);
-            let raw = eng.decode_with_prompt(w.samples.as_slice(), self.bias_prompt.as_deref())?;
-            let hyp = tokenize_segments(&raw);
-            for t in eng.finalizer.flush_or_ingest_final(hyp) {
-                out.push(FinalizedSegment { start_ms, end_ms: start_ms, text: t });
-            }
+            // is_final window → decode_window uses an ∞ horizon → finalizes all.
+            self.decode_window(&mut eng, w, &mut out)?;
         } else {
-            for t in eng.finalizer.flush() {
-                out.push(FinalizedSegment { start_ms: 0, end_ms: 0, text: t });
-            }
+            // Nothing left to decode, but the last normal window may have held a
+            // tail behind its horizon — flush it.
+            emit(&mut out, eng.finalizer.flush());
         }
         Ok(out)
     }
 
     fn decode_window(&self, eng: &mut Engine, w: chunk::Window, out: &mut Vec<FinalizedSegment>)
         -> Result<(), SttError> {
-        let start_ms = self.sample_to_ms(w.start_sample);
+        let window_start_ms = self.sample_to_ms(w.start_sample);
+        let horizon_ms = if w.is_final {
+            u64::MAX
+        } else {
+            // saturating_sub guards the test/FFI seam (with_decoder skips validate);
+            // with_model rejects overlap ≥ chunk up front so this can't underflow there.
+            window_start_ms + self.chunk_len_ms().saturating_sub(self.overlap_ms())
+        };
         let raw = eng.decode_with_prompt(&w.samples, self.bias_prompt.as_deref())?;
-        let hyp = tokenize_segments(&raw);
-        for t in eng.finalizer.ingest(hyp) {
-            out.push(FinalizedSegment { start_ms, end_ms: start_ms, text: t });
-        }
+        emit(out, eng.finalizer.ingest(window_start_ms, &raw, horizon_ms));
         Ok(())
     }
 
     fn sample_to_ms(&self, sample: u64) -> u64 {
         sample * 1000 / self.cfg.sample_rate as u64
+    }
+    fn chunk_len_ms(&self) -> u64 {
+        (self.cfg.chunk_secs * 1000.0) as u64
+    }
+    fn overlap_ms(&self) -> u64 {
+        (self.cfg.overlap_secs * 1000.0) as u64
     }
 
     #[cfg(test)]
@@ -820,15 +937,16 @@ impl Engine {
     }
 }
 
-fn tokenize_segments(raw: &[RawSegment]) -> Vec<String> {
-    raw.iter()
-        .flat_map(|s| s.text.split_whitespace())
-        .map(str::to_string)
-        .collect()
+/// Map finalized `Word`s to `FinalizedSegment`s, preserving each word's
+/// (segment-coarse) absolute span.
+fn emit(out: &mut Vec<FinalizedSegment>, words: Vec<finalize::Word>) {
+    out.extend(words.into_iter().map(|w| FinalizedSegment {
+        start_ms: w.start_ms,
+        end_ms: w.end_ms,
+        text: w.text,
+    }));
 }
 ```
-> Two small `Finalizer` helpers referenced above (`flush_or_ingest_final` is just `ingest` then `flush` fused — implement whichever is cleaner during TDD; the tests pin the *behavior*, not the method name). Keep the final-window path committing the whole tail.
-
 > **`Send + Sync`:** the `Box<dyn Decoder>` is `Send` (trait bound); wrapped in `Mutex`, `SttStream` is `Send + Sync`. Plan 07 wraps it `Arc<SttStream>` and UniFFI exposes `push_pcm`/`poll`/`preview_tail`/`end` as `&self` methods — no async, no callback interface, which is precisely why this can't deadlock across the FFI boundary.
 
 - [ ] **Step 5: Verify** `cargo test -p stt` — all pure tests green (no feature, no model).
@@ -869,7 +987,10 @@ pub struct WhisperDecoder {
 impl WhisperDecoder {
     pub fn open(model: &Path, language: &str) -> Result<Self, SttError> {
         let mut params = WhisperContextParameters::default();
-        params.use_gpu(true); // Metal (spike confirmed `use gpu = 1`, no CPU fallback)
+        // Redundant with the `metal` cargo feature (default is already GPU-on when
+        // built with metal — the spike used bare defaults and Metal engaged); kept
+        // as an explicit, harmless assertion of intent, not a load-bearing call.
+        params.use_gpu(true);
         let ctx = WhisperContext::new_with_params(
             model.to_str().ok_or_else(|| SttError::ModelLoad("non-utf8 model path".into()))?,
             params,
@@ -962,37 +1083,64 @@ git add -A && git commit -m "feat(stt): whisper.cpp backend behind `whisper` fea
 
 ```rust
 //! Append-only streaming contract (spec Rev 2 §2) via the public API and a
-//! scripted decoder — proves the finalized stream that Plan 05's LiveExtractor
-//! will consume never revises a committed word, and end() flushes the tail.
+//! scripted decoder using the REALISTIC time-shifted composition model (window
+//! k+1's segments start at chunk-relative cs=0, four seconds later in absolute
+//! time; only the 1 s overlap word repeats). Proves the finalized stream Plan 05's
+//! LiveExtractor consumes finalizes incrementally, dedups the overlap, never
+//! revises a committed word, and end() flushes only the bounded tail.
 
 use stt::{RawSegment, ScriptedDecoder, SttConfig, SttStream};
 
-fn seg(t: &str) -> RawSegment {
-    RawSegment { start_cs: 0, end_cs: 300, text: t.into() }
+fn seg(cs0: i64, cs1: i64, t: &str) -> RawSegment {
+    RawSegment { start_cs: cs0, end_cs: cs1, text: t.into() }
 }
 
 #[test]
 fn finalized_stream_is_append_only_across_a_session() {
-    // Overlap re-transcribes "drain" as "drane" in a later chunk — must not revise.
+    // Sentence "the french drain needs regrading before the pour today" spoken
+    // over ~13 s. Each window re-decodes only its 1 s overlap head; W1's overlap
+    // re-transcribes the held word "needs" imperfectly as "kneads" — the merge's
+    // TIME FALLBACK drops that divergent re-decode, keeps W0's first decode, and
+    // never duplicates or revises a committed word.
     let decoder = ScriptedDecoder::new(vec![
-        vec![seg("the french drain needs")],
-        vec![seg("the french drain needs regrading")],
-        vec![seg("the french drane needs regrading before the pour")],
+        // W0 [0,5s] horizon 4s: "the french drain" ≤4s finalizes; "needs" held
+        vec![seg(0, 180, "the french"), seg(180, 360, "drain"), seg(360, 480, "needs")],
+        // W1 [4,9s] horizon 8s: overlap re-decodes "needs" as "kneads" (dropped by
+        // the time fallback → first decode "needs" wins); extends; "before" held
+        vec![seg(0, 80, "kneads"), seg(80, 300, "regrading"), seg(300, 480, "before")],
+        // W2 [8,13s] horizon 12s: overlap re-says "before", extends; "today" held
+        vec![seg(0, 80, "before"), seg(80, 300, "the pour"), seg(300, 480, "today")],
+        // flush [12,~13s] horizon ∞: re-says "today"
+        vec![seg(0, 80, "today")],
     ]);
     let stream = SttStream::with_decoder(Box::new(decoder), SttConfig::default(), &[]);
     stream.push_pcm(&vec![0.0; 208_000]); // ~13 s → three windows (5s/1s → step 4s)
 
+    // One poll drains every ready window; loop until it stops finalizing new words.
     let mut finalized = Vec::new();
-    while { let batch = stream.poll().unwrap(); let n = batch.len();
-            finalized.extend(batch); n > 0 } {}
-    finalized.extend(stream.end().unwrap());
+    loop {
+        let batch = stream.poll().unwrap();
+        if batch.is_empty() {
+            break;
+        }
+        finalized.extend(batch);
+    }
+    finalized.extend(stream.end().unwrap()); // DONE flushes the held tail
 
     let text: Vec<&str> = finalized.iter().map(|s| s.text.as_str()).collect();
-    // "the french drain" was committed early; the "drane" re-transcription never
-    // overwrites it — the stream only ever appended.
-    assert!(text.starts_with(&["the", "french", "drain", "needs"]));
-    assert!(text.contains(&"regrading"));
-    assert!(!text.contains(&"drane"), "a committed word is never revised");
+    // Incremental, in order, append-only. "the french drain" was committed in W0
+    // and is never revisited (that audio is behind the window, dropped by the
+    // Chunker) — the stream only ever appended.
+    assert!(text.starts_with(&["the", "french", "drain"]));
+    assert!(text.contains(&"regrading") && text.contains(&"pour") && text.contains(&"today"));
+    // Overlap words are finalized exactly once (dedup), not doubled.
+    assert_eq!(text.iter().filter(|w| **w == "before").count(), 1, "overlap deduped");
+    assert_eq!(text.iter().filter(|w| **w == "today").count(), 1);
+    // W1 re-decoded the held word "needs" as "kneads"; the time fallback keeps the
+    // first decode and drops the divergent one — no duplication, "kneads" nowhere.
+    assert!(text.contains(&"needs"), "first decode of the disputed overlap survives");
+    assert!(!text.contains(&"kneads"), "divergent re-decode never reaches committed output");
+    assert_eq!(text.iter().filter(|w| **w == "needs").count(), 1, "disputed overlap not duplicated");
 
     // Absolute-ms timestamps are monotonic — append-only in time.
     let mut prev = 0;
@@ -1002,6 +1150,7 @@ fn finalized_stream_is_append_only_across_a_session() {
     }
 }
 ```
+> The `loop`/`break` form (not the earlier `while { … }` statement-expression) is the clean equivalent — a single `poll()` already drains all currently-ready windows, so the loop just retries until a poll finalizes nothing new.
 
 - [ ] **Step 2: Document the murmur-core wiring contract** (in `crates/stt/README.md` — the seam Plan 07 implements)
 
@@ -1043,7 +1192,7 @@ git add -A && git commit -m "test(stt): append-only e2e; docs: murmur-core wirin
 1. **The full STT → live-extraction tick loop (Plan 07, FFI + shells).** The contract is documented (Task 6); the loop that couples `stt.poll` → `append_transcript` → `LiveExtractor.maybe_extract` is shell orchestration across UniFFI. Deliberately not built here to keep `stt` and `murmur-core` decoupled.
 2. **On-device iPhone tier verification (`RESULTS.md` Table 4, PENDING).** The GO is provisional pending a device check: `base.en`/`small.en` RTF<1.0 and no thermal kill over 10 min locked. Mac margins (RTF 0.009–0.02) make this expected-pass, but it is the one unretired GO condition — run before shipping (needs dam's device; `spikes/stt-whisper/ios/README.md`).
 3. **Trie / logit-bias hotword decoder (research §4; the biasing ceiling).** v1 uses `initial_prompt` (+10–19 pp, proven). The deeper decoder-internal biasing (19–22% B-WER lit. gains) is an optimization, not a prerequisite — swaps in behind `build_bias_prompt`'s seam without touching the pipeline. Also untested: a full 100-term list against real noisy jobsite audio (the case most likely to hallucinate).
-4. **Word-precise timestamps.** v1 finalized segments carry the chunk's coarse span (`start_ms` = window start). Word-level alignment (whisper cross-attention, or Table 2's segment timestamps) for audio-scrubbing UI is a later concern — the `FinalizedSegment` struct already has the fields.
+4. **Word-precise timestamps.** v1 finalized segments carry **segment-coarse** time: every word expanded from one whisper segment shares that segment's absolute `start_ms`/`end_ms` (a batch of words finalized from one `ingest` therefore shares the source segment's span, not a per-word time). Word-level alignment (whisper cross-attention) for audio-scrubbing UI is a later concern — `FinalizedSegment` already has the fields.
 5. **Model download / on-demand resources / model selection UI.** The crate opens a provisioned file. Fetching, storage, and base-vs-small selection are shell/config concerns (Task 5 doc).
 6. **Rolling prior-transcript context in the prompt.** The spike (and v1) use the prompt slot purely for bias terms. Carrying recent transcript for cross-chunk coherence could help but risks diluting the ≤100 bias terms (whisper's 224-token prompt window) — revisit only with evidence.
 7. **Battery/thermal instrumentation, chunk-size auto-tuning.** Adaptive chunk/model selection under thermal pressure (research Q8) is a shell-driven policy once on-device numbers exist. Config is already exposed (`chunk_secs`, model choice).
@@ -1053,11 +1202,11 @@ git add -A && git commit -m "test(stt): append-only e2e; docs: murmur-core wirin
 
 ## Self-Review Notes
 
-- **Spec coverage:** Rev 2 §2 on-device streaming STT ✓ (Tasks 2–5); append-only finalized stream ✓ (Task 3 finalizer + Task 6 e2e — a committed word is never revised, carrying the spike's `finalized_stream_is_append_only`/`no_double_emit_of_overlap` invariants); volatile preview tail ✓ (`preview_tail`); DONE = flush-not-drop ✓ (`end()`, supersedes cancel-for-speed canon); §vocabulary point 3 biasing ✓ (Task 4 `build_bias_prompt`, initial_prompt injection, ≤100 cap); offline/on-device ✓ (no network, model is a local file). Live-is-provisional / process() authoritative ✓ (stated design constant + integration contract queues process() as truth).
+- **Spec coverage:** Rev 2 §2 on-device streaming STT ✓ (Tasks 2–5); append-only finalized stream ✓ (Task 3 finalizer + Task 6 e2e — a committed word is never revised, carrying the spike's append-only + no-double-emit-of-overlap invariants as behavior, and adding the starvation/incremental-progress guard the old design lacked); volatile preview tail ✓ (`preview_tail`); DONE = flush-not-drop ✓ (`end()`, supersedes cancel-for-speed canon); §vocabulary point 3 biasing ✓ (Task 4 `build_bias_prompt`, initial_prompt injection, ≤100 cap); offline/on-device ✓ (no network, model is a local file). Live-is-provisional / process() authoritative ✓ (stated design constant + integration contract queues process() as truth).
 - **The four hard requirements, discharged:** (1) Decode trait — `Decoder` isolates whisper; the entire pipeline is tested against `ScriptedDecoder` with zero whisper dependency (Tasks 2–4, 6). (2) Hermetic CI — `whisper-rs` is `optional`, `default = []`; `cargo test --workspace` compiles on Linux with no model/cmake/clang; real-model test is `#[ignore]` + env-gated + feature-gated (three locks). (3) Threading — caller-driven pump, no thread/channel/callback, strict two-lock order (engine→input) = can't deadlock; `Send + Sync` for a direct UniFFI `&self` object. (4) Build hygiene — `flake.nix` gains cmake/clang/LIBCLANG_PATH (Task 1) for `--features whisper`; CI stays on default features. Feature-gate chosen over macOS-only workspace **because** existing Linux CI for the other three crates must stay green.
-- **Design constants traced to measurement:** 5 s/1 s default and word-level LocalAgreement (not naive segment finalize) come straight from `RESULTS.md` Table 2 (19% vs 80% WER); base.en/small.en q5_1 from Table 1/3; initial_prompt biasing from Table 3 (+10–19 pp, 0 hallucination); flush-on-end from the ∞-horizon final chunk in `stream.rs::finalize`.
+- **Design constants traced to measurement:** 5 s/1 s default and the **word-level text-overlap dedup + time-horizon finalize** (the measured-good *dedup-reassembly* pathway, NOT the naive segment-level rule) come straight from `RESULTS.md` Table 2 (19% vs 80% WER); the finalizer productionizes the spike's `reassemble_dedup` merge + `finalize` horizon (`stream.rs`). base.en/small.en q5_1 from Table 1/3; initial_prompt biasing from Table 3 (+10–19 pp, 0 hallucination); flush-on-end from the ∞-horizon final chunk in `stream.rs::finalize`.
 - **API surface for Plan 07 (FFI):** `SttStream::{with_model, with_decoder, push_pcm, poll, preview_tail, end}` — all `&self`, sync, `Send + Sync`. No async, no callback interface. UniFFI wraps `Arc<SttStream>`. `FinalizedSegment { start_ms, end_ms, text }` and `SttConfig` are plain structs (add `serde`/UniFFI derives in Plan 07 if the boundary needs them — not added now to keep deps minimal).
-- **Judgment calls for reviewers:** (a) **caller-driven pump over internal worker** — the shell already ticks LiveExtractor; a worker adds a shutdown protocol + mpsc + callback interface (3 deadlock surfaces) for nothing. (b) **feature-gated optional whisper** over macOS-only workspace — keeps `cargo test --workspace` cross-platform/hermetic; the cost is a `#[cfg(feature)]` on one file and one constructor. (c) **prefix-agreement LocalAgreement-2** over the spike's one-shot `reassemble_dedup` — the incremental form is what emits append-only tokens live; same "never revise committed" core, productionized. (d) **integration loop deferred to Plan 07** — building it here couples `stt`↔`murmur-core`, which both plans avoid; the contract is fully documented instead. (e) **coarse per-chunk timestamps in v1** — the live board doesn't need word-precise times; the struct carries the fields for later. (f) **`end()` idempotent, flushes** — DONE means finalize everything pending; the old cancel-for-speed canon is explicitly superseded (this is a capture whose transcript feeds the authoritative process()).
-- **Test-count checkpoint:** T1 +2 (decoder), T2 +4 (chunk), T3 +4 (finalize), T4 +2 (bias) +3 (stream), T5 +1 (#[ignore] smoke), T6 +1 (e2e) ≈ **17 new**, of which 16 run in default CI. Counts are expectations, not gates.
+- **Judgment calls for reviewers:** (a) **caller-driven pump over internal worker** — the shell already ticks LiveExtractor; a worker adds a shutdown protocol + mpsc + callback interface (3 deadlock surfaces) for nothing. (b) **feature-gated optional whisper** over macOS-only workspace — keeps `cargo test --workspace` cross-platform/hermetic; the cost is a `#[cfg(feature)]` on one file and one constructor. (c) **time-anchored incremental overlap-merge** — the productionized form of the spike's *measured-good* `reassemble_dedup` (text suffix/prefix merge) gated by the `finalize` time horizon. This replaces an earlier prefix-agreement design that was **wrong**: the bounded-memory Chunker emits time-shifted standalone windows, so window k+1 is not a superstring of k and position-0 prefix agreement never matches — nothing would finalize mid-session. The fix uses absolute time (to place words + set the horizon) plus the spike's text merge (to dedup the overlap); `pending` stays O(one chunk). The merge has **two seams**: the text suffix/prefix match (precise, when the overlap re-decoded identically) and a **time-anchored first-decode-wins fallback** (coarse, when it re-decoded differently). The fallback is load-bearing: without it, the spike's all-or-nothing text merge appends the whole re-decoded window on any *partial* overlap disagreement, duplicating the overlap phrase into committed output — a correctness bug caught in review. With it, a disagreement costs at most one first-decode-wins word (priced into WER), never duplication. (d) **integration loop deferred to Plan 07** — building it here couples `stt`↔`murmur-core`, which both plans avoid; the contract is fully documented instead. (e) **segment-coarse timestamps in v1** — the live board doesn't need word-precise times; each finalized word carries its whisper segment's absolute span, and the struct carries the fields for word-precise later. (f) **`end()` idempotent, flushes** — DONE means finalize everything pending; the old cancel-for-speed canon is explicitly superseded (this is a capture whose transcript feeds the authoritative process()).
+- **Test-count checkpoint:** T1 +2 (decoder), T2 +4 (chunk), T3 +4 (finalize — incl. the rewritten overlap-disagreement test), T4 +2 (bias) +4 (stream — incl. `config_rejects_overlap_ge_chunk`), T5 +1 (#[ignore] smoke), T6 +1 (e2e) ≈ **18 new**, of which 17 run in default CI. Counts are expectations, not gates.
 - **Constraints surfaced for Plan 07:** (1) `SttStream` is `&self`/sync — wrap `Arc`, call `poll` from a background thread (long Metal decode); do NOT call from the audio render callback (research Q6). (2) The shell must provision the model file and pass its path — the crate never downloads. (3) The shell owns the tick cadence for BOTH `stt.poll` and `LiveExtractor.maybe_extract`, and appends finalized segments to `Store::append_transcript` between them. (4) Build the app/FFI target with `--features whisper`; CI without it. (5) `SttConfig`/`FinalizedSegment` may need UniFFI/serde derives at the boundary.
 ```
