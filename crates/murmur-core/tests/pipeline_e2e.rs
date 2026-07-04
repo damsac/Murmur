@@ -67,6 +67,10 @@ async fn site_walk_end_to_end() {
             tool_use("write_report", serde_json::json!({"title": "Johnson walk", "body": "## Deck\nSister two joists."})),
             end_turn("done"),
             tool_use("write_summary", serde_json::json!({"summary": "Deck walk: framing fix planned, lumber ordered."})),
+            tool_use(
+                "build_document",
+                serde_json::json!({"total_kind": "sum", "total_label_key": "total", "lines": []}),
+            ),
         ])),
         store.clone(),
         memory.clone(),
@@ -81,7 +85,10 @@ async fn site_walk_end_to_end() {
         let processed = s.get_session(&session.id).unwrap();
         assert_eq!(processed.status, SessionStatus::Processed);
         assert_eq!(s.list_items_for_session(&session.id).unwrap().len(), 2);
-        assert_eq!(s.list_artifacts_for_session(&session.id).unwrap().len(), 1);
+        let artifacts = s.list_artifacts_for_session(&session.id).unwrap();
+        assert_eq!(artifacts.len(), 2, "the write_report artifact + phase B's document artifact");
+        assert!(artifacts.iter().any(|a| a.kind == "report"));
+        assert!(artifacts.iter().any(|a| a.kind == "document"));
         assert_eq!(s.list_contacts().unwrap().len(), 1);
         assert_eq!(s.list_open_todos().unwrap().len(), 1);
         let (input, output) = s.usage_totals().unwrap();

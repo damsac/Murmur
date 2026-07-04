@@ -59,6 +59,10 @@ async fn live_board_survives_failure_and_swaps_clean_on_success() {
             tool_use("add_item", serde_json::json!({"kind":"safety","text":"verify ledger attachment"})),
             end_turn("done"),
             summary("Deck framing: lumber ordered."),
+            tool_use(
+                "build_document",
+                serde_json::json!({"total_kind": "sum", "total_label_key": "total", "lines": []}),
+            ),
         ])), store.clone(), memory, Arc::new(NullMemoryStore));
     assert_eq!(ok.process(&sid).await.unwrap().session.status, SessionStatus::Processed);
 

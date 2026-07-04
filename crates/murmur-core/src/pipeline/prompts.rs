@@ -131,6 +131,46 @@ pub(crate) fn live_extraction_system_prompt(memory_prompt: &str) -> String {
     )
 }
 
+/// System prompt for the forced `build_document` call (Plan 07 D6). Template-
+/// parameterized: each template gets its own instruction for what a normal
+/// non-dollar line looks like, so the model doesn't over-flag gaps (D2a).
+/// `memory_prompt` is `Memory::to_prompt()` output ("" when empty).
+pub(crate) fn build_document_prompt(template: &str, memory_prompt: &str) -> String {
+    let memory_block = if memory_prompt.trim().is_empty() {
+        String::new()
+    } else {
+        format!("\n\nWhat you know about this user:\n{memory_prompt}")
+    };
+    let template_block = match template {
+        "landscape" | "estimate" => {
+            "This is a landscape ESTIMATE: every line should carry a price. Build one line \
+             per priced item or service, in the speaker's own terms."
+        }
+        "property" | "report" => {
+            "This is a PROPERTY report: most lines describe condition (\"OK\", \"NOTE\", normal \
+             wear) and carry no dollar amount — that is expected, not a gap. Only lines that are \
+             genuine deductions need an amount; mark a line a gap only when a deduction was left \
+             open, never for a normal condition note."
+        }
+        "inspection" => {
+            "This is an INSPECTION report: findings are grouped by section and normally carry no \
+             dollar amount at all — that is expected, not a gap. Mark a finding a gap only when \
+             you flagged it as not-yet-assessed."
+        }
+        _ => {
+            "Build the document from what was actually said. Only mark a line a gap when it was \
+             genuinely left open."
+        }
+    };
+    format!(
+        "You build the structured job document from this session's transcript. {template_block}\n\
+         Put an amount only on a line whose number was actually spoken. If a quantity or price \
+         was not said, omit amount_cents — never guess. On a priced template an unheard amount is \
+         a gap; on a report or inspection, only mark a line a gap when it was genuinely left open \
+         — a normal 'OK' row or a §-section finding with no dollar figure is not a gap.{memory_block}"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;

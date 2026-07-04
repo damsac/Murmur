@@ -12,14 +12,28 @@ pub(crate) mod prompts;
 use std::sync::{Arc, Mutex};
 
 use harness::{
-    Agent, AgentConfig, ContextAssembler, ContextSection, LlmProvider, Memory, MemoryStore,
-    Message, ToolRegistry, UpdateMemoryTool, Usage,
+    Agent, AgentConfig, CompletionRequest, ContentBlock, ContextAssembler, ContextSection,
+    LlmProvider, Memory, MemoryStore, Message, Tool, ToolRegistry, ToolSpec, UpdateMemoryTool,
+    Usage,
 };
 
 use crate::domain::{Session, SessionStatus};
 use crate::error::CoreError;
 use crate::store::Store;
-use tools::{AddItemTool, UpsertContactTool, WriteReportTool};
+use tools::{AddItemTool, BuildDocumentTool, UpsertContactTool, WriteReportTool};
+
+/// Maps a session's template key (D4: `landscape`|`property`|`inspection`) to
+/// the document's `doc_kind` vocabulary (D2/D5: `estimate`|`report`|
+/// `inspection`) that `BuildDocumentTool` and document-number minting use.
+/// `None`/unrecognized defaults to `report` — the safest shape (mixed
+/// dollar/non-dollar lines, gaps only where explicitly flagged).
+fn doc_kind_for_template(template: Option<&str>) -> &'static str {
+    match template {
+        Some("landscape") => "estimate",
+        Some("inspection") => "inspection",
+        _ => "report",
+    }
+}
 
 #[derive(Debug)]
 pub struct ProcessOutcome {
@@ -39,6 +53,9 @@ pub struct SessionProcessor {
     pub transcript_budget_tokens: usize,
     /// Summary-call output budget.
     pub summary_max_tokens: u32,
+    /// Forced build_document call output budget (phase B, D6: budgeted < 8s
+    /// total alongside the extraction pass + summary call).
+    pub build_document_max_tokens: u32,
 }
 
 impl SessionProcessor {
@@ -57,6 +74,7 @@ impl SessionProcessor {
             max_tokens: 4096,
             transcript_budget_tokens: 12_000,
             summary_max_tokens: 512,
+            build_document_max_tokens: 1024,
         }
     }
 
@@ -74,9 +92,10 @@ impl SessionProcessor {
     /// processed — status is re-validated only at the exit write, so a
     /// concurrent tombstone would produce a silent no-op or a store error.
     pub async fn process(&self, session_id: &str) -> Result<ProcessOutcome, CoreError> {
-        // Phase 0: validate, sweep prior FAILED-run authoritative leftovers
-        // (never the live board), snapshot the transcript.
-        let transcript = {
+        // Phase 0: validate, snapshot the template/existing doc number, sweep
+        // prior FAILED-run authoritative leftovers (never the live board), and
+        // snapshot the transcript.
+        let (transcript, template, existing_doc_number) = {
             let store = self.locked()?;
             let session = store.get_session(session_id)?;
             if !matches!(
@@ -88,11 +107,20 @@ impl SessionProcessor {
                     session.status.as_str()
                 )));
             }
+            // D5: a re-process of the same session reuses its already-minted
+            // document number rather than minting a new one — read it back
+            // from any existing document artifact BEFORE the sweep clears it.
+            let existing_doc_number = store
+                .list_artifacts_for_session(session_id)?
+                .iter()
+                .find(|a| a.kind == "document")
+                .and_then(|a| serde_json::from_str::<serde_json::Value>(&a.body).ok())
+                .and_then(|v| v.get("doc_number").and_then(|n| n.as_u64()));
             // Sweep a prior FAILED attempt's authoritative leftovers (+ artifacts)
             // so repeated retries can't accumulate duplicate todos. Never touches
             // the live board (the safety net) or manual items.
             store.clear_authoritative_outputs(session_id)?;
-            session.transcript
+            (session.transcript, session.template.clone(), existing_doc_number)
         };
 
         // Empty guard: an empty/whitespace-only transcript would send empty
@@ -110,6 +138,12 @@ impl SessionProcessor {
             return Ok(ProcessOutcome { session, usage });
         }
 
+        let doc_kind = doc_kind_for_template(template.as_deref());
+        let doc_number = match existing_doc_number {
+            Some(n) => n,
+            None => self.locked()?.mint_document_number(doc_kind)?,
+        };
+
         // Memory lock in its own scope — never held alongside the store guard
         // (no store→memory lock ordering for a second caller to deadlock on).
         let memory_prompt = self
@@ -124,12 +158,22 @@ impl SessionProcessor {
             budget_tokens: self.transcript_budget_tokens,
         }]);
 
-        // Phase 1+2: extraction agent pass, then forced summary. The id sink
-        // records which items THIS run created, for the finish swap.
+        // Phase 1+2: extraction agent pass, forced summary, forced
+        // build_document. The id sink records which items THIS run created,
+        // for the finish swap.
         let mut usage = Usage::default();
         let created_ids = Arc::new(Mutex::new(Vec::<String>::new()));
         let result = self
-            .run_llm_phases(session_id, &assembled.text, &memory_prompt, &mut usage, created_ids.clone())
+            .run_llm_phases(
+                session_id,
+                &assembled.text,
+                &memory_prompt,
+                template.as_deref(),
+                doc_kind,
+                doc_number,
+                &mut usage,
+                created_ids.clone(),
+            )
             .await;
 
         // Exit: persist outcome + cost atomically, success or not.
@@ -152,11 +196,15 @@ impl SessionProcessor {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn run_llm_phases(
         &self,
         session_id: &str,
         assembled_transcript: &str,
         memory_prompt: &str,
+        template: Option<&str>,
+        doc_kind: &str,
+        doc_number: u64,
         usage: &mut Usage,
         created_ids: Arc<Mutex<Vec<String>>>,
     ) -> Result<String, harness::HarnessError> {
@@ -203,9 +251,74 @@ impl SessionProcessor {
         // Count the summary call's tokens BEFORE judging its content (R9:
         // a model that skipped the tool still cost us the call).
         usage.add(&summary_usage);
-        summary.ok_or_else(|| {
+        let summary = summary.ok_or_else(|| {
             harness::HarnessError::Provider("summary response missing write_summary call".into())
-        })
+        })?;
+
+        // Phase B: forced build_document call — the single most important
+        // core addition for a demo-able document (D6). Only reached once the
+        // summary succeeded (a doomed session shouldn't also spend on this).
+        self.run_build_document(
+            session_id,
+            assembled_transcript,
+            memory_prompt,
+            template,
+            doc_kind,
+            doc_number,
+            usage,
+        )
+        .await?;
+
+        Ok(summary)
+    }
+
+    /// Forced `build_document` call (mirrors `prompts::summarize`'s one-shot
+    /// forced-tool pattern), then executes the tool so the structured document
+    /// artifact actually lands (D6).
+    #[allow(clippy::too_many_arguments)]
+    async fn run_build_document(
+        &self,
+        session_id: &str,
+        assembled_transcript: &str,
+        memory_prompt: &str,
+        template: Option<&str>,
+        doc_kind: &str,
+        doc_number: u64,
+        usage: &mut Usage,
+    ) -> Result<(), harness::HarnessError> {
+        let tool = BuildDocumentTool::new(self.store.clone(), session_id, doc_kind, doc_number);
+        let tool_spec = ToolSpec {
+            name: tool.name().to_string(),
+            description: tool.description().to_string(),
+            input_schema: tool.input_schema(),
+        };
+        let response = self
+            .provider
+            .complete(CompletionRequest {
+                system: prompts::build_document_prompt(template.unwrap_or("report"), memory_prompt),
+                messages: vec![Message::user_text(format!(
+                    "Build the document for this session.\n\n{assembled_transcript}"
+                ))],
+                tools: vec![tool_spec],
+                max_tokens: self.build_document_max_tokens,
+                tool_choice: Some(tool.name().to_string()),
+            })
+            .await?;
+        usage.add(&response.usage);
+
+        let input = response.content.iter().find_map(|b| match b {
+            ContentBlock::ToolUse { name, input, .. } if name == tool.name() => Some(input.clone()),
+            _ => None,
+        });
+        match input {
+            Some(input) => {
+                tool.execute(input).await?;
+                Ok(())
+            }
+            None => Err(harness::HarnessError::Provider(
+                "build_document response missing build_document call".into(),
+            )),
+        }
     }
 
     /// Drains the awaiting_processing queue (spec §6: offline sessions queue
@@ -296,6 +409,15 @@ mod tests {
         tool_use("write_summary", serde_json::json!({"summary": text}))
     }
 
+    /// A minimal successful `build_document` response — every successful
+    /// `process()` run now makes this forced call as phase B (D6).
+    fn document_response() -> CompletionResponse {
+        tool_use(
+            "build_document",
+            serde_json::json!({"total_kind": "sum", "total_label_key": "total", "lines": []}),
+        )
+    }
+
     #[tokio::test]
     async fn processes_a_session_end_to_end() {
         let (processor, store, sid) = processor_with(vec![
@@ -303,12 +425,13 @@ mod tests {
             tool_use("upsert_contact", serde_json::json!({"name": "Dev", "trade": "framer"})),
             end_turn("done"),
             summary_response("Ordered lumber; Dev handles framing."),
+            document_response(),
         ]);
         let outcome = processor.process(&sid).await.unwrap();
         assert_eq!(outcome.session.status, SessionStatus::Processed);
         assert_eq!(outcome.session.summary.as_deref(), Some("Ordered lumber; Dev handles framing."));
-        // usage: 100+20, 100+20, 50+10 agent + 100+20 summary
-        assert_eq!(outcome.usage, Usage { input_tokens: 350, output_tokens: 70 });
+        // usage: 100+20, 100+20, 50+10 agent + 100+20 summary + 100+20 build_document
+        assert_eq!(outcome.usage, Usage { input_tokens: 450, output_tokens: 90 });
 
         let store = store.lock().unwrap();
         assert_eq!(store.list_items_for_session(&sid).unwrap().len(), 1);
@@ -316,7 +439,26 @@ mod tests {
         let usage_rows = store.list_llm_usage_for_session(&sid).unwrap();
         assert_eq!(usage_rows.len(), 1);
         assert_eq!(usage_rows[0].purpose, "processing");
-        assert_eq!(usage_rows[0].input_tokens, 350);
+        assert_eq!(usage_rows[0].input_tokens, 450);
+        let artifacts = store.list_artifacts_for_session(&sid).unwrap();
+        assert!(artifacts.iter().any(|a| a.kind == "document"), "phase B built a document artifact");
+    }
+
+    #[tokio::test]
+    async fn processes_and_builds_a_document_artifact() {
+        let (processor, store, sid) = processor_with(vec![
+            end_turn("nothing to extract"),
+            summary_response("Walked the site."),
+            document_response(),
+        ]);
+        processor.process(&sid).await.unwrap();
+        let store = store.lock().unwrap();
+        let artifacts = store.list_artifacts_for_session(&sid).unwrap();
+        assert!(artifacts.iter().any(|a| a.kind == "document"), "phase B built a document artifact");
+        // one folded usage row (purpose stays "processing" across all phases)
+        let usage_rows = store.list_llm_usage_for_session(&sid).unwrap();
+        assert_eq!(usage_rows.len(), 1);
+        assert_eq!(usage_rows[0].purpose, "processing");
     }
 
     #[tokio::test]
@@ -349,6 +491,7 @@ mod tests {
             tool_use("add_item", serde_json::json!({"kind": "todo", "text": "order lumber"})),
             end_turn("done"),
             summary_response("Lumber ordered."),
+            document_response(),
         ]);
         assert!(processor.process(&sid).await.is_err());
         processor.process(&sid).await.unwrap();
@@ -377,6 +520,7 @@ mod tests {
                 tool_use("add_item", serde_json::json!({"kind":"todo","text":"order 12 2x10s"})),
                 end_turn("done"),
                 summary_response("Lumber ordered."),
+                document_response(),
             ])),
             store.clone(), Arc::new(Mutex::new(Memory::default())), Arc::new(NullMemoryStore),
         );
@@ -415,7 +559,7 @@ mod tests {
                 tool_use("add_item", serde_json::json!({"kind":"todo","text":"order lumber"})),
                 end_turn("done"), end_turn("no summary tool"),          // attempt 2 fails
                 tool_use("add_item", serde_json::json!({"kind":"todo","text":"order 12 2x10s"})),
-                end_turn("done"), summary_response("Lumber ordered."),  // attempt 3 succeeds
+                end_turn("done"), summary_response("Lumber ordered."), document_response(),  // attempt 3 succeeds
             ])),
             store.clone(), Arc::new(Mutex::new(Memory::default())), Arc::new(NullMemoryStore),
         );
@@ -454,7 +598,11 @@ mod tests {
 
     #[tokio::test]
     async fn memory_reaches_the_system_prompt() {
-        let provider = Arc::new(MockProvider::new(vec![end_turn("done"), summary_response("s")]));
+        let provider = Arc::new(MockProvider::new(vec![
+            end_turn("done"),
+            summary_response("s"),
+            document_response(),
+        ]));
         let store = Store::open_in_memory("device-a").unwrap();
         let session = store.start_session(None).unwrap();
         store.append_transcript(&session.id, "talk about the french drain").unwrap();
@@ -595,6 +743,7 @@ mod tests {
             Arc::new(MockProvider::new(vec![
                 end_turn("done b"),
                 summary_response("B done."),
+                document_response(),
                 end_turn("done a"),
                 end_turn("no summary tool"),
             ])),

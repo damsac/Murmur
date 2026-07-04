@@ -76,6 +76,10 @@ async fn live_board_is_swapped_by_end_of_session_processing() {
             tool_use("add_item", serde_json::json!({"kind": "safety", "text": "verify ledger attachment"})),
             end_turn("done"),
             tool_use("write_summary", serde_json::json!({"summary": "Deck framing: lumber ordered."})),
+            tool_use(
+                "build_document",
+                serde_json::json!({"total_kind": "sum", "total_label_key": "total", "lines": []}),
+            ),
         ])),
         store.clone(),
         memory.clone(),

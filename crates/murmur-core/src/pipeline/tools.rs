@@ -236,6 +236,132 @@ impl Tool for WriteReportTool {
     }
 }
 
+/// Builds the structured, display-copy-free document artifact (Plan 07 D2).
+/// Emits `lines` with `amount_cents` only for amounts actually spoken (R6) —
+/// everything unheard is a gap. `is_gap` is template-aware (D2a), NOT derived
+/// from `amount_cents == None`: on a dollar template (`estimate`) an unheard
+/// amount defaults to a gap when the model omits `is_gap`; on `report`/
+/// `inspection` the model's explicit `is_gap` is honored and a normal
+/// non-dollar line (an "OK" row, a §-section finding) defaults to NOT a gap.
+pub struct BuildDocumentTool {
+    store: Arc<Mutex<Store>>,
+    session_id: String,
+    doc_kind: String,
+    doc_number: u64,
+}
+
+impl BuildDocumentTool {
+    pub fn new(store: Arc<Mutex<Store>>, session_id: &str, doc_kind: &str, doc_number: u64) -> Self {
+        BuildDocumentTool {
+            store,
+            session_id: session_id.to_string(),
+            doc_kind: doc_kind.to_string(),
+            doc_number,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Tool for BuildDocumentTool {
+    fn name(&self) -> &str {
+        "build_document"
+    }
+
+    fn description(&self) -> &str {
+        "Build the structured job document from this session. Put an amount only on a line \
+         whose number was actually spoken — never guess. If a quantity or price was not said, \
+         omit amount_cents. On a priced template an unheard amount is a gap; on a report or \
+         inspection, only mark a line a gap when it was genuinely left open — a normal 'OK' row \
+         or a section finding with no dollar figure is not a gap."
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "total_kind": { "type": "string", "enum": ["sum", "static"] },
+                "total_label_key": { "type": "string", "minLength": 1 },
+                "static_total_cents": { "type": "integer" },
+                "lines": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": { "type": "string", "minLength": 1 },
+                            "detail": { "type": "string" },
+                            "qty": { "type": "string" },
+                            "amount_cents": { "type": "integer" },
+                            "section": { "type": "string" },
+                            "is_gap": { "type": "boolean" }
+                        },
+                        "required": ["title"]
+                    }
+                }
+            },
+            "required": ["total_kind", "total_label_key", "lines"]
+        })
+    }
+
+    async fn execute(&self, input: serde_json::Value) -> Result<String, HarnessError> {
+        let total_kind = req_nonempty_str(&input, "total_kind", "build_document")?;
+        let total_label_key = req_nonempty_str(&input, "total_label_key", "build_document")?;
+        let static_total_cents = input.get("static_total_cents").and_then(|v| v.as_i64());
+        let lines_in = input
+            .get("lines")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| tool_err("build_document", "missing 'lines'"))?;
+
+        let mut lines = Vec::with_capacity(lines_in.len());
+        for (idx, line) in lines_in.iter().enumerate() {
+            let title = line
+                .get("title")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| tool_err("build_document", format!("lines[{idx}] missing 'title'")))?;
+            let detail = line.get("detail").and_then(|v| v.as_str()).unwrap_or("");
+            let qty = line.get("qty").and_then(|v| v.as_str()).unwrap_or("");
+            let amount_cents = line.get("amount_cents").and_then(|v| v.as_i64());
+            let section = line.get("section").and_then(|v| v.as_str());
+            let is_gap = match line.get("is_gap").and_then(|v| v.as_bool()) {
+                Some(explicit) => explicit,
+                // D2a: only the dollar template auto-derives a gap from a missing
+                // amount. report/inspection lines default to NOT a gap — a normal
+                // "OK" row or a §-finding with no dollar figure is not a gap.
+                None => self.doc_kind == "estimate" && amount_cents.is_none(),
+            };
+            lines.push(serde_json::json!({
+                "id": crate::ids::new_id(),
+                "title": title,
+                "detail": detail,
+                "qty": qty,
+                "amount_cents": amount_cents,
+                "section": section,
+                "is_gap": is_gap,
+            }));
+        }
+
+        let guard = lock(&self.store, "build_document")?;
+        let session = guard
+            .get_session(&self.session_id)
+            .map_err(|e| tool_err("build_document", e.to_string()))?;
+        let payload = serde_json::json!({
+            "doc_kind": self.doc_kind,
+            "doc_number": self.doc_number,
+            "job_date_unix": session.started_at,
+            "total_kind": total_kind,
+            "total_label_key": total_label_key,
+            "static_total_cents": static_total_cents,
+            "lines": lines,
+            "queued": false,
+        });
+        let body = serde_json::to_string(&payload)
+            .map_err(|e| tool_err("build_document", e.to_string()))?;
+        guard
+            .add_artifact(&self.session_id, "document", &format!("{} #{}", self.doc_kind, self.doc_number), &body)
+            .map_err(|e| tool_err("build_document", e.to_string()))?;
+        Ok(format!("document built: {} #{}", self.doc_kind, self.doc_number))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
@@ -405,6 +531,45 @@ mod tests {
         assert_eq!(items[0].source, ItemSource::Authoritative);
         assert_eq!(sink.lock().unwrap().as_slice(), &[items[0].id.clone()],
             "the finish tx learns which items this run created");
+    }
+
+    #[tokio::test]
+    async fn build_document_writes_structured_json_artifact_with_gaps() {
+        let (store, sid) = shared_store_with_session();
+        let tool = super::BuildDocumentTool::new(store.clone(), &sid, "estimate", 47);
+        let out = tool.execute(serde_json::json!({
+            "total_kind": "sum",
+            "total_label_key": "total",
+            "lines": [
+                {"title":"Bark mulch — front beds","detail":"DELIVERED + INSTALLED","qty":"3 CU YD","amount_cents":28500},
+                {"title":"Haul & disposal","detail":"NOT HEARD","qty":"× 1"}   // no amount ⇒ gap
+            ]
+        })).await.unwrap();
+        assert!(out.contains("document"));
+        let arts = store.lock().unwrap().list_artifacts_for_session(&sid).unwrap();
+        let doc = arts.iter().find(|a| a.kind == "document").unwrap();
+        let v: serde_json::Value = serde_json::from_str(&doc.body).unwrap();
+        assert_eq!(v["doc_number"], 47);
+        assert_eq!(v["lines"][1]["amount_cents"], serde_json::Value::Null);
+        assert_eq!(v["lines"][1]["is_gap"], true, "unheard amount on a dollar template ⇒ gap");
+    }
+
+    #[tokio::test]
+    async fn inspection_findings_have_no_amount_but_are_not_gaps() {
+        let (store, sid) = shared_store_with_session();
+        let tool = super::BuildDocumentTool::new(store.clone(), &sid, "inspection", 389);
+        tool.execute(serde_json::json!({
+            "total_kind":"static","total_label_key":"findings",
+            "lines":[
+                {"title":"Attic ventilation","detail":"ADEQUATE","qty":"OK","section":"§ 3.2"},          // normal finding, no $
+                {"title":"Water heater TPR valve","detail":"NOT ACCESSED","section":"§ 5.3","is_gap":true} // flagged open
+            ]
+        })).await.unwrap();
+        let arts = store.lock().unwrap().list_artifacts_for_session(&sid).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&arts.iter().find(|a| a.kind=="document").unwrap().body).unwrap();
+        assert_eq!(v["lines"][0]["amount_cents"], serde_json::Value::Null);
+        assert_eq!(v["lines"][0]["is_gap"], false, "a normal §-finding is NOT a gap despite no amount");
+        assert_eq!(v["lines"][1]["is_gap"], true, "only the explicitly-flagged finding is a gap");
     }
 
     #[tokio::test]
