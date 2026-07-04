@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["crates/harness", "crates/murmur-core", "crates/evals"]
+exclude = ["spikes"]   # prefix match — NOT "spikes/*" (workspace.exclude is not glob; cargo #11405)
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
