@@ -30,6 +30,9 @@ impl Chunker {
         self.buf.extend_from_slice(pcm);
     }
 
+    // Test-only introspection (memory-bound assertion); not used by production
+    // code, so gated to avoid a dead_code warning in the non-test lib target.
+    #[cfg(test)]
     pub fn buffered_samples(&self) -> usize {
         self.buf.len()
     }
