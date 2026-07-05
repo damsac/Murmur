@@ -51,13 +51,25 @@ private typealias FFIWalkEventListener = MurmurCoreFFI.WalkEventListener
 /// per-session stream lifetime).
 private final class BoardListener: FFIWalkEventListener {
     private let onBoardUpdated: @Sendable ([FFIBoardItem]) -> Void
-    init(onBoardUpdated: @escaping @Sendable ([FFIBoardItem]) -> Void) {
+    private let onTranscriptCommitted: @Sendable (String) -> Void
+    private let onTranscriptPreview: @Sendable (String) -> Void
+    init(
+        onBoardUpdated: @escaping @Sendable ([FFIBoardItem]) -> Void,
+        onTranscriptCommitted: @escaping @Sendable (String) -> Void,
+        onTranscriptPreview: @escaping @Sendable (String) -> Void
+    ) {
         self.onBoardUpdated = onBoardUpdated
+        self.onTranscriptCommitted = onTranscriptCommitted
+        self.onTranscriptPreview = onTranscriptPreview
     }
     func onEvent(event: FFIWalkEvent) {
         switch event {
         case .boardUpdated(let items):
             onBoardUpdated(items)
+        case .transcriptCommitted(let text):
+            onTranscriptCommitted(text)
+        case .transcriptPreview(let text):
+            onTranscriptPreview(text)
         }
     }
 }
@@ -109,18 +121,48 @@ final class MurmurEngine: WalkEngine {
 
         let (stream, cont) = AsyncStream<WalkEvent>.makeStream()
         continuation = cont
-        newSession.setEventListener(listener: BoardListener { [weak self] items in
-            // Rust callback → hop to main → yield (events on main, D3).
-            Task { @MainActor in
-                self?.continuation?.yield(.boardUpdated(items.map(Self.board)))
+        newSession.setEventListener(listener: BoardListener(
+            onBoardUpdated: { [weak self] items in
+                // Rust callback → hop to main → yield (events on main, D3).
+                Task { @MainActor in
+                    self?.continuation?.yield(.boardUpdated(items.map(Self.board)))
+                }
+            },
+            onTranscriptCommitted: { [weak self] text in
+                Task { @MainActor in
+                    self?.continuation?.yield(.transcriptCommitted(text))
+                }
+            },
+            onTranscriptPreview: { [weak self] text in
+                Task { @MainActor in
+                    self?.continuation?.yield(.transcriptPreview(text))
+                }
             }
-        })
+        ))
         session = newSession
         return stream
     }
 
     func append(transcript: String) {
         session?.appendTranscript(text: transcript)
+    }
+
+    // The audio path (Plan 08 D1/D2): hand mic PCM to the Rust pump. Cheap
+    // enqueue; the transcript comes back via transcriptCommitted events.
+    func pushAudio(_ samples: [Float]) {
+        session?.pushAudio(samples: samples)
+    }
+
+    // DISCARD (Plan 08 Task 4): stop the pump + tombstone the session in Rust,
+    // then drop our side. Async — the Rust cancel() joins the pump off the
+    // async workers; AppModel calls this from a detached Task so the main actor
+    // never blocks. Idempotent on the Rust side (safe after finish()).
+    func cancel() async {
+        continuation?.finish()
+        continuation = nil
+        await session?.cancel()
+        session = nil
+        lastDocument = nil
     }
 
     func finish() async -> DocumentModel {
@@ -167,9 +209,9 @@ final class MurmurEngine: WalkEngine {
     }
 
     private static let centsFormatter: NumberFormatter = {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        return f
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter
     }()
 
     private static func amountString(_ cents: Int64?) -> String {
@@ -179,10 +221,10 @@ final class MurmurEngine: WalkEngine {
     }
 
     private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "MMM dd yyyy"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        return f
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM dd yyyy"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter
     }()
 
     private static func dateLabel(_ unixSeconds: UInt64) -> String {

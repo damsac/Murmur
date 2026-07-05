@@ -39,7 +39,12 @@ nix develop -c bash -c '
   export AR_aarch64_apple_ios_sim=/usr/bin/ar
   export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER=/usr/bin/clang
   unset NIX_CFLAGS_COMPILE NIX_LDFLAGS NIX_CFLAGS_COMPILE_FOR_BUILD NIX_LDFLAGS_FOR_BUILD
-  cargo build -p ffi --release --target aarch64-apple-ios-sim
+  # --features whisper: pulls whisper-rs + vendored whisper.cpp + Metal (Plan 08
+  # Task 8). Needs cmake/clang (dev shell, Plan 06 Task 1). The vendored
+  # whisper.cpp Metal shaders compile against the iphonesimulator SDK via the
+  # SDKROOT/system-clang cross-link set above. `cargo test --workspace` never
+  # sees this feature — it stays hermetic (no model, no cmake, no Metal).
+  cargo build -p ffi --release --target aarch64-apple-ios-sim --features whisper
 '
 
 echo "==> building crates/ffi for aarch64-apple-ios (device)"
@@ -52,7 +57,8 @@ nix develop -c bash -c '
   export AR_aarch64_apple_ios=/usr/bin/ar
   export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER=/usr/bin/clang
   unset NIX_CFLAGS_COMPILE NIX_LDFLAGS NIX_CFLAGS_COMPILE_FOR_BUILD NIX_LDFLAGS_FOR_BUILD
-  cargo build -p ffi --release --target aarch64-apple-ios
+  # --features whisper (device slice) — see the sim invocation above.
+  cargo build -p ffi --release --target aarch64-apple-ios --features whisper
 '
 
 echo "==> generating Swift bindings (uniffi-bindgen, host build)"
@@ -75,5 +81,31 @@ xcodebuild -create-xcframework \
   -library target/aarch64-apple-ios-sim/release/libffi.a -headers "$BINDINGS_DIR/headers-sim" \
   -library target/aarch64-apple-ios/release/libffi.a -headers "$BINDINGS_DIR/headers-device" \
   -output "$FFI_DIR/Frameworks/ffiFFI.xcframework"
+
+# ---------------------------------------------------------------------------
+# Whisper model provisioning (Plan 08 D5/Task 8)
+# ---------------------------------------------------------------------------
+# The FFI libs are now built WITH the `whisper` feature, so the app can run
+# on-device STT. It needs the GGML model bundled as an app resource:
+#
+#   ggml-base.en-q5_1.bin  (~60 MB, MIT, huggingface.co/ggerganov/whisper.cpp)
+#
+# This binary is GITIGNORED (large — like the xcframework). Fetch it into the
+# package resources once:
+#
+#   mkdir -p apps/ios/Packages/MurmurCoreFFI/Resources
+#   curl -L -o apps/ios/Packages/MurmurCoreFFI/Resources/ggml-base.en-q5_1.bin \
+#     https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin
+#
+# The REAL-core build spec (project-real.yml + the gitignored project.local.yml)
+# bundles `Resources/ggml-base.en-q5_1.bin` into the app target's resources so
+# `Bundle.main.path(forResource: "ggml-base.en-q5_1", ofType: "bin")` resolves
+# at runtime (GalleryApp.resolveEngine). If the model is absent the live walk
+# degrades to text-only — no crash (the Rust side treats a nil path as
+# text-only). Keep CODE_SIGNING_ALLOWED: NO for the simulator.
+#
+# NOTE: the tracked demo spec (project.yml) deliberately does NOT bundle the
+# model — a clean checkout must build the scripted DemoWalkEngine app from that
+# file alone (no ~60 MB gitignored dependency). The model rides the real build.
 
 echo "==> done. Run 'cd apps/ios && xcodegen generate' next."
