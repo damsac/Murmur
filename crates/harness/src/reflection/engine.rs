@@ -377,9 +377,16 @@ mod tests {
 
     #[test]
     fn system_prompt_protects_vocabulary() {
+        // Pins the D5 preservation GUIDANCE, not the mere word "vocabulary"
+        // (which already appears in "Typical sections: ..." — review F1): the
+        // distinctive phrase below exists only in the preserve-vocabulary
+        // sentence, so this fails if that sentence is dropped.
         let engine = ReflectionEngine::new(std::sync::Arc::new(MockProvider::new(vec![])));
-        let p = engine.system_prompt();
-        assert!(p.to_lowercase().contains("vocabulary"), "reflection must be told to preserve vocabulary");
+        let p = engine.system_prompt().to_lowercase();
+        assert!(
+            p.contains("drop a vocabulary term only if"),
+            "reflection must carry the preserve-vocabulary guidance"
+        );
     }
 
     #[tokio::test]
