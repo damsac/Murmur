@@ -95,23 +95,26 @@ xcodebuild -create-xcframework \
 # Whisper model provisioning (Plan 08 D5/Task 8)
 # ---------------------------------------------------------------------------
 # The FFI libs are now built WITH the `whisper` feature, so the app can run
-# on-device STT. It needs the GGML model bundled as an app resource:
+# on-device STT. It needs the GGML model bundled as an APP-TARGET resource:
 #
 #   ggml-base.en-q5_1.bin  (~60 MB, MIT, huggingface.co/ggerganov/whisper.cpp)
 #
 # This binary is GITIGNORED (large — like the xcframework). Fetch it into the
-# package resources once:
+# app target's Sources/Resources once:
 #
-#   mkdir -p apps/ios/Packages/MurmurCoreFFI/Resources
-#   curl -L -o apps/ios/Packages/MurmurCoreFFI/Resources/ggml-base.en-q5_1.bin \
+#   curl -L -o apps/ios/Sources/Resources/ggml-base.en-q5_1.bin \
 #     https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin
 #
-# The REAL-core build spec (project-real.yml + the gitignored project.local.yml)
-# bundles `Resources/ggml-base.en-q5_1.bin` into the app target's resources so
-# `Bundle.main.path(forResource: "ggml-base.en-q5_1", ofType: "bin")` resolves
-# at runtime (GalleryApp.resolveEngine). If the model is absent the live walk
+# WHY Sources/Resources and NOT Packages/MurmurCoreFFI/Resources: SwiftPM
+# package resources land in `Bundle.module` (the package's resource bundle),
+# but GalleryApp.resolveEngine reads `Bundle.main.path(forResource:
+# "ggml-base.en-q5_1", ofType: "bin")` — the APP bundle. A model placed in the
+# package would silently never resolve. The app-target `Sources` glob (picked
+# up by both project.yml and project-real.yml) is the mechanism that actually
+# works — verified on the simulator. If the model is absent the live walk
 # degrades to text-only — no crash (the Rust side treats a nil path as
-# text-only). Keep CODE_SIGNING_ALLOWED: NO for the simulator.
+# text-only); ./generate.sh prints a NOTE when it's missing. Keep
+# CODE_SIGNING_ALLOWED: NO for the simulator.
 #
 # NOTE: the tracked demo spec (project.yml) deliberately does NOT bundle the
 # model — a clean checkout must build the scripted DemoWalkEngine app from that

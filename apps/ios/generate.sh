@@ -58,5 +58,17 @@ settings:
     PPQ_API_KEY: "$KEY"
 EOF
 
+# Whisper model check (Plan 08 D5): the model must be an APP-TARGET resource
+# under Sources/Resources (Bundle.main — a package resource would land in
+# Bundle.module and never resolve). Absent model = the live walk silently runs
+# text-only, so say it loudly here instead.
+MODEL="Sources/Resources/ggml-base.en-q5_1.bin"
+if [ ! -f "$MODEL" ]; then
+  echo "NOTE: $MODEL not found — live walks will run TEXT-ONLY (no on-device STT)." >&2
+  echo "      Fetch it (gitignored, ~60 MB):" >&2
+  echo "      curl -L -o apps/ios/$MODEL \\" >&2
+  echo "        https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin" >&2
+fi
+
 xcodegen generate --spec project-real.yml
 echo "==> generated SitewalkGallery.xcodeproj (REAL murmur-core engine active when a key was found)"
