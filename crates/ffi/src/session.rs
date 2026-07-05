@@ -96,7 +96,7 @@ impl Drop for WalkSession {
 fn collect_bias_terms(memory: &Memory, _template: Option<&str>) -> Vec<String> {
     let max = stt::SttConfig::default().max_bias_terms;
     memory
-        .section_texts("vocabulary")
+        .section_texts(harness::VOCABULARY_SECTION)
         .into_iter()
         .map(str::to_string)
         .take(max)
