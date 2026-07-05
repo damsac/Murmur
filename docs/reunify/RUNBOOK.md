@@ -13,6 +13,12 @@ commit-by-commit history is the story — it must arrive via
 Run everything from a clean checkout of `damsac/Murmur` on an up-to-date `main`.
 Work on a branch (`pr/dam/reunify-merge`) and land via PR — `main` is protected.
 
+**Gate (Phase 2 preconditions):** the in-flight sitewalk lanes must land and push
+to sitewalk `main` first — Plan 08 + its review, the carry-notes fix branch, and
+the first-real-walk key wiring. Open sitewalk issues (**#2**, **#3**) do **not**
+block — they **migrate** to Murmur (step 6). Treat "migrate open issues" as the
+precondition, not "resolve" them.
+
 ---
 
 ## 0. Preconditions (verify first)
@@ -136,11 +142,13 @@ gh pr merge --merge
 
 ---
 
-## 6. Migrate sitewalk issue #2
+## 6. Migrate open sitewalk issues (#2, #3)
 
-sitewalk issue #2 = "PR #1 review follow-ups: seam hygiene + 4 state-transition
-bugs." Re-file on Murmur (gh has no cross-repo transfer for archived targets;
-recreate + link):
+Migrate every open sitewalk issue — as of this writing #2 ("PR #1 review
+follow-ups: seam hygiene + 4 state-transition bugs") and #3. Re-file each on
+Murmur (gh has no cross-repo transfer for archived targets; recreate + link).
+Re-check `gh issue list --repo damsac/sitewalk --state open` at run time in case
+new ones opened. Example for #2:
 
 ```bash
 gh issue view 2 --repo damsac/sitewalk --json title,body,labels > /tmp/sw-issue-2.json
@@ -188,6 +196,6 @@ gh repo archive damsac/sitewalk --yes
 - [ ] `git log HEAD^2` on the merge commit shows sitewalk's rebuild history
 - [ ] `docs/HISTORY.md` placeholders replaced with real SHAs
 - [ ] `README.md` describes the field-work product + Rust workspace
-- [ ] Murmur issue mirrors sitewalk#2; sitewalk#2 closed with a link
+- [ ] Every open sitewalk issue (#2, #3, …) mirrored to Murmur; originals closed with a link
 - [ ] sitewalk has a pointer README and is archived
 - [ ] Signing secrets (`Certificates.p12`, `distribution.cer`, `docs/legal/`) never committed
