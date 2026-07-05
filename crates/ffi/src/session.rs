@@ -9,7 +9,7 @@ use tokio::sync::Mutex as TokioMutex;
 
 use crate::convert;
 use crate::document::DocumentPayload;
-use crate::engine::MurmurEngine;
+use crate::engine::{EngineError, MurmurEngine};
 use crate::events::{WalkEvent, WalkEventListener};
 
 /// One recording session's bridge state. `finish` lands in Task 8.
@@ -107,14 +107,25 @@ impl WalkSession {
 #[uniffi::export]
 impl MurmurEngine {
     /// `Store::start_session` + persists the template key, hands back a
-    /// fresh per-session `WalkSession` (D4).
-    pub fn begin_walk(self: Arc<Self>, job_id: Option<String>, template: String) -> Arc<WalkSession> {
+    /// fresh per-session `WalkSession` (D4). Fallible across FFI (no panics):
+    /// a poisoned store lock or a store error surfaces to Swift as
+    /// `EngineError::BeginWalk` rather than crashing the host app.
+    pub fn begin_walk(
+        self: Arc<Self>,
+        job_id: Option<String>,
+        template: String,
+    ) -> Result<Arc<WalkSession>, EngineError> {
         let session_id = {
-            let store = self.store.lock().unwrap();
-            let session = store.start_session(job_id.as_deref()).expect("start_session");
+            let store = self
+                .store
+                .lock()
+                .map_err(|_| EngineError::BeginWalk("store lock poisoned".into()))?;
+            let session = store
+                .start_session(job_id.as_deref())
+                .map_err(|e| EngineError::BeginWalk(e.to_string()))?;
             store
                 .set_session_template(&session.id, &template)
-                .expect("set_session_template on a freshly-recording session");
+                .map_err(|e| EngineError::BeginWalk(e.to_string()))?;
             session.id
         };
         let extractor = LiveExtractor::new(
@@ -123,7 +134,7 @@ impl MurmurEngine {
             self.memory.clone(),
             &session_id,
         );
-        WalkSession::new(
+        Ok(WalkSession::new(
             session_id,
             self.store.clone(),
             extractor,
@@ -132,7 +143,7 @@ impl MurmurEngine {
             self.memory_store.clone(),
             self.runtime_handle.clone(),
             Some(template),
-        )
+        ))
     }
 }
 
@@ -357,7 +368,7 @@ mod tests {
                 reflection: Arc::new(MockProvider::new(vec![])),
             },
         );
-        let session = engine.begin_walk(None, "landscape".into());
+        let session = engine.begin_walk(None, "landscape".into()).unwrap();
 
         let (tx, mut rx) = mpsc::unbounded_channel();
         session.clone().set_event_listener(Arc::new(ChannelListener(tx)));

@@ -77,8 +77,11 @@ final class MurmurEngine: WalkEngine {
     /// place once we already have the answer.
     private var lastDocument: DocumentModel?
 
-    init(config: FFIEngineConfig) {
-        self.engine = FFIMurmurEngine(config: config)
+    // Throwing: the Rust constructor is fallible across FFI now (opening the
+    // store / starting the runtime can fail) — no panics across the boundary.
+    // GalleryApp falls back to DemoWalkEngine when this throws (D10).
+    init(config: FFIEngineConfig) throws {
+        self.engine = try FFIMurmurEngine(config: config)
     }
 
     // BoardItem.id is a Rust-side string uuid; parsed once here and threaded
@@ -93,7 +96,18 @@ final class MurmurEngine: WalkEngine {
         continuation = cont
         lastDocument = nil
 
-        let newSession = engine.beginWalk(jobId: nil, template: trade.key) // template key = trade.key (D4)
+        // beginWalk is fallible across FFI now (store lock / session insert).
+        // On failure, hand back a stream that finishes immediately rather than
+        // crashing — capture degrades safely (no session set → append/finish
+        // are no-ops returning the empty document).
+        let newSession: FFIWalkSession
+        do {
+            newSession = try engine.beginWalk(jobId: nil, template: trade.key) // template key = trade.key (D4)
+        } catch {
+            continuation?.finish()
+            self.continuation = nil
+            return stream
+        }
         newSession.setEventListener(listener: BoardListener { [weak self] items in
             // Rust callback → hop to main → yield (events on main, D3).
             Task { @MainActor in
