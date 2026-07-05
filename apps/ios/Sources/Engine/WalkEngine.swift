@@ -19,6 +19,13 @@ enum WalkEvent {
     /// just the terminal snapshot this carries; SwiftUI's `ForEach(id:)`
     /// computes the visual diff from the assigned array.
     case boardUpdated([CapturedFixture])
+    /// Newly FINALIZED transcript text from the Rust STT pump (Plan 08 D4).
+    /// The UI appends it to the visible transcript. For the audio path the
+    /// transcript now ORIGINATES in Rust (whisper), not from `src.chunks`.
+    case transcriptCommitted(String)
+    /// The volatile, un-finalized preview tail (Plan 08 D4). Rendered greyed;
+    /// never persisted, never extracted. Nice-to-have for a live feel.
+    case transcriptPreview(String)
 }
 
 struct DocumentModel {
@@ -57,9 +64,22 @@ protocol WalkEngine: AnyObject {
     /// throwing (a non-throwing implementation satisfies a throws requirement).
     func begin(trade: TradeFixture) throws -> AsyncStream<WalkEvent>
 
-    /// Feed newly transcribed text. Called repeatedly during the walk.
+    /// Feed newly transcribed text. Called repeatedly during the walk
+    /// (the scripted/text path).
     func append(transcript: String)
+
+    /// Feed mic PCM (16 kHz mono f32) for the Rust STT path — the parallel to
+    /// `append(transcript:)` for the audio path (Plan 08 D1/D2). A cheap
+    /// enqueue; the transcript arrives back via `WalkEvent.transcriptCommitted`.
+    /// `DemoWalkEngine` no-ops it (the scripted demo needs no audio).
+    func pushAudio(_ samples: [Float])
 
     /// End the session and build the document. Target: < 8 s, no spinner lies.
     func finish() async -> DocumentModel
+
+    /// DISCARD the session (Plan 08 Task 4): stop the STT pump and tombstone
+    /// the session in Rust. Async because the Rust `cancel()` `spawn_blocking`-
+    /// joins the pump (a decode can be in flight) — callers run it from a
+    /// detached `Task` so the main actor never blocks. `DemoWalkEngine` no-ops.
+    func cancel() async
 }

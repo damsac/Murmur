@@ -101,7 +101,9 @@ async fn begin_append_live_snapshot_finish_document_with_gap() {
 
     // Poll for the live snapshot (fire-and-forget tick).
     let live_snapshot = wait_for(&listener, 1).await;
-    let WalkEvent::BoardUpdated { items } = &live_snapshot[0];
+    let WalkEvent::BoardUpdated { items } = &live_snapshot[0] else {
+        panic!("expected BoardUpdated, got {:?}", live_snapshot[0]);
+    };
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].text, "order lumber");
 
@@ -118,7 +120,9 @@ async fn begin_append_live_snapshot_finish_document_with_gap() {
 
     // Terminal snapshot: the authoritative item replaced the live one (swap).
     let events = listener.0.lock().unwrap().clone();
-    let WalkEvent::BoardUpdated { items: terminal } = events.last().unwrap();
+    let WalkEvent::BoardUpdated { items: terminal } = events.last().unwrap() else {
+        panic!("expected a terminal BoardUpdated, got {:?}", events.last());
+    };
     assert_eq!(terminal.len(), 1);
     assert_eq!(terminal[0].text, "order 12 2x10 joists");
 }
@@ -236,8 +240,9 @@ async fn a_tick_mid_finish_never_observes_an_empty_board() {
     finish_task.await.unwrap();
 
     for event in listener.0.lock().unwrap().iter() {
-        let WalkEvent::BoardUpdated { items } = event;
-        assert!(!items.is_empty(), "no snapshot the UI can observe is ever an empty board (D3b)");
+        if let WalkEvent::BoardUpdated { items } = event {
+            assert!(!items.is_empty(), "no snapshot the UI can observe is ever an empty board (D3b)");
+        }
     }
 }
 

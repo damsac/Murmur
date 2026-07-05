@@ -21,6 +21,13 @@ pub struct BoardItem {
 #[derive(uniffi::Enum, Clone, Debug, PartialEq)]
 pub enum WalkEvent {
     BoardUpdated { items: Vec<BoardItem> },
+    /// Newly FINALIZED transcript text from the STT pump (D4). The UI appends
+    /// it to the visible transcript. This is the SAME text fed to
+    /// `append_transcript` — extraction sees finalized text only.
+    TranscriptCommitted { text: String },
+    /// The volatile, un-finalized preview tail (D4). Displayed greyed; NEVER
+    /// persisted, NEVER extracted.
+    TranscriptPreview { text: String },
 }
 
 /// Foreign-implemented listener — `with_foreign`, never `callback_interface`

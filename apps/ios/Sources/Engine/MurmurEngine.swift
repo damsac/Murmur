@@ -46,18 +46,38 @@ private typealias FFIBoardItem = MurmurCoreFFI.BoardItem
 private typealias FFIWalkEvent = MurmurCoreFFI.WalkEvent
 private typealias FFIWalkEventListener = MurmurCoreFFI.WalkEventListener
 
-/// Bridges a Rust callback (`WalkEventListener.onEvent`, invoked off-main) to
-/// the `AsyncStream` continuation on `@MainActor` (D3/Self-Review: ordering +
-/// per-session stream lifetime).
+/// Bridges a Rust callback (`WalkEventListener.onEvent`, invoked off-main)
+/// into the app-facing `AsyncStream`. The closures yield DIRECTLY into the
+/// stream's continuation from the callback thread (`Continuation.yield` is
+/// thread-safe): yields from one thread are FIFO into the stream buffer, so
+/// committed transcript chunks — all emitted by the single Rust pump thread —
+/// render in order. (The previous per-event `Task { @MainActor }` hops were
+/// NOT ordered: independent tasks can interleave, reordering chunks.) NOTE:
+/// this guarantees per-thread order only, not a total order across different
+/// Rust threads (board ticks arrive from the tokio pool) — which is exactly
+/// what the transcript needs. Consumers still receive events on their own
+/// actor: AppModel's event loop is a `@MainActor` task.
 private final class BoardListener: FFIWalkEventListener {
     private let onBoardUpdated: @Sendable ([FFIBoardItem]) -> Void
-    init(onBoardUpdated: @escaping @Sendable ([FFIBoardItem]) -> Void) {
+    private let onTranscriptCommitted: @Sendable (String) -> Void
+    private let onTranscriptPreview: @Sendable (String) -> Void
+    init(
+        onBoardUpdated: @escaping @Sendable ([FFIBoardItem]) -> Void,
+        onTranscriptCommitted: @escaping @Sendable (String) -> Void,
+        onTranscriptPreview: @escaping @Sendable (String) -> Void
+    ) {
         self.onBoardUpdated = onBoardUpdated
+        self.onTranscriptCommitted = onTranscriptCommitted
+        self.onTranscriptPreview = onTranscriptPreview
     }
     func onEvent(event: FFIWalkEvent) {
         switch event {
         case .boardUpdated(let items):
             onBoardUpdated(items)
+        case .transcriptCommitted(let text):
+            onTranscriptCommitted(text)
+        case .transcriptPreview(let text):
+            onTranscriptPreview(text)
         }
     }
 }
@@ -94,11 +114,19 @@ final class MurmurEngine: WalkEngine {
         continuation?.finish()
         continuation = nil
         lastDocument = nil
-        // Clear any prior session BEFORE the fallible start: a walk ended via
-        // discardWalk() never calls finish(), so its session survives here —
-        // if beginWalk then throws, append/finish must no-op on nil rather
-        // than silently operate on that stale prior session.
-        session = nil
+        // Tear down any surviving prior session DETERMINISTICALLY before the
+        // fallible start (review finding 1c): just nil-ing it would strand the
+        // Rust pump thread + whisper Metal context (and the Recording rows)
+        // until the best-effort Drop safety net fires. `cancel()` stops the
+        // pump and tombstones; it is idempotent, so this is safe even if the
+        // session already finished. Fire-and-forget is acceptable — the new
+        // session is independent of the old one's teardown. Nil-ing `session`
+        // first also keeps the original invariant: if beginWalk throws below,
+        // append/finish no-op on nil rather than touching the stale session.
+        if let stale = session {
+            session = nil
+            Task { await stale.cancel() }
+        }
 
         // beginWalk is fallible across FFI (store lock / session insert). The
         // failure PROPAGATES (review P1): returning a normal-looking stream
@@ -109,18 +137,48 @@ final class MurmurEngine: WalkEngine {
 
         let (stream, cont) = AsyncStream<WalkEvent>.makeStream()
         continuation = cont
-        newSession.setEventListener(listener: BoardListener { [weak self] items in
-            // Rust callback → hop to main → yield (events on main, D3).
-            Task { @MainActor in
-                self?.continuation?.yield(.boardUpdated(items.map(Self.board)))
+        // Yield DIRECTLY from the Rust callback thread (review finding 3):
+        // per-event `Task { @MainActor }` hops are unordered and can render
+        // committed transcript chunks out of order. `cont` is captured by
+        // value — yielding into a finished continuation is a documented no-op,
+        // which covers the post-finish()/post-begin() window without touching
+        // `self.continuation` off the main actor. The mapping helpers are
+        // `nonisolated` pure functions, safe off-main.
+        newSession.setEventListener(listener: BoardListener(
+            onBoardUpdated: { items in
+                cont.yield(.boardUpdated(items.map(Self.board)))
+            },
+            onTranscriptCommitted: { text in
+                cont.yield(.transcriptCommitted(text))
+            },
+            onTranscriptPreview: { text in
+                cont.yield(.transcriptPreview(text))
             }
-        })
+        ))
         session = newSession
         return stream
     }
 
     func append(transcript: String) {
         session?.appendTranscript(text: transcript)
+    }
+
+    // The audio path (Plan 08 D1/D2): hand mic PCM to the Rust pump. Cheap
+    // enqueue; the transcript comes back via transcriptCommitted events.
+    func pushAudio(_ samples: [Float]) {
+        session?.pushAudio(samples: samples)
+    }
+
+    // DISCARD (Plan 08 Task 4): stop the pump + tombstone the session in Rust,
+    // then drop our side. Async — the Rust cancel() joins the pump off the
+    // async workers; AppModel calls this from a detached Task so the main actor
+    // never blocks. Idempotent on the Rust side (safe after finish()).
+    func cancel() async {
+        continuation?.finish()
+        continuation = nil
+        await session?.cancel()
+        session = nil
+        lastDocument = nil
     }
 
     func finish() async -> DocumentModel {
@@ -146,7 +204,9 @@ final class MurmurEngine: WalkEngine {
     // where cents → "$285", doc_number → "EST-0047", job_date_unix →
     // "JUL 01 2026", and label keys → display copy happen.
 
-    private static func board(_ item: FFIBoardItem) -> CapturedFixture {
+    // nonisolated: pure value mapping, called from the Rust callback thread
+    // (the direct-yield path above) — must not be @MainActor-isolated.
+    private nonisolated static func board(_ item: FFIBoardItem) -> CapturedFixture {
         CapturedFixture(
             id: UUID(uuidString: item.id) ?? UUID(),
             tag: tag(for: item.kind),
@@ -156,7 +216,7 @@ final class MurmurEngine: WalkEngine {
         )
     }
 
-    private static func tag(for kind: String) -> TagFixture {
+    private nonisolated static func tag(for kind: String) -> TagFixture {
         switch kind {
         case "safety": return TagFixture(kind: .red, label: "SAFETY")
         case "price": return TagFixture(kind: .green, label: "PRICE")
@@ -167,9 +227,9 @@ final class MurmurEngine: WalkEngine {
     }
 
     private static let centsFormatter: NumberFormatter = {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        return f
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter
     }()
 
     private static func amountString(_ cents: Int64?) -> String {
@@ -179,10 +239,10 @@ final class MurmurEngine: WalkEngine {
     }
 
     private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "MMM dd yyyy"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        return f
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM dd yyyy"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter
     }()
 
     private static func dateLabel(_ unixSeconds: UInt64) -> String {

@@ -16,12 +16,16 @@ pub struct WhisperDecoder {
 }
 
 impl WhisperDecoder {
-    pub fn open(model: &Path, language: &str) -> Result<Self, SttError> {
+    /// `use_gpu` is LOAD-BEARING (Plan 08 D7, falsified assumption): with the
+    /// `metal` cargo feature the default is GPU-on, which HARD-CRASHES on the
+    /// iOS simulator (SIGTRAP in ggml_metal_buffer_set_tensor via MTLSimDevice)
+    /// rather than degrading to CPU. Sim builds must pass `false` (CPU/BLAS
+    /// decode, proven working); device builds pass `true` (Metal). The value
+    /// flows from `SttConfig.use_gpu` ← `EngineConfig.stt_use_gpu` ← Swift's
+    /// `#if targetEnvironment(simulator)`.
+    pub fn open(model: &Path, language: &str, use_gpu: bool) -> Result<Self, SttError> {
         let mut params = WhisperContextParameters::default();
-        // Redundant with the `metal` cargo feature (default is already GPU-on when
-        // built with metal — the spike used bare defaults and Metal engaged); kept
-        // as an explicit, harmless assertion of intent, not a load-bearing call.
-        params.use_gpu(true);
+        params.use_gpu(use_gpu);
         let ctx = WhisperContext::new_with_params(
             model.to_str().ok_or_else(|| SttError::ModelLoad("non-utf8 model path".into()))?,
             params,
@@ -75,7 +79,7 @@ mod tests {
     fn real_model_decodes_silence() {
         let model = std::env::var("MURMUR_WHISPER_MODEL")
             .expect("set MURMUR_WHISPER_MODEL to a ggml-*.bin path");
-        let mut d = WhisperDecoder::open(std::path::Path::new(&model), "en").unwrap();
+        let mut d = WhisperDecoder::open(std::path::Path::new(&model), "en", true).unwrap();
         let silence = vec![0.0f32; 16_000];
         let segs = d.decode(&silence, Some("Terms used in this session: french drain.")).unwrap();
         // silence may yield zero or a blank segment — the contract is "no error".

@@ -23,7 +23,7 @@ final class DemoWalkEngine: WalkEngine {
     private static let triggers: [String: [String]] = [
         "landscape": ["mulch", "boxwood", "zone two", "edge the beds", "twelve hundred"],
         "property": ["carpet", "blinds", "walls", "water heater", "balcony"],
-        "inspection": ["shingles", "attic", "gfci", "furnace", "grading"],
+        "inspection": ["shingles", "attic", "gfci", "furnace", "grading"]
     ]
 
     func begin(trade: TradeFixture) -> AsyncStream<WalkEvent> {
@@ -53,6 +53,12 @@ final class DemoWalkEngine: WalkEngine {
             continuation?.yield(.boardUpdated(board))
         }
     }
+
+    // The scripted demo drives the board from TEXT (append), never audio.
+    func pushAudio(_ samples: [Float]) {}
+
+    // No Rust session to tear down in the demo path.
+    func cancel() async {}
 
     func finish() async -> DocumentModel {
         continuation?.finish()

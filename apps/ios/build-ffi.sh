@@ -34,12 +34,22 @@ nix develop -c bash -c '
   set -euo pipefail
   export DEVELOPER_DIR=/Applications/Xcode-26.2.0.app/Contents/Developer
   export SDKROOT=$(/usr/bin/xcrun --sdk iphonesimulator --show-sdk-path)
+  # Match the app deployment target (project.yml: iOS 17.0). Without this, rustc
+  # links the cdylib probe at its default min (arm64-apple-ios10.0), and the
+  # whisper.cpp objects that cmake built against the real iOS SDK min fail to
+  # link with a missing ___chkstk_darwin symbol for architecture arm64.
+  export IPHONEOS_DEPLOYMENT_TARGET=17.0
   export CC_aarch64_apple_ios_sim=/usr/bin/clang
   export CXX_aarch64_apple_ios_sim=/usr/bin/clang++
   export AR_aarch64_apple_ios_sim=/usr/bin/ar
   export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER=/usr/bin/clang
   unset NIX_CFLAGS_COMPILE NIX_LDFLAGS NIX_CFLAGS_COMPILE_FOR_BUILD NIX_LDFLAGS_FOR_BUILD
-  cargo build -p ffi --release --target aarch64-apple-ios-sim
+  # --features whisper: pulls whisper-rs + vendored whisper.cpp + Metal (Plan 08
+  # Task 8). Needs cmake/clang (dev shell, Plan 06 Task 1). The vendored
+  # whisper.cpp Metal shaders compile against the iphonesimulator SDK via the
+  # SDKROOT/system-clang cross-link set above. `cargo test --workspace` never
+  # sees this feature — it stays hermetic (no model, no cmake, no Metal).
+  cargo build -p ffi --release --target aarch64-apple-ios-sim --features whisper
 '
 
 echo "==> building crates/ffi for aarch64-apple-ios (device)"
@@ -47,12 +57,17 @@ nix develop -c bash -c '
   set -euo pipefail
   export DEVELOPER_DIR=/Applications/Xcode-26.2.0.app/Contents/Developer
   export SDKROOT=$(/usr/bin/xcrun --sdk iphoneos --show-sdk-path)
+  # Match the app deployment target (project.yml: iOS 17.0) — see the sim
+  # invocation above; without it the device cdylib link fails on a missing
+  # ___chkstk_darwin symbol for architecture arm64.
+  export IPHONEOS_DEPLOYMENT_TARGET=17.0
   export CC_aarch64_apple_ios=/usr/bin/clang
   export CXX_aarch64_apple_ios=/usr/bin/clang++
   export AR_aarch64_apple_ios=/usr/bin/ar
   export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER=/usr/bin/clang
   unset NIX_CFLAGS_COMPILE NIX_LDFLAGS NIX_CFLAGS_COMPILE_FOR_BUILD NIX_LDFLAGS_FOR_BUILD
-  cargo build -p ffi --release --target aarch64-apple-ios
+  # --features whisper (device slice) — see the sim invocation above.
+  cargo build -p ffi --release --target aarch64-apple-ios --features whisper
 '
 
 echo "==> generating Swift bindings (uniffi-bindgen, host build)"
@@ -75,5 +90,34 @@ xcodebuild -create-xcframework \
   -library target/aarch64-apple-ios-sim/release/libffi.a -headers "$BINDINGS_DIR/headers-sim" \
   -library target/aarch64-apple-ios/release/libffi.a -headers "$BINDINGS_DIR/headers-device" \
   -output "$FFI_DIR/Frameworks/ffiFFI.xcframework"
+
+# ---------------------------------------------------------------------------
+# Whisper model provisioning (Plan 08 D5/Task 8)
+# ---------------------------------------------------------------------------
+# The FFI libs are now built WITH the `whisper` feature, so the app can run
+# on-device STT. It needs the GGML model bundled as an APP-TARGET resource:
+#
+#   ggml-base.en-q5_1.bin  (~60 MB, MIT, huggingface.co/ggerganov/whisper.cpp)
+#
+# This binary is GITIGNORED (large — like the xcframework). Fetch it into the
+# app target's Sources/Resources once:
+#
+#   curl -L -o apps/ios/Sources/Resources/ggml-base.en-q5_1.bin \
+#     https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin
+#
+# WHY Sources/Resources and NOT Packages/MurmurCoreFFI/Resources: SwiftPM
+# package resources land in `Bundle.module` (the package's resource bundle),
+# but GalleryApp.resolveEngine reads `Bundle.main.path(forResource:
+# "ggml-base.en-q5_1", ofType: "bin")` — the APP bundle. A model placed in the
+# package would silently never resolve. The app-target `Sources` glob (picked
+# up by both project.yml and project-real.yml) is the mechanism that actually
+# works — verified on the simulator. If the model is absent the live walk
+# degrades to text-only — no crash (the Rust side treats a nil path as
+# text-only); ./generate.sh prints a NOTE when it's missing. Keep
+# CODE_SIGNING_ALLOWED: NO for the simulator.
+#
+# NOTE: the tracked demo spec (project.yml) deliberately does NOT bundle the
+# model — a clean checkout must build the scripted DemoWalkEngine app from that
+# file alone (no ~60 MB gitignored dependency). The model rides the real build.
 
 echo "==> done. Run 'cd apps/ios && xcodegen generate' next."

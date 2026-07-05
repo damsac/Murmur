@@ -27,6 +27,9 @@ final class AppModel {
 
     // Walk state
     var transcript = ""
+    /// Volatile greyed preview tail from the Rust STT pump (Plan 08 D4) — the
+    /// un-finalized hypothesis. Never persisted; rendered greyed (nice-to-have).
+    var previewTail = ""
     var items: [CapturedFixture] = []
     var isPaused = false
     var walkStart = Date()
@@ -49,13 +52,22 @@ final class AppModel {
 
     private var engine: WalkEngine
     private var source: TranscriptSource?
+    /// The live PCM source (Plan 08): used instead of `source` when
+    /// `!scripted`. Produces PCM (not text) — STT is Rust-side whisper. Either
+    /// the live mic (`AudioCaptureSource`) or a bundled fixture WAV
+    /// (`WavFileAudioSource`, the mic-free `wavwalk=1` path, D7).
+    private var audioSource: (any PCMAudioSource)?
     private var pumpTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
     private let scripted: Bool
+    /// When live, drive the STT path from a bundled fixture WAV instead of the
+    /// mic (`wavwalk=1`, D7) — a mic-free way to exercise real whisper.
+    private let wavFixture: Bool
 
-    init(engine: WalkEngine? = nil, scripted: Bool = true) {
+    init(engine: WalkEngine? = nil, scripted: Bool = true, wavFixture: Bool = false) {
         self.engine = engine ?? DemoWalkEngine()
         self.scripted = scripted
+        self.wavFixture = wavFixture
     }
 
     // MARK: Trade switching (validation strategy: same bones, swappable template)
@@ -89,12 +101,10 @@ final class AppModel {
         }
 
         transcript = ""
+        previewTail = ""
         items = []
         isPaused = false
         walkStart = Date()
-
-        let src: TranscriptSource = scripted ? ScriptedSource(trade: trade) : SpeechSource()
-        source = src
 
         eventTask = Task { [weak self] in
             guard let self else { return }
@@ -105,9 +115,30 @@ final class AppModel {
                     // Track the newest by id, NOT array position (see
                     // `lastCapturedID` doc comment).
                     self.lastCapturedID = items.last?.id
+                case .transcriptCommitted(let text):
+                    // The audio path's transcript originates in Rust (whisper).
+                    self.transcript += text
+                    self.previewTail = ""
+                case .transcriptPreview(let text):
+                    self.previewTail = text
                 }
             }
         }
+
+        phase = .walking
+        path = [.walking]
+        if scripted {
+            startScriptedSource()
+        } else {
+            startAudioSource()
+        }
+    }
+
+    /// Text/demo path: canned transcript → engine.append (unchanged).
+    private func startScriptedSource() {
+        let src = ScriptedSource(trade: trade)
+        source = src
+        audioSource = nil
         pumpTask = Task { [weak self] in
             guard let self else { return }
             for await chunk in src.chunks {
@@ -115,15 +146,34 @@ final class AppModel {
                 self.engine.append(transcript: chunk)
             }
         }
-
-        phase = .walking
-        path = [.walking]
         src.start()
+    }
+
+    /// Live path (Plan 08): PCM → engine.pushAudio; the transcript comes back
+    /// via transcriptCommitted events (no src.chunks, so no pumpTask — the two
+    /// paths never both feed the transcript). `wavFixture` picks the mic-free
+    /// bundled WAV over the live mic (D7).
+    private func startAudioSource() {
+        source = nil
+        let onSamples: @Sendable ([Float]) -> Void = { [weak self] samples in
+            Task { @MainActor in self?.engine.pushAudio(samples) }
+        }
+        let audio: any PCMAudioSource = wavFixture
+            ? WavFileAudioSource(pushSamples: onSamples)   // mic-free fixture (D7)
+            : AudioCaptureSource(pushSamples: onSamples)   // live mic
+        audioSource = audio
+        audio.start()
     }
 
     func togglePause() {
         isPaused.toggle()
-        isPaused ? source?.pause() : source?.resume()
+        if isPaused {
+            source?.pause()
+            audioSource?.pause()
+        } else {
+            source?.resume()
+            audioSource?.resume()
+        }
     }
 
     func addPhoto() {
@@ -134,9 +184,20 @@ final class AppModel {
 
     func discardWalk() {
         source?.stop()
+        audioSource?.stop()
         pumpTask?.cancel()
         eventTask?.cancel()
+        // Tell RUST to stop the pump + tombstone the session (Plan 08 Task 4):
+        // without this the pump thread AND the Recording/item/artifact rows
+        // leak (issue #3). Fire-and-forget off the main actor — the async Rust
+        // cancel() spawn_blocking-joins the pump, so the UI never blocks. Reset
+        // the Swift state synchronously below; the Rust teardown rides the Task.
+        let engine = self.engine
+        Task { await engine.cancel() }
+        source = nil
+        audioSource = nil
         transcript = ""
+        previewTail = ""
         items = []
         isPaused = false
         phase = .board
@@ -145,6 +206,7 @@ final class AppModel {
 
     func finishWalk() {
         source?.stop()
+        audioSource?.stop()
         phase = .building
         path = [.building]
         Task {
@@ -156,8 +218,8 @@ final class AppModel {
     }
 
     var elapsedLabel: String {
-        let s = Int(Date().timeIntervalSince(walkStart))
-        return String(format: "%02d:%02d", s / 60, s % 60)
+        let seconds = Int(Date().timeIntervalSince(walkStart))
+        return String(format: "%02d:%02d", seconds / 60, seconds % 60)
     }
 
     // MARK: Review interactions

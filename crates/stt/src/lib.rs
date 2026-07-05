@@ -36,6 +36,13 @@ pub struct SttConfig {
     pub language: String,
     /// Hard cap on vocabulary terms injected via initial_prompt (spec: ≤100).
     pub max_bias_terms: usize,
+    /// Whether the whisper backend may use the GPU (Metal). Default `true`
+    /// (device builds). MUST be `false` on the iOS SIMULATOR: Metal there
+    /// hard-crashes (SIGTRAP in ggml_metal_buffer_set_tensor via MTLSimDevice)
+    /// instead of degrading — Plan 08 D7's "degrades to CPU" assumption was
+    /// FALSIFIED by sim verification; CPU/BLAS decode on sim is proven working.
+    /// Ignored by non-whisper decoders (`ScriptedDecoder`).
+    pub use_gpu: bool,
 }
 
 impl Default for SttConfig {
@@ -46,6 +53,7 @@ impl Default for SttConfig {
             sample_rate: 16_000,
             language: "en".into(),
             max_bias_terms: 100,
+            use_gpu: true,
         }
     }
 }
@@ -119,7 +127,7 @@ impl SttStream {
     pub fn with_model(model: &std::path::Path, cfg: SttConfig, vocab: &[String])
         -> Result<Self, SttError> {
         cfg.validate()?; // reject overlap ≥ chunk before opening the model
-        let decoder = whisper::WhisperDecoder::open(model, &cfg.language)?;
+        let decoder = whisper::WhisperDecoder::open(model, &cfg.language, cfg.use_gpu)?;
         Ok(Self::with_decoder(Box::new(decoder), cfg, vocab))
     }
 
@@ -292,6 +300,16 @@ mod tests {
             Box::new(ScriptedDecoder::new(vec![])), SttConfig::default(), &[]);
         stream.push_pcm(&vec![0.0; 1000]); // far short of a window
         assert!(stream.poll().unwrap().is_empty(), "no decode, no scripted panic");
+    }
+
+    #[test]
+    fn gpu_defaults_on_and_is_overridable() {
+        // Device default: GPU on. The sim path overrides it via struct-update
+        // (exactly what the FFI layer does from EngineConfig.stt_use_gpu).
+        assert!(SttConfig::default().use_gpu);
+        let sim = SttConfig { use_gpu: false, ..SttConfig::default() };
+        assert!(!sim.use_gpu);
+        assert!(sim.validate().is_ok(), "the knob is orthogonal to config validity");
     }
 
     #[test]

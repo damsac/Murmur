@@ -429,6 +429,7 @@ dependencies = [
  "harness",
  "murmur-core",
  "serde_json",
+ "stt",
  "thiserror 2.0.18",
  "tokio",
  "uniffi",
