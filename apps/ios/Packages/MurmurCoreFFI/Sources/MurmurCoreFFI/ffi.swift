@@ -1513,6 +1513,14 @@ public struct EngineConfig {
      * buffered utterance through the append path before processing.
      */
     public var sttFlushOnFinish: Bool
+    /**
+     * Whether whisper may use the GPU (Metal). Device builds: `true`. iOS
+     * SIMULATOR builds MUST pass `false`: Metal on sim hard-crashes (SIGTRAP
+     * in ggml_metal_buffer_set_tensor) instead of degrading (falsified D7
+     * assumption); CPU/BLAS decode on sim is proven working. Swift derives
+     * this from `#if targetEnvironment(simulator)`.
+     */
+    public var sttUseGpu: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -1524,7 +1532,14 @@ public struct EngineConfig {
         /**
          * DONE flush-vs-speed toggle (D6). `true` (default) flushes the final
          * buffered utterance through the append path before processing.
-         */sttFlushOnFinish: Bool) {
+         */sttFlushOnFinish: Bool, 
+        /**
+         * Whether whisper may use the GPU (Metal). Device builds: `true`. iOS
+         * SIMULATOR builds MUST pass `false`: Metal on sim hard-crashes (SIGTRAP
+         * in ggml_metal_buffer_set_tensor) instead of degrading (falsified D7
+         * assumption); CPU/BLAS decode on sim is proven working. Swift derives
+         * this from `#if targetEnvironment(simulator)`.
+         */sttUseGpu: Bool) {
         self.dbPath = dbPath
         self.deviceId = deviceId
         self.apiKey = apiKey
@@ -1534,6 +1549,7 @@ public struct EngineConfig {
         self.modelReflection = modelReflection
         self.sttModelPath = sttModelPath
         self.sttFlushOnFinish = sttFlushOnFinish
+        self.sttUseGpu = sttUseGpu
     }
 }
 
@@ -1568,6 +1584,9 @@ extension EngineConfig: Equatable, Hashable {
         if lhs.sttFlushOnFinish != rhs.sttFlushOnFinish {
             return false
         }
+        if lhs.sttUseGpu != rhs.sttUseGpu {
+            return false
+        }
         return true
     }
 
@@ -1581,6 +1600,7 @@ extension EngineConfig: Equatable, Hashable {
         hasher.combine(modelReflection)
         hasher.combine(sttModelPath)
         hasher.combine(sttFlushOnFinish)
+        hasher.combine(sttUseGpu)
     }
 }
 
@@ -1600,7 +1620,8 @@ public struct FfiConverterTypeEngineConfig: FfiConverterRustBuffer {
                 modelProcessing: FfiConverterString.read(from: &buf), 
                 modelReflection: FfiConverterString.read(from: &buf), 
                 sttModelPath: FfiConverterOptionString.read(from: &buf), 
-                sttFlushOnFinish: FfiConverterBool.read(from: &buf)
+                sttFlushOnFinish: FfiConverterBool.read(from: &buf), 
+                sttUseGpu: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -1614,6 +1635,7 @@ public struct FfiConverterTypeEngineConfig: FfiConverterRustBuffer {
         FfiConverterString.write(value.modelReflection, into: &buf)
         FfiConverterOptionString.write(value.sttModelPath, into: &buf)
         FfiConverterBool.write(value.sttFlushOnFinish, into: &buf)
+        FfiConverterBool.write(value.sttUseGpu, into: &buf)
     }
 }
 

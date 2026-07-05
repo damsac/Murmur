@@ -45,6 +45,12 @@ pub struct EngineConfig {
     /// DONE flush-vs-speed toggle (D6). `true` (default) flushes the final
     /// buffered utterance through the append path before processing.
     pub stt_flush_on_finish: bool,
+    /// Whether whisper may use the GPU (Metal). Device builds: `true`. iOS
+    /// SIMULATOR builds MUST pass `false`: Metal on sim hard-crashes (SIGTRAP
+    /// in ggml_metal_buffer_set_tensor) instead of degrading (falsified D7
+    /// assumption); CPU/BLAS decode on sim is proven working. Swift derives
+    /// this from `#if targetEnvironment(simulator)`.
+    pub stt_use_gpu: bool,
 }
 
 impl std::fmt::Debug for EngineConfig {
@@ -59,6 +65,7 @@ impl std::fmt::Debug for EngineConfig {
             .field("model_reflection", &self.model_reflection)
             .field("stt_model_path", &self.stt_model_path)
             .field("stt_flush_on_finish", &self.stt_flush_on_finish)
+            .field("stt_use_gpu", &self.stt_use_gpu)
             .finish()
     }
 }
@@ -124,6 +131,9 @@ pub struct MurmurEngine {
     pub(crate) stt_model_path: Option<String>,
     /// DONE flush toggle (D6), threaded onto each `WalkSession`.
     pub(crate) stt_flush_on_finish: bool,
+    /// GPU toggle for the whisper backend (see `EngineConfig::stt_use_gpu`).
+    #[cfg_attr(not(feature = "whisper"), allow(dead_code))]
+    pub(crate) stt_use_gpu: bool,
     _runtime: Option<Arc<tokio::runtime::Runtime>>,
 }
 
@@ -152,6 +162,7 @@ impl MurmurEngine {
             runtime_handle,
             stt_model_path: config.stt_model_path.clone(),
             stt_flush_on_finish: config.stt_flush_on_finish,
+            stt_use_gpu: config.stt_use_gpu,
             _runtime: Some(runtime),
         }))
     }
@@ -167,11 +178,8 @@ impl MurmurEngine {
     pub(crate) fn build_stt_stream(&self, bias: &[String]) -> Result<Option<Arc<stt::SttStream>>, EngineError> {
         match &self.stt_model_path {
             Some(path) => {
-                let stream = stt::SttStream::with_model(
-                    std::path::Path::new(path),
-                    stt::SttConfig::default(),
-                    bias,
-                )
+                let cfg = stt::SttConfig { use_gpu: self.stt_use_gpu, ..stt::SttConfig::default() };
+                let stream = stt::SttStream::with_model(std::path::Path::new(path), cfg, bias)
                 // Never print a key here (it isn't in scope, but keep the
                 // message store/model-only — Plan 07 R6 redaction posture).
                 .map_err(|e| EngineError::BeginWalk(format!("stt model load failed: {e}")))?;
@@ -216,6 +224,7 @@ impl MurmurEngine {
             // call site changes (finding 4: with_providers keeps its signature).
             stt_model_path: None,
             stt_flush_on_finish: true,
+            stt_use_gpu: true,
             _runtime: None,
         })
     }
@@ -237,12 +246,14 @@ mod tests {
             model_reflection: "claude-haiku-4-5".into(),
             stt_model_path: Some("/bundle/ggml-base.en-q5_1.bin".into()),
             stt_flush_on_finish: true,
+            stt_use_gpu: true,
         };
         let printed = format!("{cfg:?}");
         assert!(!printed.contains("sk-super-secret"), "api key must never be printable");
         // The new STT fields are not secret — they SHOULD print.
         assert!(printed.contains("ggml-base.en-q5_1.bin"), "model path is fine to print");
         assert!(printed.contains("stt_flush_on_finish"));
+        assert!(printed.contains("stt_use_gpu"), "gpu knob is plumbed and printable");
     }
 
     #[test]
@@ -259,6 +270,7 @@ mod tests {
             model_reflection: "claude-haiku-4-5".into(),
             stt_model_path: None,
             stt_flush_on_finish: true,
+            stt_use_gpu: true,
         };
         let providers = build_providers(&cfg);
         assert!(Arc::ptr_eq(&providers.live, &providers.reflection));
@@ -279,6 +291,7 @@ mod tests {
             model_reflection: "claude-haiku-4-5".into(),
             stt_model_path: None,
             stt_flush_on_finish: true,
+            stt_use_gpu: true,
         };
         assert!(matches!(MurmurEngine::new(cfg), Err(EngineError::Store(_))));
     }
@@ -295,6 +308,7 @@ mod tests {
             model_reflection: "claude-haiku-4-5".into(),
             stt_model_path: None,
             stt_flush_on_finish: true,
+            stt_use_gpu: true,
         };
         let providers = build_providers(&cfg);
         assert!(Arc::ptr_eq(&providers.live, &providers.reflection), "same model shares one Arc");

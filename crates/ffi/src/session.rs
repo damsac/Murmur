@@ -1089,6 +1089,7 @@ mod tests {
             model_reflection: "claude-haiku-4-5".into(),
             stt_model_path: Some(model),
             stt_flush_on_finish: true,
+            stt_use_gpu: true, // host-side smoke — Metal is fine here
         };
         let engine = MurmurEngine::new(cfg).expect("engine construction");
         let session =

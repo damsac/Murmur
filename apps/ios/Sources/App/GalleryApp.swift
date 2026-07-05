@@ -56,6 +56,22 @@ private func resolveEngine(demo: Bool) -> WalkEngine? {
     if sttModelPath == nil {
         engineLog.notice("stt model not bundled — live walk will run text-only")
     }
+    // GPU (Metal) for whisper: DEVICE only. On the iOS SIMULATOR Metal
+    // hard-crashes (SIGTRAP in ggml_metal_buffer_set_tensor via MTLSimDevice)
+    // instead of degrading — the D7 "falls back to CPU" assumption was
+    // falsified by sim verification. Compile-time targetEnvironment is the
+    // signal (a sim build can never crash by default); CPU/BLAS decode on sim
+    // is proven working. `sttgpu=0` / `sttgpu=1` launch args override for
+    // testing (e.g. forcing CPU on device to compare decode paths).
+    #if targetEnvironment(simulator)
+    var sttUseGpu = false
+    #else
+    var sttUseGpu = true
+    #endif
+    let launchArgs = ProcessInfo.processInfo.arguments
+    if launchArgs.contains("sttgpu=0") { sttUseGpu = false }
+    if launchArgs.contains("sttgpu=1") { sttUseGpu = true }
+    engineLog.notice("stt gpu=\(sttUseGpu, privacy: .public)")
     let config = EngineConfig(
         dbPath: dbPath,
         deviceId: UIDevice.current.identifierForVendor?.uuidString ?? "unknown-device",
@@ -65,7 +81,8 @@ private func resolveEngine(demo: Bool) -> WalkEngine? {
         modelProcessing: "claude-sonnet-4-5",
         modelReflection: "claude-haiku-4-5",
         sttModelPath: sttModelPath,
-        sttFlushOnFinish: true // D6 default: flush the last utterance on DONE
+        sttFlushOnFinish: true, // D6 default: flush the last utterance on DONE
+        sttUseGpu: sttUseGpu
     )
     engineLog.notice("engine=real (murmur-core MurmurEngine, key len=\(apiKey.count, privacy: .public))")
     // Throwing constructor (no panics across FFI): if the store can't open,
