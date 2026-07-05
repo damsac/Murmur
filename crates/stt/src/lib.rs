@@ -11,7 +11,7 @@ mod vad;
 #[cfg(feature = "whisper")]
 mod whisper;
 
-pub use decoder::{Decoder, RawSegment, ScriptedDecoder};
+pub use decoder::{Decoder, RawSegment, ScriptedDecoder, WordTiming};
 #[cfg(feature = "whisper")]
 pub use whisper::WhisperDecoder;
 
@@ -269,7 +269,7 @@ mod tests {
     use super::*;
 
     fn seg(cs0: i64, cs1: i64, t: &str) -> RawSegment {
-        RawSegment { start_cs: cs0, end_cs: cs1, text: t.into(), no_speech_prob: 0.0 }
+        RawSegment { start_cs: cs0, end_cs: cs1, text: t.into(), no_speech_prob: 0.0, words: vec![] }
     }
     fn text(v: &[FinalizedSegment]) -> Vec<&str> {
         v.iter().map(|s| s.text.as_str()).collect()
@@ -359,8 +359,8 @@ mod tests {
         // One window, two segments: a machinery-drone hallucination (0.95) and
         // real speech (0.05). Only the speech reaches the committed stream (R3).
         let decoder = ScriptedDecoder::new(vec![vec![
-            RawSegment { start_cs: 0, end_cs: 100, text: "machinery drone".into(), no_speech_prob: 0.95 },
-            RawSegment { start_cs: 100, end_cs: 200, text: "order lumber".into(), no_speech_prob: 0.05 },
+            RawSegment { start_cs: 0, end_cs: 100, text: "machinery drone".into(), no_speech_prob: 0.95, words: vec![] },
+            RawSegment { start_cs: 100, end_cs: 200, text: "order lumber".into(), no_speech_prob: 0.05, words: vec![] },
         ]]);
         let cfg = SttConfig { no_speech_prob_threshold: 0.6, ..SttConfig::default() };
         let stream = SttStream::with_decoder(Box::new(decoder), cfg, &[]);

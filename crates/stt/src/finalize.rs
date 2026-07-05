@@ -141,7 +141,7 @@ mod tests {
     use crate::decoder::RawSegment;
 
     fn seg(cs0: i64, cs1: i64, t: &str) -> RawSegment {
-        RawSegment { start_cs: cs0, end_cs: cs1, text: t.into(), no_speech_prob: 0.0 }
+        RawSegment { start_cs: cs0, end_cs: cs1, text: t.into(), no_speech_prob: 0.0, words: vec![] }
     }
     fn words(ws: &[Word]) -> Vec<&str> {
         ws.iter().map(|w| w.text.as_str()).collect()
