@@ -16,6 +16,26 @@ is not the crate's job). v1 target files (MIT, from `huggingface.co/ggerganov/wh
 Selection (base vs small, quality vs size/battery) is a shell/config decision, informed
 by the pending on-device iPhone tier (`RESULTS.md` Table 4).
 
+## Word-level timestamps (Plan 09)
+
+The `Finalizer`'s overlap-merge has two seams: a precise TEXT seam (identical
+re-decode stitched exactly) and a COARSE fallback for a divergent overlap. When
+whisper `token_timestamps` are on (`SttConfig.word_timestamps`, **default true**,
+crate-internal — not surfaced to Swift/`EngineConfig`), `WhisperDecoder`
+reconstructs per-word timing from token `t0`/`t1` onto `RawSegment.words`, and
+the coarse seam becomes **word-anchored**: a word STARTING at/inside
+already-committed audio (`start_ms ≤ pending_max_end`) is dropped as a re-decode
+(first-decode-wins), which fixes the lumped-divergent-overlap duplication the old
+segment-coarse `end_ms` rule could leak.
+
+The path **degrades safely**: when `words` is empty (`ScriptedDecoder`, any
+non-whisper decoder) OR its count disagrees with the segment's whitespace split,
+the finalizer falls back to the pre-Plan-09 segment-coarse spans and the legacy
+`end_ms`-keyed drop — byte-for-byte the old behavior. Word text is always
+authoritative (from the split, never token reconstruction); the timing is
+best-effort. Flip `word_timestamps` to `false` to disable with no other change
+(the SNR sweep, Task 7, is the empirical WER/RTF sign-off for the default).
+
 ## Integration with `murmur-core` (deferred to Plan 07 — the FFI/shell tick loop)
 
 `crates/stt` and `murmur-core` do **not** depend on each other. The shell owns both pumps
