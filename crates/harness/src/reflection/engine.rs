@@ -65,7 +65,10 @@ impl ReflectionEngine {
              and write the corrected one; never merge the two into a blended claim. Facts \
              marked [corrected] are user corrections and outrank everything else — do not \
              drop or alter them. Typical sections: vocabulary, people, projects, \
-             preferences. Call {} exactly once with the full result.",
+             preferences. Vocabulary terms are domain jargon that improve transcription \
+             accuracy — preserve them verbatim and drop a vocabulary term only if it is \
+             clearly a transcription artifact, not a real term. Call {} exactly once with \
+             the full result.",
             self.word_cap, WRITE_MEMORY
         )
     }
@@ -370,6 +373,13 @@ mod tests {
         );
         // write_memory_response uses Usage { input_tokens: 100, output_tokens: 50 }
         assert_eq!(err.usage, Usage { input_tokens: 100, output_tokens: 50 });
+    }
+
+    #[test]
+    fn system_prompt_protects_vocabulary() {
+        let engine = ReflectionEngine::new(std::sync::Arc::new(MockProvider::new(vec![])));
+        let p = engine.system_prompt();
+        assert!(p.to_lowercase().contains("vocabulary"), "reflection must be told to preserve vocabulary");
     }
 
     #[tokio::test]
