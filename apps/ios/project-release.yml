@@ -1,0 +1,60 @@
+# RELEASE spec — signed TestFlight distribution build (rebuild-era pipeline).
+#
+# Used ONLY by .github/workflows/release.yml. It leaves the dev/demo/clean-checkout
+# flows untouched:
+#   xcodegen generate                 -> DEMO app        (project.yml alone)
+#   ./generate.sh                     -> REAL-core DEV   (project-real.yml + local)
+#   xcodegen generate -s project-release.yml -> REAL-core DISTRIBUTION (this file)
+#
+# It layers on the demo base (project.yml) + the MurmurCoreFFI package (the real
+# murmur-core engine, same dependency project-real.yml adds) and overrides the
+# SitewalkGallery target for App Store distribution:
+#   - bundle id com.isaacwm.murmur, display name "Sitewalk" (bundle id/profile
+#     reused for TestFlight continuity — see CANON 2026-07-06 brand rename;
+#     the ASC/TestFlight listing rename itself is coordinated at first publish,
+#     but the shipped app already shows the new name)
+#   - signing enabled, Automatic style (archive uses -allowProvisioningUpdates;
+#     export uses manual signing via ExportOptions.plist — see release.yml)
+#   - CFBundleShortVersionString / CFBundleVersion reference MARKETING_VERSION /
+#     CURRENT_PROJECT_VERSION so CI can override them per lane (tag -> marketing
+#     version, github.run_number -> build number)
+#
+# xcodegen deep-merges includes (this file wins on conflicts), so the target keeps
+# its type/sources/fonts/usage-strings from project.yml and only the keys below change.
+#
+# SECRET FLOW (no secret ever in a tracked file): Info.plist keeps the literal
+# "$(PPQ_API_KEY)"; CI passes PPQ_API_KEY=<secret> as an xcodebuild build setting
+# on the archive command, which xcodebuild expands into the built Info.plist —
+# identical mechanism to the dev path (project.local.yml), just supplied on the
+# command line instead of a gitignored file. apps/ios uses no App Group, no
+# entitlements, and no analytics SDK, so the profile is a plain App Store profile.
+include:
+  - path: project.yml
+name: SitewalkGallery
+packages:
+  MurmurCoreFFI:
+    path: Packages/MurmurCoreFFI
+targets:
+  SitewalkGallery:
+    dependencies:
+      - package: MurmurCoreFFI
+    info:
+      path: Sources/App/Info.plist
+      properties:
+        CFBundleDisplayName: Sitewalk
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.isaacwm.murmur
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        # Distribution build is signed. Automatic style lets the archive step
+        # cloud-generate the Distribution cert + profile with -allowProvisioningUpdates
+        # (App Manager ASC key). CODE_SIGN_IDENTITY MUST stay empty: XcodeGen #691
+        # otherwise emits "iPhone Developer" per config, which breaks Automatic
+        # signing. Never set it explicitly under Automatic.
+        CODE_SIGNING_ALLOWED: "YES"
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: ""
+        TARGETED_DEVICE_FAMILY: "1"

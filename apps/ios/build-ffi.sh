@@ -22,15 +22,56 @@
 # iphoneos/iphonesimulator SDK via `xcrun`. This is the "system Xcode
 # fallback" path referenced in the Plan 07 Task 9 report — the pure-nix path
 # (unset SDKROOT/NIX_*FLAGS only) still fails on SDK linkage.
+#
+# ---------------------------------------------------------------------------
+# Options
+#   --features "<list>"  cargo features for crates/ffi (default: "whisper").
+#   --device-only        build only the aarch64-apple-ios (device) slice and a
+#                        device-only xcframework. Skips the simulator slice —
+#                        halves the expensive whisper.cpp/Metal compile. Use in
+#                        CI (a TestFlight archive is device-only anyway). Local
+#                        default builds BOTH slices so the simulator still runs.
+#
+# Nix vs no-nix: the cross-build blocks below point CC/AR/linker at the *system*
+# Xcode toolchain and unset the nix cc-wrapper flags, so the exact same commands
+# work whether or not nix is present. On a machine WITH nix (nous) they run
+# inside `nix develop` (pinned rust toolchain, cmake); on a GitHub runner WITHOUT
+# nix they run against rustup's cargo + brew's cmake directly. `dev` picks the
+# right wrapper.
 set -euo pipefail
+
+FEATURES="whisper"
+DEVICE_ONLY=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --features) FEATURES="$2"; shift 2 ;;
+    --features=*) FEATURES="${1#*=}"; shift ;;
+    --device-only) DEVICE_ONLY=1; shift ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
+  esac
+done
+
+# Run a command inside the nix dev shell when nix is available (nous), or
+# directly otherwise (GitHub runner: rustup cargo + brew cmake on PATH).
+dev() {
+  if command -v nix >/dev/null 2>&1; then
+    nix develop -c "$@"
+  else
+    "$@"
+  fi
+}
 
 cd "$(dirname "$0")/../.."   # repo root
 FFI_DIR="apps/ios/Packages/MurmurCoreFFI"
 BINDINGS_DIR="$(mktemp -d)"
 trap 'rm -rf "$BINDINGS_DIR"' EXIT
 
+# Cross-build env is passed through to the inner shell via the environment.
+export FEATURES
+
+if [ "$DEVICE_ONLY" -eq 0 ]; then
 echo "==> building crates/ffi for aarch64-apple-ios-sim"
-nix develop -c bash -c '
+dev bash -c '
   set -euo pipefail
   export DEVELOPER_DIR="${XCODE_DEVELOPER_DIR:-$(env -u DEVELOPER_DIR /usr/bin/xcode-select -p)}"
   export SDKROOT=$(/usr/bin/xcrun --sdk iphonesimulator --show-sdk-path)
@@ -49,11 +90,12 @@ nix develop -c bash -c '
   # whisper.cpp Metal shaders compile against the iphonesimulator SDK via the
   # SDKROOT/system-clang cross-link set above. `cargo test --workspace` never
   # sees this feature — it stays hermetic (no model, no cmake, no Metal).
-  cargo build -p ffi --release --target aarch64-apple-ios-sim --features whisper
+  cargo build -p ffi --release --target aarch64-apple-ios-sim --features "$FEATURES"
 '
+fi
 
 echo "==> building crates/ffi for aarch64-apple-ios (device)"
-nix develop -c bash -c '
+dev bash -c '
   set -euo pipefail
   export DEVELOPER_DIR="${XCODE_DEVELOPER_DIR:-$(env -u DEVELOPER_DIR /usr/bin/xcode-select -p)}"
   export SDKROOT=$(/usr/bin/xcrun --sdk iphoneos --show-sdk-path)
@@ -67,28 +109,43 @@ nix develop -c bash -c '
   export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER=/usr/bin/clang
   unset NIX_CFLAGS_COMPILE NIX_LDFLAGS NIX_CFLAGS_COMPILE_FOR_BUILD NIX_LDFLAGS_FOR_BUILD
   # --features whisper (device slice) — see the sim invocation above.
-  cargo build -p ffi --release --target aarch64-apple-ios --features whisper
+  cargo build -p ffi --release --target aarch64-apple-ios --features "$FEATURES"
 '
 
+# Bindgen reads symbols from a built static lib; either slice works. Prefer the
+# sim slice when it exists, else the device slice (--device-only).
+BINDGEN_LIB="target/aarch64-apple-ios-sim/release/libffi.a"
+[ -f "$BINDGEN_LIB" ] || BINDGEN_LIB="target/aarch64-apple-ios/release/libffi.a"
+
 echo "==> generating Swift bindings (uniffi-bindgen, host build)"
-nix develop -c cargo run -p ffi --features uniffi-bindgen-cli --bin uniffi-bindgen -- \
-  generate --library target/aarch64-apple-ios-sim/release/libffi.a \
+dev cargo run -p ffi --features uniffi-bindgen-cli --bin uniffi-bindgen -- \
+  generate --library "$BINDGEN_LIB" \
   --language swift --out-dir "$BINDINGS_DIR"
 
 cp "$BINDINGS_DIR/ffi.swift" "$FFI_DIR/Sources/MurmurCoreFFI/ffi.swift"
 
 echo "==> assembling ffiFFI.xcframework"
 rm -rf "$FFI_DIR/Frameworks/ffiFFI.xcframework"
-for slice in sim device; do
+
+# Slices to include: always device; sim too unless --device-only.
+SLICES=(device)
+[ "$DEVICE_ONLY" -eq 0 ] && SLICES=(sim device)
+
+XCF_ARGS=()
+for slice in "${SLICES[@]}"; do
   hdir="$BINDINGS_DIR/headers-$slice"
   mkdir -p "$hdir"
   cp "$BINDINGS_DIR/ffiFFI.h" "$hdir/"
   cp "$BINDINGS_DIR/ffiFFI.modulemap" "$hdir/module.modulemap"
+  case "$slice" in
+    sim)    lib="target/aarch64-apple-ios-sim/release/libffi.a" ;;
+    device) lib="target/aarch64-apple-ios/release/libffi.a" ;;
+  esac
+  XCF_ARGS+=(-library "$lib" -headers "$hdir")
 done
 
 xcodebuild -create-xcframework \
-  -library target/aarch64-apple-ios-sim/release/libffi.a -headers "$BINDINGS_DIR/headers-sim" \
-  -library target/aarch64-apple-ios/release/libffi.a -headers "$BINDINGS_DIR/headers-device" \
+  "${XCF_ARGS[@]}" \
   -output "$FFI_DIR/Frameworks/ffiFFI.xcframework"
 
 # ---------------------------------------------------------------------------

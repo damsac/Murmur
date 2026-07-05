@@ -4,6 +4,93 @@ One-time prerequisites for the `Release` workflow (`.github/workflows/release.ym
 Once these are done, pushing to `main` ships an internal TestFlight build and
 pushing a `v*` tag ships a build that's ready for external beta review.
 
+---
+
+## Rebuild-era update (2026-07-05)
+
+`release.yml` was rewritten in place for the rebuilt app (Rust core + `apps/ios`
+SwiftUI shell). Rewritten *in place* on purpose: `github.run_number` is
+per-workflow-file, so keeping the same file keeps the build-number counter
+monotonic vs the Era-I builds already on App Store Connect.
+
+**Identical to Era-I (the proven signing blueprint, unchanged):**
+
+- **Archive with automatic signing** — `CODE_SIGN_STYLE=Automatic` +
+  `-allowProvisioningUpdates` + the ASC API key. Apple cloud-generates the
+  Distribution cert and profile.
+- **Export with manual signing** — `ExportOptions.plist` `signingStyle=manual`,
+  explicit `provisioningProfiles` dict (`com.isaacwm.murmur` → `Murmur App
+  Store`), cert imported via `Apple-Actions/import-codesign-certs@v3`, profile
+  via `Apple-Actions/download-provisioning-profiles@v3`, **no**
+  `-allowProvisioningUpdates` on export (cloud signing fails there under an App
+  Manager key).
+- **Bundle id `com.isaacwm.murmur`** and the **`Murmur App Store`** profile are
+  reused (the TestFlight app + ASC build history are bound to that id/team
+  `98GXNZ6NKZ`).
+- Build number = `github.run_number`; a `v*` tag overrides `MARKETING_VERSION`.
+- The `brew install … || true` / `brew link --overwrite` pattern; the XcodeGen
+  #691 guard (`CODE_SIGN_IDENTITY: ""` in the spec, never set explicitly under
+  Automatic).
+
+**What changed for the rebuild:**
+
+- **Ships the real Rust core.** A new step runs
+  `apps/ios/build-ffi.sh --features whisper --device-only` on the macOS runner to
+  produce the `MurmurCoreFFI` xcframework. No nix on the runner — `build-ffi.sh`
+  now auto-detects nix and, when absent, runs against rustup's cargo + the system
+  Xcode toolchain directly (the nix path is unchanged for local `nous` builds).
+  `--device-only` builds only the `aarch64-apple-ios` slice (a TestFlight archive
+  is device-only anyway), halving the whisper.cpp/Metal compile.
+- **On-device model provisioning.** The workflow runs
+  `apps/ios/fetch-whisper-model.sh` (the same script `./generate.sh` uses
+  locally) to download the sha256-pinned `small.en` model (~190 MB, the
+  default; `base.en` is a one-arg revert) from the ggerganov Hugging Face
+  mirror into `apps/ios/Sources/Resources/`, cached via `actions/cache` keyed
+  on the model name + the script's own hash (so a digest/model bump busts the
+  cache automatically). The app-target `Sources` glob bundles it
+  (`Bundle.main`); absent, live walks degrade to text-only.
+- **Release xcodegen spec.** The Era-I `project.yml`/`Makefile` were removed in
+  the re-unification; the release build now generates from
+  `apps/ios/project-release.yml` (demo base + `MurmurCoreFFI` package + signed
+  distribution overrides: bundle id, display name `Sitewalk`, version vars).
+- **Dry-run capable.** Export uses `destination=export` (produces a signed `.ipa`
+  artifact); the ASC upload is a **separate, conditional** `xcrun altool
+  --upload-app` step. `workflow_dispatch` has an `upload` input (default
+  `false`): a dry-run builds → signs → exports the `.ipa` but does **not**
+  publish. Pushes to `main` / `v*` tags always upload.
+- **No App Group, no entitlements, no analytics.** `apps/ios` uses none — it
+  reads only `PPQ_API_KEY` from `Info.plist`. So **step 1 below (App Group
+  registration) is NOT required** for the rebuilt app, and the profile is a plain
+  App Store profile. `STUDIO_ANALYTICS_API_KEY_RELEASE` is no longer injected
+  (there is no analytics SDK in the rebuild).
+
+**Required secrets (rebuild):** `APPLE_TEAM_ID`, `ASC_API_KEY_ID`,
+`ASC_API_ISSUER_ID`, `ASC_API_KEY_P8`, `APPLE_CERT_P12`, `APPLE_CERT_PASSWORD`,
+`PPQ_API_KEY`. (All verified present in the repo's secrets.)
+
+**One-time steps you may still need before the first real upload:**
+
+1. **Re-save / confirm the `Murmur App Store` profile matches the new app
+   shape.** The rebuilt app has *fewer* capabilities than Era-I (no App Group).
+   If the existing profile was created with the App Group entitlement, it should
+   still work (it's a superset), but if provisioning errors on
+   entitlement mismatch, edit the App ID `com.isaacwm.murmur` to remove the App
+   Group capability (or leave it — the app simply won't request it) and
+   regenerate/re-save the `Murmur App Store` profile. The
+   `download-provisioning-profiles` step fetches the latest by bundle-id + type,
+   so re-saving in the portal is all that's needed.
+2. Everything in the Era-I steps below that concerns the **ASC API key (App
+   Manager role)**, **auto-distribution to internal testers**, and the
+   **repository secrets** still applies unchanged.
+
+**Dry-run before publishing:** Actions → Release → *Run workflow* on this branch
+with `upload=false`. It exercises the full chain — real-core FFI build, model
+fetch, archive (automatic signing), export (manual signing) — and uploads the
+signed `.ipa` as a build artifact **without** touching App Store Connect. Flip
+`upload=true` (or merge to `main`) when the dry-run is green.
+
+---
+
 > **Note on bundle ID:** the bundle ID is `com.isaacwm.murmur` (registered
 > under the damsac Apple Developer team). The `damsac` namespace is the
 > GitHub org and the team in App Store Connect; the bundle ID prefix
