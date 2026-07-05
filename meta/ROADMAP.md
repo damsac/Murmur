@@ -10,8 +10,7 @@ Updated when priorities shift. Either person can propose changes via PR.
 
 | Work | Owner | Status |
 |------|-------|--------|
-| Plan 08 Part C — noise robustness (Voice-Isolation A/B knob, VAD/no_speech gate, SNR sweep) | dam | next build run (Tasks 10–12; Parts A+B merged 2026-07-05) |
-| Real-mic device voice walk (`live=1` on iPhone) + T5 spike tier (device RTF/battery) | dam | the milestone gate + the one unretired STT GO condition |
+| Real-mic device voice walk (`live=1`) + on-device tuning: voiceproc A/B, vad_rms ~0.01, quiet-flush validation (final-review notes A/B) | dam | Plan 08 FULLY merged — device session is the gate |
 | Issue #155 — PR #1 review follow-ups (4 state bugs + seam hygiene) | sac | open (several now also guarded core-side by 07-carry) |
 | Rebuild-era nix-based CI (cargo test needs nix deps — naive runner job goes red) | dam | follow-up from #157 |
 
