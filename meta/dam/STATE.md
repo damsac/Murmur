@@ -26,11 +26,12 @@ dam owns: harness / murmur-core / STT / FFI. sac owns: renderers / component lib
 | 07 | `crates/ffi` (UniFFI) + `MurmurEngine.swift` — **the bridge is LIVE**: app builds with the real core linked | done |
 | 07-carry | all 6 carry notes + 3 cross-model findings: fallible constructors, atomic begin_walk, mint-with-artifact-write, throwing WalkEngine.begin (dead walk never starts), tick fault counter, narrowed artifact sweep | done (merged be88bca) |
 | first walk | **THE MILESTONE LANDED 2026-07-05**: real core + .env key on sim → document EST-0047 end-to-end. Clean checkout builds demo with zero setup; `generate.sh` opts into real | done (merged baa8848) |
-| 08 | STT stage-2 wiring (mic → whisper → append path) + noise robustness (voice-isolation A/B, VAD gating, SNR sweep) | **plan READY** (docs/plans/…-08-stt-stage2-wiring.md, 2 review passes, 11 findings folded) — build NOT started, paused by dam |
+| 08 A+B | STT stage-2 wiring: push_audio → pump thread → append path; TranscriptCommitted/Preview events; finish() flush + async cancel() (Store::delete_session — closes the #156 core half); AudioCaptureSource (mic→16kHz) + WavFileAudioSource; use_gpu knob (sim=CPU compile-time — D7 "Metal degrades on sim" FALSIFIED: SIGTRAP; device=Metal) | **done, merged 2026-07-05** — 290 tests; voice-from-WAV proven end-to-end on sim |
+| 08 Part C | noise robustness: Voice-Isolation A/B knob, VAD/no_speech gate (R3), construction-noise SNR sweep (Tasks 10–12) | next build run |
 
-## Paused state (2026-07-05, dam's call)
+## Where we are (2026-07-05, post re-unification)
 
-Build is PAUSED at a clean point. Resume order: (1) **repo re-unification Phase 2** — sitewalk merges back into damsac/Murmur (dam decided 2026-07-04; Phase 1 done: Murmur PRs #152/#153, runbook at Murmur `docs/reunify/RUNBOOK.md`; gate is now SATISFIED — all lanes landed, tip = baa8848 — awaiting dam's go); (2) **Plan 08 build** (plan READY, don't re-review); (3) dam's iPhone T5 spike (~1hr). New since last sync: issue #3 (zombie sessions on discard, half-fixed by 07-carry, cancel() in Plan 08 finishes it); issue #4 (re-unification notice). Codex cross-model review is now standard on state-machine diffs — use the `codex` skill wrapper, not raw CLI (10/10 verified findings; feedback: ~/athanor/forge/codex/FEEDBACK-2026-07-05-keeper-murmur.md).
+**One repo: github.com/damsac/sitewalk** (renamed from damsac/Murmur; the whole story in one history — `docs/HISTORY.md`). Rebuild-era clone `~/murmur-rmp` retired. Codex cross-model review is standard on state-machine diffs — use the `codex` skill wrapper, not raw CLI (13/13 verified findings across 4 uses). **Voice walk on sim works** (wavwalk=1 fixture → whisper CPU decode → board → document); real-mic device walk (`live=1`) + T5 spike are dam's next hands-on session. Model provisioning: 60MB ggml file goes in `apps/ios/Sources/Resources/` (generate.sh prints the curl if missing). Regenerated bindings mean: re-run `build-ffi.sh` once after pulling.
 
 ## What sac should know
 
