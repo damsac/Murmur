@@ -41,29 +41,33 @@ The literal `"vocabulary"` is duplicated across four crates and the ≤100 cap e
 - `pub const VOCABULARY_SECTION: &str = "vocabulary";`
 - `pub const MAX_VOCABULARY_TERMS: usize = 100;` — doc: **must equal `stt::SttConfig::max_bias_terms`**; the harness cannot depend on `stt`, so this is a mirrored constant with a doc cross-reference (a Task 6 test asserts they match numerically via the FFI crate, which sees both).
 
-`collect_bias_terms` and the murmur-core/ffi call sites migrate to `harness::VOCABULARY_SECTION` (mechanical; no behavior change). The write-time cap (D4) makes the limit honest at the point of entry.
+The bare literal `"vocabulary"` today appears as: the **production read** in `ffi/src/session.rs:99` (`collect_bias_terms`), a **doc comment** in `stt/src/bias.rs`, a **schema hint** in `harness/src/memory/tool.rs:72`, and **test fixtures** in murmur-core. Only the production read is behavior-bearing, so the constant migration is **ffi-scoped** (Task 3): `collect_bias_terms` reads `harness::VOCABULARY_SECTION`. The doc/schema-hint/test sites are cosmetic and left as-is (no behavior). The write-time cap (D4) makes the limit honest at the point of entry.
 
 ### D3. User-managed vocabulary defaults to `FactSource::Stated`; provenance *is* the eviction protection (no new budget)
-The team-lead constraint is "vocabulary terms should NOT be evicted casually." Provenance already delivers this: `clamp_to_cap` evicts ascending `(rank, last_touched)`, so **every `Inferred` fact in all of memory is evicted before any `Stated` vocabulary term**. Therefore user-typed/onboarding vocabulary is written with `source = Stated` (the user asserted it). We do **not** add a separate vocabulary word-budget carved out of the 500-word cap — that complicates the single-cap invariant for a set that is ≤100 short terms (≈≤200 words, comfortably inside 500 alongside other facts). The `Stated` floor is sufficient for v1.
+The team-lead constraint is "vocabulary terms should NOT be evicted casually." Provenance already delivers this: `clamp_to_cap` evicts ascending `(rank, last_touched)`, so **every `Inferred` fact in all of memory is evicted before any `Stated` vocabulary term**. Therefore user-typed/onboarding vocabulary is written with `source = Stated` (the user asserted it). We do **not** add a separate vocabulary word-budget carved out of the 500-word cap — that complicates the single-cap invariant. The `Stated` floor is sufficient for v1.
+
+**Word-budget arithmetic, stated honestly (finding 2).** `MAX_VOCABULARY_TERMS` caps *count*, not *words*, so "vocabulary fits inside 500" is not an invariant on its own. Two things bound it: (i) D4's per-term ≤`MAX_VOCABULARY_TERM_WORDS` (=6) guard — vocabulary is *terms*, not sentences — so worst case is 100 × 6 = 600 words; (ii) real domain terms are 1–3 words, so the realistic ceiling is ≈100–300 words, comfortably inside 500 alongside other facts. In the pathological 600-word case, `clamp_to_cap(500)` remains the backstop and evicts **`Inferred` facts first** (D3 floor) — user vocabulary is the last thing touched. So the guard bounds the common case and the provenance floor bounds the worst case; neither is silently assumed.
 
 **Honest limits, surfaced (not hidden):**
 - `Stated` is **not immune** to `clamp_to_cap` (only relative priority) nor to `prune_stale` (only `Corrected` is immune, `mod.rs:163`). Under extreme memory pressure, or if the app ever wires `prune_stale` over the vocabulary section, a `Stated` term can still be evicted after all `Inferred` facts are gone.
 - Reflection swaps the whole `Memory` (`coordinator.rs:133`); a `Stated` vocabulary term the reflection model omits from its `write_memory` output is **lost** (unlike `Corrected`, which the reflection prompt protects).
 - **OPEN QUESTION for dam:** if device testing shows reflection or cap-pressure eroding user vocabulary, escalate user vocabulary to a *protected tier* — either mark it `Corrected` (reuses the existing immunity, but overloads provenance semantics) or add a new `FactSource::Pinned` rank / a vocabulary-aware `prune_stale` skip. This is a real product-risk vs. semantic-purity tradeoff; v1 ships `Stated` + the D5 prompt line and measures before escalating. **Not built here.**
 
-### D4. Write-time normalization + case-insensitive dedup + reject-when-full
-`add_vocabulary_term` normalizes and guards at the point of entry:
-- **Normalize:** trim ends, collapse internal whitespace runs to a single space. Case is preserved as typed (LLM context wants human casing; the whisper `initial_prompt` is effectively case-insensitive, so casing is a display/context concern only).
-- **Reject empty** (after normalization) → a distinct outcome the FFI maps to an error.
-- **Case-insensitive dedup:** a term whose normalized-lowercased form already exists is a no-op (keeps the first-seen casing). Prevents "French Drain" and "french drain" from each eating a cap slot. (Judgment call flagged: exact-match dedup would be simpler but wastes scarce slots on casing variants; the ≤100 budget makes dedup worth the scan.)
-- **Cap = reject, not silent-evict:** at `MAX_VOCABULARY_TERMS`, a new term returns `Full` (FFI → thrown error → the editor shows "vocabulary full (100); remove a term first"). Rejecting is honest and puts the curation decision on the user, versus silently evicting their oldest term. (Rejected: evict-oldest-on-add — hides the limit and can drop a term the user still wants.)
+### D4. Write-time normalization (symmetric) + case-insensitive dedup + per-term word guard + reject-when-full
+`add_vocabulary_term` normalizes and guards at the point of entry, and **comparison normalizes BOTH sides** (finding 1):
+- **Normalize (shared helper `normalize_term`):** trim ends, collapse internal whitespace runs to a single space. Case is preserved as typed (LLM context wants human casing; the whisper `initial_prompt` is effectively case-insensitive, so casing is display/context only).
+- **Symmetric comparison — normalize-on-read, not just on-write.** The two *pre-existing* writers into the section — `UpdateMemoryTool::execute` (`tool.rs:92–108`) and `ReflectionEngine`'s verbatim rewrite — do **zero** normalization, so the section can already contain a stored `"french   drain"` (double space). Dedup and remove therefore normalize the **stored** side too before the case-insensitive compare: `normalize_term(stored).eq_ignore_ascii_case(&normalize_term(query))`. Without this, an un-normalized stored term is rendered by the editor, passed back verbatim on delete, normalized to single-space, and **never matches** — the term is permanently unremovable (remove is fail-silent by design), and a near-duplicate could slip past dedup and double-bias. `vocabulary_terms()`/`list` return the stored text **as-is** (no rewrite) — only the *comparison* is normalized.
+- **Reject empty** (after normalization) → `Empty`.
+- **Per-term word guard (finding 2):** reject a term longer than `MAX_VOCABULARY_TERM_WORDS` (=6) → `TooLong`. Vocabulary is *terms/jargon*, not sentences; this bounds the word budget (D3) and protects `initial_prompt` quality (a 20-word "term" is a paste error, not a hotword).
+- **Case-insensitive dedup:** a term whose normalized form already matches (case-folded) is a no-op keeping the first-seen casing. Prevents "French Drain" / "french drain" each eating a slot.
+- **Cap = reject, not silent-evict:** at `MAX_VOCABULARY_TERMS`, a *new* term returns `Full` (a duplicate is still `Duplicate`, even at cap). Rejecting is honest; evict-oldest-on-add would hide the limit. FFI → thrown error → editor shows "vocabulary full (100); remove one first".
 
 The outcome is a total enum, no `Result` gymnastics inside `Memory`:
 ```rust
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum VocabAdd { Added, Duplicate, Full, Empty }
+pub enum VocabAdd { Added, Duplicate, Full, Empty, TooLong }
 ```
-`Duplicate` is success-shaped at the FFI (idempotent), `Full`/`Empty` are errors.
+`Added`/`Duplicate` are success (idempotent); `Full`/`Empty`/`TooLong` map to FFI errors.
 
 ### D5. Reflection curation in v1: preserve, don't decay — one prompt sentence, no new machinery
 Reflection already treats vocabulary as an ordinary section (it appears in the rewrite). v1 keeps that but adds **one sentence** to the reflection system prompt: *preserve vocabulary terms verbatim; only drop a vocabulary term that is clearly a transcription artifact, not a real domain term.* This is additive prompt text — existing reflection tests assert on substrings/behavior that this does not disturb (a Task 2 test pins the new guidance is present). We do **not** build vocabulary decay, dedupe-in-reflection, or re-injection of dropped user terms in v1 (that is the D3 escalation, deferred). Rationale: cheap, on-spec ("reflection keeps enriching it"), and conservative — it biases reflection toward keeping the differentiator's data without new code paths.
@@ -77,7 +81,7 @@ pub fn remove_vocabulary_term(&self, term: String) -> Result<Vec<String>, Engine
 ```
 Each mirrors `UpdateMemoryTool::execute`: lock `self.memory`, mutate (`add` uses `FactSource::Stated`, D3), `clamp_to_cap(DEFAULT_WORD_CAP)` after a mutation (keeps the global invariant, same as the tool), clone a snapshot, **release the lock**, then `self.memory_store.save(&snapshot)?`. Errors:
 - lock poisoned → `EngineError::Memory("memory lock poisoned")` (never panic across FFI).
-- `add` outcome `Full` → `EngineError::Memory("vocabulary is full (100 terms); remove one first")`; `Empty` → `EngineError::Memory("term is empty")`; `Added`/`Duplicate` → `Ok`.
+- `add` outcome `Full` → `EngineError::Memory("vocabulary is full (100 terms); remove one first")`; `Empty` → `EngineError::Memory("term is empty")`; `TooLong` → `EngineError::Memory("term is too long (max 6 words)")`; `Added`/`Duplicate` → `Ok`.
 - save failure → propagated as `EngineError::Store` (via a `From`/`map_err`), consistent with the rest of the crate.
 
 `add`/`remove` return the **resulting list** so the Swift editor updates in one round-trip (no follow-up `list` call). `&self` methods (not `self: Arc<Self>`) — they hand out no session. Add `#[error("memory error: {0}")] Memory(String)` to `EngineError`.
@@ -88,7 +92,7 @@ Each mirrors `UpdateMemoryTool::execute`: lock `self.memory`, mutate (`add` uses
 The whole loop cannot be observed hermetically inside a real `SttStream` (bias only reaches whisper's `initial_prompt` under the `whisper` feature; `ScriptedDecoder` ignores it). So the CI gate proves the **assembly seam**: *add via the FFI method → `Memory` vocabulary section → `collect_bias_terms` picks it up → `build_bias_prompt` contains it* (a single hermetic test through the public engine method, extending the existing `bias_terms_from_memory_vocabulary` pin). The empirical **+pp recall lift on real audio** is measured with the existing `spikes/stt-whisper` harness (real model + `say`-generated WAVs), **flagged for dam on device** — the same manual/not-CI pattern as Plan 09 D8. This plan does not make that measurement a CI gate.
 
 ### D8. The Swift editor is functional-plain; **visual design is sac's** (prominent handoff)
-Per `meta/WORKFLOWS.md` and the division of labor, **sac owns UI layout and visual direction.** This plan delivers a *functional* screen only: a plain SwiftUI list of terms + an add field + delete affordance, wired to the three FFI methods through `WalkEngine`, styled minimally (bare `List`/`Form` is acceptable — the app has none today, so this introduces the first). It carries a prominent `// sac:` handoff comment marking every visual decision (row style, section headers, empty state, add affordance, where the entry point lives in `BoardView`'s header, sheet-vs-push). The **onboarding interview flow is explicitly out of scope** (D9). Entry point recommendation for sac: a `.sheet` off `BoardView` (modal, matches existing sheet usage) rather than a new `AppModel.Phase` — but that is sac's call to finalize.
+Per `meta/CANON.md:27` and the division of labor, **sac owns UI layout and visual direction.** This plan delivers a *functional* screen only: a plain SwiftUI list of terms + an add field + delete affordance, wired to the three FFI methods through `WalkEngine`, styled minimally (bare `List`/`Form` is acceptable — the app has none today, so this introduces the first). It carries a prominent `// sac:` handoff comment marking every visual decision (row style, section headers, empty state, add affordance, where the entry point lives in `BoardView`'s header, sheet-vs-push). The **onboarding interview flow is explicitly out of scope** (D9). Entry point recommendation for sac: a `.sheet` off `BoardView` (modal, matches existing sheet usage) rather than a new `AppModel.Phase` — but that is sac's call to finalize.
 
 Swift is not CI-gated (hermetic Rust is the gate). The build check is a manual real-core `xcodebuild` by dam after `build-ffi.sh` + `generate.sh` regenerate the bindings with the new methods.
 
@@ -103,8 +107,9 @@ Spec Rev 3: onboarding seeds vocabulary that feeds both LLM context and STT bias
 crates/
   harness/src/
     memory/
-      mod.rs         # MODIFY: VOCABULARY_SECTION, MAX_VOCABULARY_TERMS consts; VocabAdd enum;
-                     #         vocabulary_terms / add_vocabulary_term / remove_vocabulary_term on Memory
+      mod.rs         # MODIFY: VOCABULARY_SECTION, MAX_VOCABULARY_TERMS, MAX_VOCABULARY_TERM_WORDS consts;
+                     #         VocabAdd enum; normalize_term helper; vocabulary_terms /
+                     #         add_vocabulary_term / remove_vocabulary_term on Memory
       lib.rs         # (harness/src/lib.rs) MODIFY: export the consts, VocabAdd, (methods ride Memory)
     reflection/
       engine.rs      # MODIFY: one sentence of vocabulary-preservation guidance in system_prompt (+ test)
@@ -159,9 +164,31 @@ fn add_vocabulary_term_is_case_insensitively_idempotent() {
 }
 
 #[test]
-fn add_vocabulary_term_rejects_empty() {
+fn add_vocabulary_term_rejects_empty_and_overlong() {
     let mut m = Memory::default();
     assert_eq!(m.add_vocabulary_term("   ", 1, FactSource::Stated), VocabAdd::Empty);
+    // > MAX_VOCABULARY_TERM_WORDS (6): a sentence, not a term.
+    assert_eq!(
+        m.add_vocabulary_term("one two three four five six seven", 1, FactSource::Stated),
+        VocabAdd::TooLong,
+    );
+    assert!(m.vocabulary_terms().is_empty());
+    // exactly 6 words is allowed
+    assert_eq!(m.add_vocabulary_term("a b c d e f", 1, FactSource::Stated), VocabAdd::Added);
+}
+
+#[test]
+fn matching_normalizes_the_stored_side_too() {
+    // finding 1: a pre-existing term written by another path (update_memory /
+    // reflection) with un-collapsed whitespace must still dedupe AND be removable.
+    let mut m = Memory::default();
+    m.remember_from(VOCABULARY_SECTION, "french   drain", 1, FactSource::Stated, None); // double space, verbatim
+    assert_eq!(m.vocabulary_terms(), vec!["french   drain"], "stored text is listed as-is");
+    // dedupe: adding the normalized form does not create a near-duplicate
+    assert_eq!(m.add_vocabulary_term("french drain", 2, FactSource::Stated), VocabAdd::Duplicate);
+    assert_eq!(m.vocabulary_terms().len(), 1);
+    // removable despite the whitespace/casing mismatch
+    assert!(m.remove_vocabulary_term("French Drain"), "normalize both sides before compare");
     assert!(m.vocabulary_terms().is_empty());
 }
 
@@ -213,79 +240,94 @@ pub const VOCABULARY_SECTION: &str = "vocabulary";
 /// / whisper `initial_prompt` budget (spec Rev 2 amendment F: ≤100 curated terms).
 pub const MAX_VOCABULARY_TERMS: usize = 100;
 
+/// Max words in a single vocabulary term. Vocabulary is jargon/hotwords, not
+/// sentences; this bounds the word budget (Plan 10 D3) and keeps the whisper
+/// `initial_prompt` a clean glossary. A longer input is a paste error.
+pub const MAX_VOCABULARY_TERM_WORDS: usize = 6;
+
 /// Outcome of [`Memory::add_vocabulary_term`]. Total (no `Result` needed):
-/// `Added`/`Duplicate` are success (idempotent), `Full`/`Empty` are refusals.
+/// `Added`/`Duplicate` are success (idempotent); `Full`/`Empty`/`TooLong` are refusals.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VocabAdd {
     Added,
     Duplicate,
     Full,
     Empty,
+    TooLong,
 }
 ```
 
-Add to `impl Memory`:
+Add a private helper + the methods on `impl Memory`:
 ```rust
-/// The user's vocabulary terms in insertion order (alias for
-/// `section_texts(VOCABULARY_SECTION)`).
-pub fn vocabulary_terms(&self) -> Vec<&str> {
-    self.section_texts(VOCABULARY_SECTION)
+/// Normalize a vocabulary term for storage AND comparison: trim ends, collapse
+/// internal whitespace runs to a single space. Case is preserved. Used on BOTH
+/// the query and the stored text before comparing (D4, finding 1), because the
+/// pre-existing writers (`UpdateMemoryTool`, reflection) store verbatim.
+fn normalize_term(term: &str) -> String {
+    term.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Add one vocabulary term. Normalizes (trim + collapse internal whitespace),
-/// rejects empty, dedups case-insensitively (keeps first-seen casing), and
-/// enforces `MAX_VOCABULARY_TERMS` at write time (reject-when-full, never
-/// silent-evict). `source` is `Stated` for user/onboarding terms; a future
-/// auto-harvester (D9) passes `Inferred`. Does NOT enforce the 500-word cap —
-/// callers clamp globally (the FFI layer / `UpdateMemoryTool` do).
-pub fn add_vocabulary_term(&mut self, term: &str, now: u64, source: FactSource) -> VocabAdd {
-    let normalized = term.split_whitespace().collect::<Vec<_>>().join(" ");
-    if normalized.is_empty() {
-        return VocabAdd::Empty;
+impl Memory {
+    /// The user's vocabulary terms in insertion order, stored text AS-IS
+    /// (alias for `section_texts(VOCABULARY_SECTION)`). No normalization on read.
+    pub fn vocabulary_terms(&self) -> Vec<&str> {
+        self.section_texts(VOCABULARY_SECTION)
     }
-    let exists = self
-        .section_texts(VOCABULARY_SECTION)
-        .iter()
-        .any(|t| t.eq_ignore_ascii_case(&normalized));
-    if exists {
-        // Touch/upgrade provenance via the existing remember_from path, but do
-        // NOT add a second casing variant. Find the stored casing and refresh it.
-        if let Some(stored) = self
-            .section_texts(VOCABULARY_SECTION)
+
+    /// Stored casing of the term that matches `normalized` case-insensitively,
+    /// normalizing the STORED side too (finding 1). `None` if absent.
+    fn matching_vocabulary_term(&self, normalized: &str) -> Option<String> {
+        self.section_texts(VOCABULARY_SECTION)
             .into_iter()
-            .find(|t| t.eq_ignore_ascii_case(&normalized))
+            .find(|t| normalize_term(t).eq_ignore_ascii_case(normalized))
             .map(str::to_string)
-        {
-            self.remember_from(VOCABULARY_SECTION, &stored, now, source, None);
-        }
-        return VocabAdd::Duplicate;
     }
-    if self.vocabulary_terms().len() >= MAX_VOCABULARY_TERMS {
-        return VocabAdd::Full;
-    }
-    self.remember_from(VOCABULARY_SECTION, &normalized, now, source, None);
-    VocabAdd::Added
-}
 
-/// Remove one vocabulary term (case-insensitive, normalized match). Returns
-/// whether anything was removed.
-pub fn remove_vocabulary_term(&mut self, term: &str) -> bool {
-    let normalized = term.split_whitespace().collect::<Vec<_>>().join(" ");
-    let Some(stored) = self
-        .section_texts(VOCABULARY_SECTION)
-        .into_iter()
-        .find(|t| t.eq_ignore_ascii_case(&normalized))
-        .map(str::to_string)
-    else {
-        return false;
-    };
-    self.forget(VOCABULARY_SECTION, &stored)
+    /// Add one vocabulary term. Normalizes (trim + collapse whitespace), rejects
+    /// empty (`Empty`) and >`MAX_VOCABULARY_TERM_WORDS` (`TooLong`), dedups
+    /// case-insensitively across BOTH sides (keeps first-seen stored casing),
+    /// and enforces `MAX_VOCABULARY_TERMS` at write time (`Full` — reject, never
+    /// silent-evict). `source` is `Stated` for user/onboarding terms; a future
+    /// auto-harvester (D9) passes `Inferred`. Does NOT enforce the 500-word cap —
+    /// callers clamp globally (the FFI layer / `UpdateMemoryTool` do).
+    pub fn add_vocabulary_term(&mut self, term: &str, now: u64, source: FactSource) -> VocabAdd {
+        let normalized = normalize_term(term);
+        if normalized.is_empty() {
+            return VocabAdd::Empty;
+        }
+        if normalized.split_whitespace().count() > MAX_VOCABULARY_TERM_WORDS {
+            return VocabAdd::TooLong;
+        }
+        if let Some(stored) = self.matching_vocabulary_term(&normalized) {
+            // Duplicate (even at cap): touch/upgrade provenance on the STORED
+            // casing via remember_from; never add a second variant.
+            self.remember_from(VOCABULARY_SECTION, &stored, now, source, None);
+            return VocabAdd::Duplicate;
+        }
+        if self.vocabulary_terms().len() >= MAX_VOCABULARY_TERMS {
+            return VocabAdd::Full;
+        }
+        self.remember_from(VOCABULARY_SECTION, &normalized, now, source, None);
+        VocabAdd::Added
+    }
+
+    /// Remove one vocabulary term (case-insensitive; normalizes BOTH sides so a
+    /// verbatim-stored term written by another path is still removable — finding
+    /// 1). Returns whether anything was removed.
+    pub fn remove_vocabulary_term(&mut self, term: &str) -> bool {
+        let normalized = normalize_term(term);
+        let Some(stored) = self.matching_vocabulary_term(&normalized) else {
+            return false;
+        };
+        self.forget(VOCABULARY_SECTION, &stored)
+    }
 }
 ```
+(`matching_vocabulary_term` centralizes the symmetric-normalize compare so add and remove cannot drift — the exact bug finding 1 caught.)
 
 `crates/harness/src/lib.rs` — extend the memory re-export:
 ```rust
-pub use memory::{FactSource, Memory, MemoryEntry, VocabAdd, DEFAULT_WORD_CAP, MAX_VOCABULARY_TERMS, VOCABULARY_SECTION};
+pub use memory::{FactSource, Memory, MemoryEntry, VocabAdd, DEFAULT_WORD_CAP, MAX_VOCABULARY_TERMS, MAX_VOCABULARY_TERM_WORDS, VOCABULARY_SECTION};
 ```
 
 - [ ] **Step 3 — verify:** `cargo test -p harness memory` (green; existing memory/provenance tests unchanged — the new methods only *use* `remember_from`/`forget`/`section_texts`).
@@ -310,7 +352,7 @@ fn system_prompt_protects_vocabulary() {
     assert!(p.to_lowercase().contains("vocabulary"), "reflection must be told to preserve vocabulary");
 }
 ```
-(`system_prompt` is currently private — make it `pub(crate)` or test via the assembled request; a `pub(crate) fn system_prompt` keeps the test simple and is harmless.)
+(`system_prompt` stays private — the `#[cfg(test)] mod tests` in `engine.rs` is a child module and reaches it directly. No visibility change.)
 
 - [ ] **Step 2 — implement:** append one sentence to `system_prompt`'s format string, before the "Call {} exactly once" clause:
   > *Vocabulary terms are domain jargon that improve transcription accuracy — preserve them verbatim and drop a vocabulary term only if it is clearly a transcription artifact, not a real term.*
@@ -433,6 +475,8 @@ impl MurmurEngine {
                 VocabAdd::Full => return Err(Self::memory_err(format!(
                     "vocabulary is full ({} terms); remove one first", harness::MAX_VOCABULARY_TERMS))),
                 VocabAdd::Empty => return Err(Self::memory_err("term is empty")),
+                VocabAdd::TooLong => return Err(Self::memory_err(format!(
+                    "term is too long (max {} words)", harness::MAX_VOCABULARY_TERM_WORDS))),
             }
             mem.clamp_to_cap(DEFAULT_WORD_CAP); // global 500-word invariant, like UpdateMemoryTool
             mem.clone()
@@ -611,7 +655,7 @@ struct VocabularyView: View {
 - [ ] **Step 3 — independent whole-artifact review** (CANON: independent final review has caught a real issue 9/9 times — a **separate agent** from the builder). Read the diff `memory/mod.rs → reflection/engine.rs → ffi/vocabulary.rs → session.rs → Swift` as one artifact and re-check:
   - **Provenance floor is load-bearing (D3):** user vocabulary is written `Stated`; confirm `clamp_to_cap` evicts all `Inferred` before any `Stated` (the `inferred_vocabulary_is_evicted_before_stated_vocabulary` test), and that the **honest limits are documented, not papered over** (Stated is not immune to `clamp`/`prune`; reflection can still drop a term). The D3 open question is flagged for dam, not silently decided.
   - **Cap is enforced at write, honestly (D4):** `MAX_VOCABULARY_TERMS` rejects (not silent-evicts); duplicates are idempotent even at cap; the read-side/write-side constants are asserted equal (`read_side_cap_matches_the_write_side_constant`).
-  - **Normalization + dedup:** case-insensitive dedup keeps first-seen casing; empty rejected; `remove` matches case-insensitively. No second casing variant can ever occupy a slot.
+  - **Symmetric normalization (finding 1 — hand-check):** `matching_vocabulary_term` normalizes the STORED side too, so a verbatim term written by `update_memory`/reflection (e.g. double-space) is still dedupable and removable; add and remove share that one helper so they can't drift. The `matching_normalizes_the_stored_side_too` test is present and green. `vocabulary_terms`/`list` return stored text as-is. Per-term ≤6-word guard (`TooLong`) rejects sentences; empty rejected.
   - **Lock-then-save discipline (D6):** the FFI methods mutate under the lock, clamp the global 500 cap, snapshot, **release the lock before `save`**, and never panic across FFI (lock-poison → `EngineError::Memory`; save-fail → `EngineError::Store`). No api key can reach an error string.
   - **The loop is closed (D7):** the hermetic e2e proves added-term → `collect_bias_terms` → `build_bias_prompt`; the real recall-lift measurement is correctly scoped as device/model-gated (not oversold as a CI gate).
   - **Constant migration is mechanical:** `collect_bias_terms` reading `harness::VOCABULARY_SECTION` changes no behavior; the pre-existing `bias_terms_from_memory_vocabulary` test stays green.
@@ -636,7 +680,7 @@ struct VocabularyView: View {
 ## Acceptance criteria
 
 1. `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` green **with the `whisper` feature off** (CI invariant); no whisper/model/network dependency.
-2. `Memory` has a vocabulary surface: `VOCABULARY_SECTION`/`MAX_VOCABULARY_TERMS` constants, `VocabAdd`, and `vocabulary_terms`/`add_vocabulary_term`/`remove_vocabulary_term` with normalization, case-insensitive dedup, write-time ≤100 cap (reject-when-full), and a `Stated` provenance floor. Existing memory/provenance tests unchanged.
+2. `Memory` has a vocabulary surface: `VOCABULARY_SECTION`/`MAX_VOCABULARY_TERMS`/`MAX_VOCABULARY_TERM_WORDS` constants, `VocabAdd`, and `vocabulary_terms`/`add_vocabulary_term`/`remove_vocabulary_term` with **symmetric** normalization (both query and stored side — a verbatim term written by `update_memory`/reflection is dedupable AND removable), case-insensitive dedup, a per-term ≤6-word guard (`TooLong`), write-time ≤100 cap (reject-when-full), and a `Stated` provenance floor. Existing memory/provenance tests unchanged.
 3. `clamp_to_cap` evicts `Inferred` vocabulary before `Stated` (dedicated test); the write-side and read-side caps are asserted numerically equal.
 4. `MurmurEngine` exposes `list_vocabulary`/`add_vocabulary_term`/`remove_vocabulary_term` across UniFFI — throwing, panic-free, lock-then-save, `EngineError::Memory` for full/empty/poison, `EngineError::Store` for persistence failure; add/remove return the resulting list; persistence is asserted (spy store).
 5. A hermetic e2e test proves add-via-FFI → `Memory` vocabulary section → `collect_bias_terms` → `build_bias_prompt` carries the term; real recall-lift is documented as device/model-gated (spike harness, dam).
