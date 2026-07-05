@@ -2,12 +2,20 @@ import Foundation
 import AVFoundation
 import Speech
 
-// Speech-to-text stays in Swift (on-device, free, works offline) — the engine
-// only ever sees text. Two sources share one interface:
+// TranscriptSource feeds TEXT to the engine (the scripted/demo path). Two
+// sources share one interface:
 //
 //   ScriptedSource — deterministic canned walk for demos, simulator work, and
 //                    screenshot verification. Also the operator-facing demo mode.
 //   SpeechSource   — AVAudioEngine + SFSpeechRecognizer, on-device when available.
+//
+// Plan 08 note: STT for the LIVE walk (`live=1`) is now RUST-side whisper —
+// `AudioCaptureSource` captures mic PCM and pushes it across FFI via
+// `WalkSession.push_audio`, and the transcript arrives back as
+// `WalkEvent.transcriptCommitted`. `SpeechSource` (SFSpeechRecognizer) is
+// retained as a fallback and is no longer the live default (delete nothing,
+// D10). `AudioCaptureSource` is intentionally NOT a `TranscriptSource` — it
+// produces PCM, not text.
 
 @MainActor
 protocol TranscriptSource: AnyObject {
