@@ -1282,6 +1282,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn vocabulary_added_via_ffi_feeds_begin_walk_bias_assembly() {
+        let store = Store::open_in_memory("device-a").unwrap();
+        let engine = MurmurEngine::with_providers(
+            store,
+            Memory::default(),
+            Arc::new(NullMemoryStore),
+            Providers {
+                live: Arc::new(MockProvider::new(vec![])),
+                processing: Arc::new(MockProvider::new(vec![])),
+                reflection: Arc::new(MockProvider::new(vec![])),
+            },
+        );
+        // WRITE half (the new FFI path):
+        engine.add_vocabulary_term("french drain".into()).unwrap();
+        engine.add_vocabulary_term("ledger board".into()).unwrap();
+
+        // READ half (what begin_walk assembles): the terms flow through
+        // collect_bias_terms → build_bias_prompt exactly as begin_walk uses them.
+        let bias = {
+            let mem = engine.memory.lock().unwrap();
+            collect_bias_terms(&mem, Some("landscape"))
+        };
+        assert_eq!(bias, vec!["french drain".to_string(), "ledger board".to_string()]);
+        let prompt = stt::build_bias_prompt(&bias, stt::SttConfig::default().max_bias_terms).unwrap();
+        assert!(
+            prompt.contains("french drain") && prompt.contains("ledger board"),
+            "the whisper initial_prompt carries the user's added terms: {prompt}"
+        );
+    }
+
+    #[tokio::test]
     async fn tick_cannot_interleave_with_finish() {
         let store = Store::open_in_memory("device-a").unwrap();
         let session_row = store.start_session(None).unwrap();
