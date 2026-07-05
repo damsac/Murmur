@@ -27,8 +27,16 @@
 
 ## Architecture — decisions, justified (reviewers read these first)
 
-### D1. The fix is *precision fed into the existing merge*, not a new merge algorithm
-The `Finalizer`'s two-seam merge (`finalize.rs::merge`) is unchanged. Today the **coarse (time) seam** drops the prefix of `new_words` whose `end_ms ≤ pending_max_end` — exact only when the decoder isolates the overlap in its own early-ending segment; when whisper lumps the overlap into a longer phrase-level segment, a divergent overlap can (a) duplicate (covering segment ends past `pending_max_end` → nothing dropped) or (b) drop genuinely-new words that share the covered segment's `end_ms` (the CAVEAT, `finalize.rs:79–88`). The **only** thing wrong is that `Word::end_ms` is segment-coarse. Give each `Word` its **own** `end_ms` and the *same* `skip_while(|w| w.end_ms <= pending_max_end)` becomes word-exact. So the entire change to the append-only path is inside `words_from_segments` (how a `RawSegment` expands into `Word`s); `merge` / `finalize_before` / `flush` / `preview` are byte-for-byte untouched. This is why append-only is preserved by construction: no committed word is revisited; we only change which `Word`s are computed at ingest.
+### D1. Word-precise timing needs a *word-anchored* coarse-seam drop rule, not just precise `end_ms` (design corrected after review)
+Today the **coarse (time) seam** drops the prefix of `new_words` whose `end_ms ≤ pending_max_end` — exact only when the decoder isolates the overlap in its own early-ending segment; when whisper lumps the overlap into a longer phrase-level segment, a divergent overlap can (a) duplicate (covering segment ends past `pending_max_end` → nothing dropped) or (b) drop genuinely-new words that share the covered segment's `end_ms` (the CAVEAT, `finalize.rs:79–88`).
+
+**The naïve fix ("just give each `Word` its own `end_ms`, merge unchanged") does NOT work — this was a real design gap.** Hand-trace of the lumped divergent re-decode: pending holds `work` ending at `pending_max_end = 4800 ms`; the new window re-decodes the overlap as `needs`(4000–4800), `word`(4800–**5600**), then genuinely-new `before`(5600–6600)… The two decodes don't align at the boundary — a divergent re-decode can **spread the same disputed span across longer/more words**, inflating an early disputed word's `end_ms` **past** the old boundary. `skip_while(|w| w.end_ms <= 4800)` then drops `needs` but **keeps `word`** (5600 > 4800) → the divergent second decode `word` leaks into the committed stream (duplication). Precise `end_ms` alone is insufficient because `end_ms` is exactly the field the skew corrupts.
+
+**Chosen rule — the word-anchored coarse seam keys on `start_ms`, the segment-coarse seam keeps keying on `end_ms`.** For a *word-precise* new word, `start_ms` is the reliable signal: a word that **starts at or inside audio we've already committed** (`start_ms ≤ pending_max_end`) is a re-decode of held audio and is dropped (first-decode-wins); a word that starts strictly after (`start_ms > pending_max_end`) is genuinely-new and appended. Re-trace: `needs`(start 4000 ≤ 4800) drop, `word`(start 4800 ≤ 4800) drop, `before`(start 5600 > 4800) keep → committed `[… needs work before the pour]`, `word` gone, `work` once. The boundary-equality case (`start_ms == pending_max_end`) resolves to **drop** — R6/R3 under-commit bias: a word starting exactly where the last committed word ended, in a seam where the two decodes already *disagree* on text, is presumed a re-decode; losing one word costs less trust than a duplicate.
+
+**Why the rule must be mode-aware (a single scalar rule cannot serve both).** No pure threshold on the new word's own `(start, end)` distinguishes the two modes: in the *segment-coarse* regression test the genuinely-new word `before` has segment-start `4800` (all words in its segment share the segment span), while in the *word-precise* case the disputed word `word` also starts at `4800` — **same value, opposite desired action** (keep `before`, drop `word`). So `Word` must carry whether its timing is word-precise. Segment-coarse words keep the legacy `end_ms ≤ pending_max_end` rule verbatim (their `end_ms` is the only semi-reliable signal, and it works because a coarse genuinely-new segment ends well past the boundary); word-precise words use `start_ms ≤ pending_max_end`.
+
+So the change to the append-only path is **small and additive, not an algorithm rewrite**: (i) `Word` gains a `time_precise: bool`; (ii) `words_from_segments` sets it (`true` on the word-anchored branch, `false` on coarse/fallback); (iii) `merge`'s coarse-seam `skip_while` predicate branches on `w.time_precise`. `finalize_before` / `flush` / `preview` and the **text seam** are byte-for-byte untouched; the coarse seam gains one branch and behaves **identically** to today for every coarse (`time_precise=false`) word — so all existing tests pass unchanged. Append-only is still preserved by construction: the seam only ever *drops* a prefix of *new* words; no committed word is revisited.
 
 ### D2. Keep phrase-level segments; read per-token `t0`/`t1`. Reject `max_len=1` single-word segments
 Two ways to get word-precise timing from whisper:
@@ -43,13 +51,17 @@ The single-word-segment route is tempting (zero struct change) but rejected beca
 - **Additive, matches the `no_speech_prob` precedent.** Default `Vec::new()` = "no word timing available" ⇒ the finalizer degrades to segment-coarse. `ScriptedDecoder` and every existing test keep passing with empty `words`.
 - **Carries `text` so the finalizer can self-heal.** `words_from_segments` cross-checks the word-timing count against `text.split_whitespace().count()`; on any mismatch it falls back to segment-coarse for that segment (D4). Storing the text (not just the span) makes that check trivial and keeps the finalizer's emitted word text **always** equal to the segment's split text — the timing is best-effort, the text is authoritative.
 
+**Bounded blast radius of a count-matching-but-mis-grouped BPE reconstruction (finding 2).** The count guard (D4) only catches a *count* mismatch. A BPE grouping that produces the *right count* but attaches a token to the wrong word (e.g. a leading-space boundary misread) passes the guard. The damage is strictly **bounded timing skew on the two adjacent words at the mis-grouping** — their `start_ms`/`end_ms` shift by the mis-attributed sub-token's span. It **cannot corrupt text** (text always comes from the authoritative `split`-zip, never from token reconstruction) and **cannot violate append-only** (the coarse-seam rule still only drops a prefix of new words; worse case is a one-word over/under-drop at the seam, i.e. the same class of ±1-word imprecision the fallback already prices in). The R3 `no_speech_prob` gate is upstream of grouping and unaffected. Task 5 adds a per-word ground-truth spot-check (assert known fixture words land within a tolerance window) so gross mis-grouping is caught on real audio, not merely count-checked.
+
+**`Word` gains `time_precise: bool` (D1).** This lives on the internal `finalize::Word` (constructed only in `words_from_segments`; `lib.rs::emit` reads `.start_ms`/`.end_ms`/`.text` by field and ignores it, so `FinalizedSegment` and the FFI surface are unchanged). Grep `Word {` before implementing to confirm the construction-site set (expected: `words_from_segments` only; any finalize.rs test that builds a `Word` literal directly gets `time_precise: false`).
+
 ### D4. `words_from_segments` prefers per-word timing, degrades safely, guards alignment
 New logic, per segment (after the unchanged `no_speech_prob` drop):
-- If `seg.words` is **empty** → today's behavior verbatim: split `text` on whitespace, every word gets the segment-coarse `start_ms`/`end_ms`.
-- If `seg.words` is **non-empty AND** `seg.words.len() == seg.text.split_whitespace().count()` → emit one `Word` per whitespace token, taking `text` from the split (authoritative) and `start_ms`/`end_ms` from the aligned `WordTiming` via the identical `window_start_ms + cs*10` formula. Clamp so `end_ms ≥ start_ms` and each word's `end_ms` is non-decreasing within the segment (defends against a stray out-of-order token timestamp; whisper token times are monotonic in practice but we do not assume it).
-- If `seg.words` is **non-empty but the count disagrees** → fall back to segment-coarse for that segment (self-heal) and it is a silent-correctness event worth a debug log, not a panic.
+- If `seg.words` is **empty** → today's behavior verbatim: split `text` on whitespace, every word gets the segment-coarse `start_ms`/`end_ms` and **`time_precise = false`**.
+- If `seg.words` is **non-empty AND** `seg.words.len() == seg.text.split_whitespace().count()` → emit one `Word` per whitespace token, `time_precise = true`, taking `text` from the split (authoritative) and `start_ms`/`end_ms` from the aligned `WordTiming` via the identical `window_start_ms + cs*10` formula. Clamp so `end_ms ≥ start_ms` and each word's `start_ms`/`end_ms` are non-decreasing within the segment (defends against a stray out-of-order token timestamp; whisper token times are monotonic in practice but we do not assume it).
+- If `seg.words` is **non-empty but the count disagrees** → fall back to segment-coarse (`time_precise = false`) for that segment (self-heal) — a silent-correctness event worth a debug log, not a panic.
 
-This keeps the emitted stream identical for all existing scripted tests (empty `words`) and word-precise for real whisper / word-scripted tests. The `no_speech_prob` gate runs first and is untouched.
+`time_precise` is what the coarse seam's drop rule branches on (D1). This keeps the emitted stream identical for all existing scripted tests (empty `words` ⇒ `time_precise=false` ⇒ legacy `end_ms` rule) and word-precise for real whisper / word-scripted tests. The `no_speech_prob` gate runs first and is untouched.
 
 ### D5. `token_timestamps` is a `SttConfig` knob, default `true`; internal to `crates/stt` (not surfaced to Swift)
 - `SttConfig` gains `pub word_timestamps: bool`, default **`true`**. `WhisperDecoder::decode` calls `params.set_token_timestamps(cfg.word_timestamps)` and only populates `RawSegment.words` when it is on.
@@ -93,7 +105,7 @@ crates/
   stt/
     src/
       decoder.rs        # MODIFY: WordTiming type; RawSegment.words field; with_words builder; timed test helper
-      finalize.rs       # MODIFY: words_from_segments word-anchored expansion + alignment guard; update CAVEAT doc; new tests
+      finalize.rs       # MODIFY: Word.time_precise; words_from_segments word-anchored expansion + alignment guard; merge coarse-seam start-vs-end drop rule; update CAVEAT doc; new tests
       lib.rs            # MODIFY: SttConfig.word_timestamps (default true) + Default impl; seg helper + literals get words; new stream-level test
       whisper.rs        # MODIFY (#[cfg(feature="whisper")]): set_token_timestamps; populate RawSegment.words from token t0/t1; extend #[ignore] real-model test
     tests/
@@ -206,13 +218,26 @@ Export `WordTiming` from `lib.rs` (`pub use decoder::{Decoder, RawSegment, Scrip
 
 ---
 
-### Task 2: `Finalizer` word-anchored expansion + the coarse-seam fix
+### Task 2: `Finalizer` word-anchored expansion + word-anchored coarse-seam drop rule
 
 **Files:** Modify `crates/stt/src/finalize.rs`.
 
-This is the heart of the plan: give each `Word` its own `end_ms` so the unchanged coarse (time) seam becomes word-exact, and prove the CAVEAT failure mode is fixed while append-only + the no-speech gate hold.
+The heart of the plan. Two coupled changes (D1): (i) `words_from_segments` emits word-precise `Word`s tagged `time_precise = true`; (ii) `merge`'s coarse seam drops a *precise* new word by `start_ms ≤ pending_max_end` and a *coarse* one by the legacy `end_ms ≤ pending_max_end`. Prove the lumped-divergent-re-decode duplication is fixed while append-only, the segment-coarse behavior, and the no-speech gate all hold.
 
-- [ ] **Step 1 — failing tests** (add to `finalize.rs` `mod tests`; keep a `seg_words(..)` helper that builds a `RawSegment` with `WordTiming`s):
+**Worked arithmetic the tests encode** (window offsets applied; `to_ms(cs) = window_start_ms + cs*10`):
+
+*Flagship — lumped divergent overlap.* W0 `ingest(0, …, horizon=4000)`:
+- `the`(0–1000), `french`(1000–2400), `drain`(2400–3600), then held segment `needs`(3600–4400), `work`(4400–**4800**).
+- `finalize_before(4000)` cuts at `needs` (end 4400 > 4000) → **e0 = [the, french, drain]**; pending = `[needs(3600–4400), work(4400–4800)]`, `pending_max_end = 4800`.
+
+W1 `ingest(4000, …, horizon=8000)`, one lumped segment re-decoding the overlap as "needs **word**" then new tail:
+- new (precise): `needs`(4000–4800), `word`(4800–5600), `before`(5600–6600), `the`(6600–7300), `pour`(7300–8000).
+- text seam: tail `["needs","work"]` vs head `["needs","word"]` → no match, `best=0` → coarse seam.
+- precise drop `skip_while(start_ms ≤ 4800)`: `needs`(4000≤4800 drop), `word`(4800≤4800 drop — **boundary-equality resolves to drop**, R6 under-commit), `before`(5600≤4800 false → **stop**). Keep `[before, the, pour]`.
+- `finalize_before(8000)` flushes pending+kept → **e1 = [needs, work, before, the, pour]**.
+- **all = [the, french, drain, needs, work, before, the, pour]** — `work` once, `word` gone. (Legacy `end_ms ≤ 4800` would keep `word` at end 5600 → the leak this fixes.)
+
+- [ ] **Step 1 — failing tests** (add to `finalize.rs` `mod tests`; add a `seg_words(..)` helper — the file's coarse `seg(..)` helper at `:143–144` gets `words: vec![]`):
 
 ```rust
 fn seg_words(cs0: i64, cs1: i64, words: &[(&str, i64, i64)]) -> RawSegment {
@@ -236,32 +261,50 @@ fn word_timing_gives_each_word_its_own_end_ms() {
 }
 
 #[test]
-fn coarse_seam_is_word_exact_when_overlap_is_lumped_into_a_long_segment() {
-    // The CAVEAT case (finalize.rs:79–88): whisper lumps the re-decoded overlap
-    // into a LONGER phrase-level segment. With word timing the coarse seam drops
-    // exactly the covered words and keeps the genuinely-new suffix.
+fn word_anchored_coarse_seam_drops_lumped_divergent_overlap_without_duplication() {
+    // FLAGSHIP (see worked arithmetic above). W1 re-decodes the held overlap
+    // "needs work" as "needs word" LUMPED with new text into one long segment; the
+    // divergent word "word" is INFLATED to end 5600 (past pending_max_end 4800), so
+    // a legacy end-based drop would leak it. The word-anchored start-based rule drops
+    // it (start 4800 ≤ 4800) and keeps only the genuinely-new suffix.
     let mut f = Finalizer::default();
-    // W0: "the french drain" finalized (ends ≤4000), "needs work" held (word ends 4400/4800).
     let e0 = f.ingest(0, &[
         seg_words(0, 360, &[("the", 0, 100), ("french", 100, 240), ("drain", 240, 360)]),
         seg_words(360, 480, &[("needs", 360, 440), ("work", 440, 480)]),
     ], 4_000);
     assert_eq!(words(&e0), vec!["the", "french", "drain"]);
-    // W1: overlap "needs work" re-decoded DIFFERENTLY ("needs word") but now LUMPED
-    // with new text into ONE long segment [0,4000ms rel = 4000..8000 abs]. Per-word
-    // timing lets the seam drop only the two covered words (end ≤ 4800), not the tail.
     let e1 = f.ingest(4_000, &[seg_words(0, 400, &[
         ("needs", 0, 80), ("word", 80, 160), ("before", 160, 260), ("the", 260, 330), ("pour", 330, 400),
     ])], 8_000);
     let all: Vec<&str> = words(&e0).into_iter().chain(words(&e1)).collect();
     assert_eq!(all, vec!["the", "french", "drain", "needs", "work", "before", "the", "pour"]);
-    assert!(!all.contains(&"word"), "divergent re-decode dropped word-exactly");
-    assert_eq!(all.iter().filter(|w| **w == "work").count(), 1, "no duplication");
+    assert!(!all.contains(&"word"), "divergent re-decode dropped (start ≤ boundary)");
+    assert_eq!(all.iter().filter(|w| **w == "work").count(), 1, "first decode wins, no duplication");
+    // append-only: start_ms non-decreasing across the whole committed stream.
+    let mut prev = 0;
+    for w in words_full(&e0).iter().chain(words_full(&e1).iter()) { assert!(w.start_ms >= prev); prev = w.start_ms; }
+}
+
+#[test]
+fn inflated_early_disputed_word_does_not_leak_past_the_seam() {
+    // DEDICATED inflated-early-word case (reviewer's finding): the disputed word's
+    // end is inflated FAR past the boundary; end-based drop would keep it (dup),
+    // start-based drop removes it.
+    let mut f = Finalizer::default();
+    // W0: "pour" finalized (end 2000 ≤ 4000), "footing" held (2000..4800).
+    let e0 = f.ingest(0, &[seg_words(0, 480, &[("pour", 0, 200), ("footing", 200, 480)])], 4_000);
+    assert_eq!(words(&e0), vec!["pour"]);
+    // W1: overlap re-decoded DIFFERENTLY ("footings") and INFLATED to end 6000 (≫4800),
+    // then genuinely-new "now"(6000..7000).
+    let e1 = f.ingest(4_000, &[seg_words(0, 300, &[("footings", 0, 200), ("now", 200, 300)])], 8_000);
+    let all: Vec<&str> = words(&e0).into_iter().chain(words(&e1)).collect();
+    // "footing" (W0 first decode) survives once; divergent "footings" dropped; "now" kept.
+    assert_eq!(all, vec!["pour", "footing", "now"]);
+    assert!(!all.contains(&"footings"), "inflated divergent re-decode dropped by start-based rule");
 }
 
 #[test]
 fn empty_word_timing_degrades_to_segment_coarse() {
-    // The existing coarse tests still pass because seg(..) leaves words empty.
     let mut f = Finalizer::default();
     let out = f.ingest(0, &[seg(0, 480, "needs work")], u64::MAX);
     assert_eq!(out[0].end_ms, 4800, "coarse: both share segment end");
@@ -269,9 +312,24 @@ fn empty_word_timing_degrades_to_segment_coarse() {
 }
 
 #[test]
+fn existing_segment_coarse_disagreement_still_keeps_new_suffix() {
+    // The pre-Plan-09 test's scenario, restated to guard the mode-awareness: in
+    // COARSE mode the genuinely-new segment "before the pour" has segment-start
+    // 4800 == pending_max_end. The start-based rule would wrongly DROP it; the
+    // legacy end-based rule (time_precise=false) keeps it. This must stay green.
+    let mut f = Finalizer::default();
+    let e0 = f.ingest(0, &[seg(0, 180, "the french drain"), seg(180, 480, "needs work")], 4_000);
+    assert_eq!(words(&e0), vec!["the", "french", "drain"]);
+    let e1 = f.ingest(4_000, &[seg(0, 80, "needs word"), seg(80, 400, "before the pour")], 8_000);
+    let all: Vec<&str> = words(&e0).into_iter().chain(words(&e1)).collect();
+    assert_eq!(all, vec!["the", "french", "drain", "needs", "work", "before", "the", "pour"]);
+    assert!(!all.contains(&"word"));
+}
+
+#[test]
 fn mismatched_word_count_falls_back_to_coarse() {
-    // Defensive: word timing count disagrees with text split → coarse fallback,
-    // no panic, emitted text still matches the segment split.
+    // Count disagrees with text split → coarse fallback (time_precise=false), no panic,
+    // text still matches the split, spans segment-coarse.
     let mut f = Finalizer::default();
     let bad = RawSegment::with_words(
         RawSegment { start_cs: 0, end_cs: 300, text: "alpha beta gamma".into(),
@@ -285,7 +343,7 @@ fn mismatched_word_count_falls_back_to_coarse() {
 
 #[test]
 fn no_speech_gate_still_drops_before_word_expansion() {
-    // Plan 08 R3 gate is untouched: a high-nsp WORD-TIMED segment is still dropped.
+    // Plan 08 R3 gate untouched: a high-nsp WORD-TIMED segment is still dropped.
     let mut f = Finalizer::with_no_speech_threshold(0.6);
     let mut noisy = seg_words(0, 200, &[("phantom", 0, 100), ("words", 100, 200)]);
     noisy.no_speech_prob = 0.9;
@@ -294,14 +352,16 @@ fn no_speech_gate_still_drops_before_word_expansion() {
 }
 ```
 
-- [ ] **Step 2 — implement:** rewrite `words_from_segments` per D4. Skeleton:
+(`words_full` = a small test helper returning the `&[Word]` slice, for the append-only monotonicity check; or reuse `e0`/`e1` directly since they are `Vec<Word>`.)
+
+- [ ] **Step 2a — add `time_precise` to `Word`** and set it in `words_from_segments` (D4):
 
 ```rust
 fn words_from_segments(window_start_ms: u64, segs: &[RawSegment], no_speech_threshold: f32) -> Vec<Word> {
     let mut out = Vec::new();
     let to_ms = |cs: i64| window_start_ms + (cs.max(0) as u64) * 10;
     for s in segs {
-        if s.no_speech_prob > no_speech_threshold { continue; } // R3 gate — unchanged, runs first
+        if s.no_speech_prob > no_speech_threshold { continue; } // R3 gate — unchanged, runs FIRST
         let seg_start = to_ms(s.start_cs);
         let seg_end = to_ms(s.end_cs);
         let split: Vec<&str> = s.text.split_whitespace().collect();
@@ -309,27 +369,44 @@ fn words_from_segments(window_start_ms: u64, segs: &[RawSegment], no_speech_thre
             // Word-anchored: authoritative text from split, timing from words.
             let mut last_end = seg_start;
             for (tok, w) in split.iter().zip(&s.words) {
-                let start = to_ms(w.start_cs).max(last_end);        // non-decreasing
-                let end = to_ms(w.end_cs).max(start);                // end ≥ start
-                out.push(Word { text: (*tok).to_string(), start_ms: start, end_ms: end });
+                let start = to_ms(w.start_cs).max(last_end);   // non-decreasing start
+                let end = to_ms(w.end_cs).max(start);          // end ≥ start
+                out.push(Word { text: (*tok).to_string(), start_ms: start, end_ms: end, time_precise: true });
                 last_end = end;
             }
         } else {
-            // Coarse fallback (empty words OR count mismatch) — today's behavior.
-            for tok in split { out.push(Word { text: tok.to_string(), start_ms: seg_start, end_ms: seg_end }); }
+            // Coarse fallback (empty words OR count mismatch) — pre-Plan-09 behavior.
+            for tok in split {
+                out.push(Word { text: tok.to_string(), start_ms: seg_start, end_ms: seg_end, time_precise: false });
+            }
         }
     }
     out
 }
 ```
 
-Note the non-decreasing/`end ≥ start` clamps (D4). **Do not touch** `merge`, `finalize_before`, `flush`, or `preview`.
+- [ ] **Step 2b — the word-anchored drop in `merge`'s coarse seam** (the ONLY change to `merge`; text seam, `finalize_before`, `flush`, `preview` untouched):
 
-- [ ] **Step 3 — update the CAVEAT doc comment** on `merge` (`finalize.rs:79–88`): the caveat is now resolved *when word timing is present*, and the fallback prose should say the segment-coarse behavior is the **degraded** path (empty `words`), not the only path. Keep the description of the coarse seam mechanics (it is still the algorithm; only the input precision changed).
+```rust
+// Coarse seam: no text match → drop the covered prefix, keep first decode.
+let pending_max_end = self.pending.iter().map(|w| w.end_ms).max().unwrap_or(0);
+self.pending.extend(new_words.into_iter().skip_while(|w| {
+    if w.time_precise {
+        // Word-precise: a word STARTING at/inside already-committed audio is a
+        // re-decode (first-decode-wins; boundary-equality drops — R6 under-commit).
+        w.start_ms <= pending_max_end
+    } else {
+        // Segment-coarse: legacy rule — coarse starts are unreliable, ends aren't.
+        w.end_ms <= pending_max_end
+    }
+}));
+```
 
-- [ ] **Step 4 — verify:** `cargo test -p stt finalize` (new + all existing coarse tests green — `append_only_holds_under_overlap_disagreement`, `no_speech_segments_are_dropped_and_append_only_still_holds`, etc. must stay green unchanged).
+- [ ] **Step 3 — update the CAVEAT doc comment** on `merge` (`finalize.rs:79–88`): the caveat is **resolved when word timing is present** via the word-anchored (`start_ms`) drop; the segment-coarse (`end_ms`) branch is now the explicit **degraded** path (empty/mismatched `words`). Document *why* the two branches key on different fields (D1: coarse starts are segment-shared and unreliable; precise ends are inflated by divergent re-decodes and unreliable) and the boundary-equality under-commit choice.
 
-- [ ] **Step 5 — commit:** `git add -A && git commit -m "feat(stt): word-anchored Finalizer expansion — coarse-seam fix, degrades to segment-coarse (R3 gate + append-only intact)"`
+- [ ] **Step 4 — verify:** `cargo test -p stt finalize` — new tests plus **every** existing coarse test green unchanged (`append_only_holds_under_overlap_disagreement`, `overlap_word_is_finalized_exactly_once`, `finalizes_incrementally_across_time_shifted_windows`, `no_speech_segments_are_dropped_and_append_only_still_holds`, `flush_emits_only_the_bounded_tail`).
+
+- [ ] **Step 5 — commit:** `git add -A && git commit -m "feat(stt): word-anchored Finalizer + start-keyed coarse-seam drop (fixes lumped-divergent duplication; coarse path + R3 gate + append-only intact)"`
 
 ---
 
@@ -395,7 +472,10 @@ let words = if self.word_timestamps {
 
 `build_word_timings(seg: &WhisperSegment) -> Vec<WordTiming>`: iterate `0..seg.n_tokens()`, `seg.get_token(i)`, read `tok.to_str_lossy()` and `tok.token_data()` (`.t0`, `.t1`). Skip tokens whose trimmed text is empty or begins with `[` / `<|` (special/timestamp markers). Start a new word when the raw token text begins with a space (or on the first content token); append sub-tokens to the current word, extending `end_cs` to the sub-token's `t1`. Return the accumulated words. **The finalizer (D4) is the safety net** — if this grouping's count disagrees with `seg.text.split_whitespace().count()`, `words_from_segments` falls back to coarse, so an imperfect reconstruction degrades gracefully rather than corrupting output.
 
-- [ ] **Step 3 — extend the `#[ignore]` real-model test** (`real_model_decodes_silence` neighbor): a new `#[ignore]`d test gated on `MURMUR_WHISPER_MODEL` that decodes a short **speech** WAV (or reuses the spike's `say` clip if available via env) with `word_timestamps: true` and asserts at least one returned segment has `words.len() == text.split_whitespace().count()` and monotonic non-decreasing `end_cs`. `#[ignore]` keeps it out of CI (no model). If a speech fixture is impractical, assert instead that the *silence* decode returns without error with the flag on (contract: "no crash / no panic with token_timestamps enabled") and document that word-population is validated by the Task 6 sweep on real audio.
+- [ ] **Step 3 — extend the `#[ignore]` real-model test** (`real_model_decodes_silence` neighbor): a new `#[ignore]`d test gated on `MURMUR_WHISPER_MODEL` that decodes a short **speech** WAV (path via a second env var, e.g. `MURMUR_WHISPER_SPEECH_WAV`, so no fixture is committed) with `word_timestamps: true` and asserts:
+  - **count + monotonicity:** at least one returned segment has `words.len() == text.split_whitespace().count()` and non-decreasing `start_cs`/`end_cs`;
+  - **per-word ground-truth spot-check (finding 2):** for a WAV with known content, a couple of named words (e.g. `"french"`, `"drain"`) land in `words` with `start_cs`/`end_cs` inside a tolerance window of their expected position (e.g. ±50 cs) — this catches gross BPE **mis-grouping** that the count guard alone (D3) would pass, without asserting exact whisper timings (which drift by model/quant).
+  `#[ignore]` keeps it out of CI (no model). If a speech WAV is impractical for a given runner, the test skips the spot-check (env absent) and falls back to asserting the *silence* decode returns without error with the flag on (contract: "no crash with `token_timestamps` enabled"); word-population correctness is then validated by the Task 7 sweep on real audio (which the reviewer can hand-check against the transcript).
 
 - [ ] **Step 4 — verify (dam, whisper feature, has a model):** `cargo test -p stt --features whisper` compiles; the ignored test runs manually with `MURMUR_WHISPER_MODEL=... cargo test -p stt --features whisper -- --ignored`. **CI verify:** `cargo test --workspace` (feature off) still green and never compiles this file.
 
@@ -458,9 +538,12 @@ Per D7: pin the assembled live prompt (the true regression gate) + a grader run 
   - confirm neither compiles the `whisper` feature (grep the build plan or rely on feature-off default).
 
 - [ ] **Step 3 — independent whole-artifact review** (CANON: independent final review has caught a real issue 9/9 times; a **separate agent** from the builder). Read the diff `decoder.rs → finalize.rs → whisper.rs → evals` as one artifact and specifically re-check:
-  - **Append-only is preserved by construction:** `merge`/`finalize_before`/`flush` are byte-for-byte unchanged; only `words_from_segments` computes different `Word` spans. Verify no path lets a per-word `end_ms` go *backwards* across the pending boundary in a way that could re-drop a committed word.
-  - **R3 gate ordering:** the `no_speech_prob` drop runs *before* word expansion for both the coarse and word-anchored branches (Plan 08 must keep working; the sweep threshold basis is unchanged — D2).
-  - **Degradation is total:** empty `words` AND count-mismatch both reach the exact pre-Plan-09 coarse output; every existing coarse test is green unchanged.
+  - **Append-only is preserved by construction:** `finalize_before`/`flush`/`preview` and the **text seam** are byte-for-byte unchanged; the only `merge` change is the coarse-seam `skip_while` predicate branching on `time_precise` (D1). Verify the seam still only ever *drops a prefix of new words* (never revises pending), and hand-check the flagship + inflated-early-word arithmetic (the reviewer re-runs the drop trace).
+  - **Mode-awareness is load-bearing:** precise words drop by `start_ms ≤ pending_max_end`, coarse words by `end_ms ≤ pending_max_end`. Re-verify the counter-example that forced this (D1): the segment-coarse genuinely-new word and the word-precise disputed word share `start_ms == pending_max_end` but need opposite treatment. `existing_segment_coarse_disagreement_still_keeps_new_suffix` must be green.
+  - **Boundary-equality drops (R6 under-commit):** `start_ms == pending_max_end` resolves to drop in the precise branch; confirm this can't silently eat a run of legitimate contiguous new words outside the divergent-seam case (it only fires when the text seam already failed).
+  - **R3 gate ordering:** the `no_speech_prob` drop runs *before* word expansion for both branches (Plan 08 must keep working; the sweep threshold basis is unchanged — D2).
+  - **Degradation is total:** empty `words` AND count-mismatch both produce `time_precise=false` `Word`s with segment-coarse spans → the exact pre-Plan-09 coarse output; every existing coarse test green unchanged.
+  - **BPE mis-grouping blast radius (D3):** a count-matching-but-mis-grouped reconstruction only skews timing on adjacent words (text authoritative via split-zip); confirm it can't corrupt text or append-only, and that Task 5's spot-check guards it on real audio.
   - **Units:** token `t0`/`t1` are centiseconds and use the identical `window_start_ms + cs*10` conversion — no ms/cs mixup (the reviewer hand-checks one word's arithmetic against a test).
   - **CI hermeticity:** no whisper symbol reachable from `cargo test --workspace`; `whisper.rs` changes are entirely `#[cfg(feature="whisper")]`.
   - **`t_dtw` is never read** (we use `t0`/`t1`), so no alignment-head model variant is silently required.
@@ -483,7 +566,7 @@ Per D7: pin the assembled live prompt (the true regression gate) + a grader run 
 
 1. `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` green **with the whisper feature off** (CI invariant); no whisper symbol compiled.
 2. `RawSegment.words` is additive: every existing coarse test passes **unchanged**; `ScriptedDecoder` is not modified.
-3. `Finalizer` emits word-precise `end_ms` when `words` is present and **byte-identical** segment-coarse output when it is empty or count-mismatched; the CAVEAT duplicate/drop failure mode has a passing regression test.
+3. `Finalizer` emits word-precise `Word`s (`time_precise=true`) when `words` is present and **byte-identical** segment-coarse output (`time_precise=false`) when it is empty or count-mismatched; the coarse seam drops precise words by `start_ms ≤ pending_max_end` and coarse words by the legacy `end_ms ≤ pending_max_end`; the lumped-divergent-overlap duplication has a passing regression test (flagship + inflated-early-word), and the pre-Plan-09 segment-coarse disagreement test stays green (mode-awareness guard).
 4. The Plan 08 `no_speech_prob` R3 gate and the append-only contract hold under word-timed input (dedicated tests).
 5. `WhisperDecoder` (feature on) sets `token_timestamps` from `SttConfig.word_timestamps` (default true) and populates `words` from token `t0`/`t1`; the real-model check is `#[ignore]`d out of CI.
 6. Hermetic live-prompt pins exist: a committed golden assembled-prompt snapshot (with a documented re-bless escape) + a deterministic grader-over-live-board assertion.
