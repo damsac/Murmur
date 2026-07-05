@@ -93,11 +93,9 @@ impl WalkSession {
     fn degraded_document(&self) -> DocumentPayload {
         let existing = {
             let store = self.store.lock().unwrap();
-            store
-                .list_artifacts_for_session(&self.session_id)
-                .unwrap_or_default()
-                .into_iter()
-                .find(|a| a.kind == "document")
+            // Scoped to the session's document artifact (carry-note 6), not a
+            // sweep of every artifact.
+            store.latest_document_artifact(&self.session_id).unwrap_or_default()
         };
         match existing.as_ref().map(convert::document_payload) {
             Some(Ok(payload)) => payload,
@@ -205,20 +203,24 @@ impl WalkSession {
             self.memory_store.clone(),
         );
         match processor.process(&self.session_id).await {
-            Ok(_) => {
+            Ok(outcome) => {
                 self.emit_board_snapshot();
-                let doc = {
-                    let store = self.store.lock().unwrap();
-                    store
-                        .list_artifacts_for_session(&self.session_id)
-                        .expect("list_artifacts_for_session")
-                        .into_iter()
-                        .find(|a| a.kind == "document")
-                };
-                match doc {
-                    // The common case: phase B ran and built a document.
-                    Some(doc) => {
-                        convert::document_payload(&doc).expect("document artifact body is valid JSON")
+                // Read EXACTLY the document this run built (carry-note 6) — never
+                // sweep the session's artifacts, so a future non-processing
+                // `document` writer can't be misread as the document.
+                match outcome.document_artifact_id {
+                    // The common case: phase B ran and built a document. If the
+                    // artifact is somehow unreadable, degrade rather than panic
+                    // across FFI (this is a bare `DocumentPayload` return).
+                    Some(id) => {
+                        let art = {
+                            let store = self.store.lock().unwrap();
+                            store.get_artifact(&id)
+                        };
+                        match art.as_ref().map(convert::document_payload) {
+                            Ok(Ok(payload)) => payload,
+                            _ => self.partial_document(false),
+                        }
                     }
                     // The empty-transcript short circuit (murmur-core's
                     // pipeline skips phase B entirely for a

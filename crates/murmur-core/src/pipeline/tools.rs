@@ -251,6 +251,12 @@ pub struct BuildDocumentTool {
 }
 
 impl BuildDocumentTool {
+    /// The forced tool name. Exposed as an associated const so the processor
+    /// can build the `ToolSpec` (name/description/schema — none of which depend
+    /// on the document number) BEFORE minting a number (D5: mint only when a
+    /// document is actually about to be written).
+    pub const NAME: &'static str = "build_document";
+
     pub fn new(store: Arc<Mutex<Store>>, session_id: &str, doc_kind: &str, doc_number: u64) -> Self {
         BuildDocumentTool {
             store,
@@ -259,15 +265,9 @@ impl BuildDocumentTool {
             doc_number,
         }
     }
-}
 
-#[async_trait::async_trait]
-impl Tool for BuildDocumentTool {
-    fn name(&self) -> &str {
-        "build_document"
-    }
-
-    fn description(&self) -> &str {
+    /// Number-independent description — see [`NAME`](Self::NAME).
+    pub fn description_str() -> &'static str {
         "Build the structured job document from this session. Put an amount only on a line \
          whose number was actually spoken — never guess. If a quantity or price was not said, \
          omit amount_cents. On a priced template an unheard amount is a gap; on a report or \
@@ -275,7 +275,8 @@ impl Tool for BuildDocumentTool {
          or a section finding with no dollar figure is not a gap."
     }
 
-    fn input_schema(&self) -> serde_json::Value {
+    /// Number-independent input schema — see [`NAME`](Self::NAME).
+    pub fn input_schema_json() -> serde_json::Value {
         serde_json::json!({
             "type": "object",
             "properties": {
@@ -300,6 +301,21 @@ impl Tool for BuildDocumentTool {
             },
             "required": ["total_kind", "total_label_key", "lines"]
         })
+    }
+}
+
+#[async_trait::async_trait]
+impl Tool for BuildDocumentTool {
+    fn name(&self) -> &str {
+        Self::NAME
+    }
+
+    fn description(&self) -> &str {
+        Self::description_str()
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        Self::input_schema_json()
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<String, HarnessError> {
