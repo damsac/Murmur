@@ -10,17 +10,18 @@ Updated when priorities shift. Either person can propose changes via PR.
 
 | Work | Owner | Status |
 |------|-------|--------|
-| Issue #2 — PR #1 review follow-ups (4 state bugs + seam hygiene) | sac | open |
-| 06-spike — whisper-rs STT benchmark (GO/KILL) | dam | plan ready (`damsac/Murmur` → `docs/superpowers/plans/2026-07-04-rust-core-06-spike-stt-benchmark.md`); needs an executor |
-| Harness patches: PPQ Bearer auth + `ANTHROPIC_BASE_URL` | sac | on sac's machine, needs a PR |
+| Issue #2 — PR #1 review follow-ups (4 state bugs + seam hygiene) | sac | open (2 of the 4 crash bugs now also guarded core-side by the 07 fixes) |
+| First real walk: configure key → run app with real core | dam | ready — everything built |
+| iPhone T5 spike tier (device RTF/battery, ~1hr, `spikes/stt-whisper/ios/README.md`) | dam | the one unretired STT GO condition |
+| STT stage-2 wiring plan (mic audio → crates/stt → append) | dam | next plan to write |
 
 ## Up Next (sequenced)
 
-1. **Plan 06 — STT** (dam; blocked on spike verdict). Also carries: items `source` column migration, swap-contract fix (clear live items only after successful process), template-keys alignment.
-2. **Plan 07 — layout protocol + FFI** (dam builds bridge, sac consumes). Replaces `DemoWalkEngine` behind `AppModel.init(engine:)`. FFI boundary at domain types; never hold the Store lock across `maybe_extract`.
+1. **STT stage-2** — mic audio → `crates/stt` → the existing append path = real voice walks. (06a/06/07 all DONE 2026-07-04: source column + swap fix, stt crate, live FFI bridge.)
+2. **Accuracy hardening**: word-level timestamps (whisper token_timestamps) fix the coarse-seam fallback; live-prompt pins in evals advance with the Plan 06a contract.
 3. **Prompt-optimization loop** on the 05b eval suite (rank on F0.5, gate on recall).
 4. **Photo attachment schema** (rides a migration after `source`).
-5. **Docs migration**: specs/plans/research from `damsac/Murmur` `pr/dam/rebuild-vision` into this repo.
+5. **07 carry notes**: doc-number gaps on failed retry; fallible MurmurEngine/begin_walk constructors; offline copy mislabel on model-skip; narrow the artifact sweep before any non-processing artifact writer exists.
 
 ## Decisions needed (joint)
 

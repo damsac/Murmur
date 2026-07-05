@@ -6,11 +6,11 @@ What dam is working on right now. Updated with every PR.
 
 ## Current focus
 
-**The rebuild — this repo.** Murmur pivoted 2026-07-01 to AI meeting notes for blue-collar field work (GC site walks, inspections). Rust core + native shells, built here in `damsac/sitewalk`. Specs, plans, and research are still in `damsac/Murmur` on `pr/dam/rebuild-vision` (docs migration here is pending).
+**The rebuild — this repo.** Murmur pivoted 2026-07-01 to AI meeting notes for blue-collar field work (GC site walks, inspections). Rust core + native shells, built here in `damsac/sitewalk`. Specs, plans, research, and mocks all live HERE now (`docs/`); `damsac/Murmur` is archive-only.
 
 dam owns: harness / murmur-core / STT / FFI. sac owns: renderers / component library / visual direction (`apps/ios/`).
 
-## Where the core is (main, 214 tests, clippy clean)
+## Where the core is (main @ 63c5ba0, 264 tests, clippy clean)
 
 | Plan | What | Status |
 |------|------|--------|
@@ -20,14 +20,19 @@ dam owns: harness / murmur-core / STT / FFI. sac owns: renderers / component lib
 | 04 | processing pipeline (two-phase extract+summary), reflection coordinator, R9 cost log | done |
 | 05 | live in-session extraction (`LiveExtractor`) — incremental passes onto the live board | done |
 | 05b | `crates/evals` — synthetic site-walk corpus + deterministic grader (F0.5, R6-weighted) | done |
-| 06-spike | STT benchmark: whisper-rs feasibility/RTF/biasing, GO-KILL exit criteria | plan ready, not run |
-| 06 | STT for real (+ items `source` column, swap-contract fix) | blocked on spike |
-| 07 | layout protocol + FFI (UniFFI) — **where the `WalkEngine` bridge lands** | queued |
+| 06-spike | STT benchmark — verdict **GO** (RTF ≪0.5 all models, +10-19pp biasing lift, append-only proven) | done; iPhone T5 tier pending (dam, ~1hr) |
+| 06a | items `source` column + atomic swap-at-finish; failed process PRESERVES live board | done |
+| 06 | `crates/stt` — whisper-rs feature-gated, chunked streaming, time-anchored dedup finalizer, initial_prompt biasing | done |
+| 07 | `crates/ffi` (UniFFI) + `MurmurEngine.swift` — **the bridge is LIVE**: app builds with the real core linked | done |
+| next | STT stage-2 wiring (mic audio → crates/stt → append path) = real VOICE walk | to plan |
 
 ## What sac should know
 
 - **PR #1 is merged** (main); review conditions carried as **issue #2** — four state-transition bugs + three seam-hygiene items.
-- **STT may move Rust-side.** iOS 26's SpeechAnalyzer dropped custom-vocabulary biasing, which our vocabulary→STT loop needs. The 06-spike benchmark decides. The `WalkEngine` seam survives either way (`append(transcript:)` takes text).
+- **STT is Rust-side — decided.** The spike GO'd whisper-rs (iOS 26's SpeechAnalyzer dropped custom vocabulary, and our biasing loop needs it). `crates/stt` is built; mic wiring (stage 2) is the next plan. Your `append(transcript:)` path works today.
+- **The real bridge is ACTIVE**: `MurmurEngine.swift` compiles against `MurmurCoreFFI`. Run `apps/ios/build-ffi.sh` once on your machine to produce the gitignored xcframework, then `xcodegen generate` — demo engine still runs by default; a configured key switches to the real core.
+- **Small change in your file**: `CapturedFixture.id` gained an explicit init (default `UUID()`) so core-assigned ids stay stable across `boardUpdated` snapshots — additive, no call-site changes.
+- **finish() edge behavior (new)**: silent walk returns a truthful empty document (queued=false, doc_number=0); double-finish returns the cached document — both no-panic by contract.
 - **HANDOFF answers**: events batched per live pass; core mints document numbers; photos need a schema migration (queued); template keys `landscape | property | inspection` proposed as canonical — needs your ack (CANON).
 - **Bridge realities**: `finish()` = `end_and_record_session` + `process()` — two-phase, budgeted <8s; live items get tombstoned and re-extracted at process time (the board "swaps" — UI should anticipate); `LiveExtractor.maybe_extract` is `&mut self`, the FFI wrapper serializes it.
 
