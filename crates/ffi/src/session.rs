@@ -42,16 +42,18 @@ pub struct WalkSession {
     stt: Option<Arc<stt::SttStream>>,
     /// DONE flush toggle (D6): when `true`, `finish()` flushes the final
     /// buffered utterance through the append path before processing.
-    // Read by finish()'s flush path in Task 4.
-    #[allow(dead_code)]
     flush_on_finish: bool,
     /// Pump-thread control (D2): the dedicated OS thread parks on the `Condvar`
     /// between polls. `finish()`/`cancel()` set `stop` + notify, then join.
     pump: Arc<(StdMutex<PumpState>, Condvar)>,
-    /// The join handle for the pump thread, taken by `stop_pump` (Task 4).
-    // Written by start_pump; read by stop_pump in Task 4.
-    #[allow(dead_code)]
+    /// The join handle for the pump thread, taken by `stop_pump`.
     pump_handle: StdMutex<Option<std::thread::JoinHandle<()>>>,
+    /// Set by the FIRST of `finish()`/`cancel()` to run. Guards the two
+    /// lifecycle exits against each other: a `cancel()` after `finish()` (or a
+    /// double-`cancel()`) is a harmless no-op, and a `finish()` after
+    /// `cancel()` degrades instead of resurrecting/reprocessing a tombstoned
+    /// session.
+    terminated: std::sync::atomic::AtomicBool,
 }
 
 /// Shared state the pump thread parks on. `wake` = new PCM was pushed; `stop`
@@ -59,9 +61,24 @@ pub struct WalkSession {
 #[derive(Default)]
 struct PumpState {
     wake: bool,
-    // Set by stop_pump in Task 4; the pump loop already breaks on it.
-    #[allow(dead_code)]
     stop: bool,
+}
+
+/// Assemble the ≤100-term STT bias vocabulary at `begin_walk` (D8): the user's
+/// memory `vocabulary` section plus an optional small per-template seed, capped
+/// at `SttConfig::max_bias_terms`. Reads an existing memory section — no new
+/// memory plumbing. `template` is reserved for a future per-template seed list;
+/// v1 seeds nothing template-specific.
+// Wired into begin_walk's whisper-stream construction in Task 5.
+#[allow(dead_code)]
+fn collect_bias_terms(memory: &Memory, _template: Option<&str>) -> Vec<String> {
+    let max = stt::SttConfig::default().max_bias_terms;
+    memory
+        .section_texts("vocabulary")
+        .into_iter()
+        .map(str::to_string)
+        .take(max)
+        .collect()
 }
 
 impl WalkSession {
@@ -93,6 +110,7 @@ impl WalkSession {
             flush_on_finish,
             pump: Arc::new((StdMutex::new(PumpState::default()), Condvar::new())),
             pump_handle: StdMutex::new(None),
+            terminated: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -216,6 +234,63 @@ impl WalkSession {
     fn emit(&self, event: WalkEvent) {
         if let Some(listener) = self.listener.lock().unwrap().clone() {
             listener.on_event(event);
+        }
+    }
+
+    /// Stop the pump thread and JOIN it — the single teardown shared by the
+    /// two lifecycle exits `finish()` and `cancel()` (findings 2/3). The pump's
+    /// `poll()` runs a long BLOCKING Metal decode, so a bare `.join()` inside an
+    /// async fn would block a tokio worker for the duration of an in-flight
+    /// decode. Instead we set `stop` + notify, then perform the `join()` on the
+    /// blocking pool via `spawn_blocking` — off the async workers (and, for
+    /// `cancel()` from Swift's detached `Task`, off the main actor). Returning
+    /// from here GUARANTEES the pump is fully stopped, so no detached thread can
+    /// call `append_transcript` while we then flush / `delete_session` / process.
+    /// Idempotent: a second call finds no handle and no-ops.
+    async fn stop_pump(&self) {
+        {
+            let (lock, cvar) = &*self.pump;
+            let mut state = lock.lock().unwrap();
+            state.stop = true;
+            cvar.notify_all();
+        }
+        let handle = self.pump_handle.lock().unwrap().take();
+        if let Some(handle) = handle {
+            let _ = tokio::task::spawn_blocking(move || handle.join()).await;
+        }
+    }
+
+    /// Flush the final buffered utterance through the transcript on DONE (D6).
+    /// Called by `finish()` AFTER `stop_pump()` (so the pump can't race) and
+    /// while the extractor mutex is held — so the flushed text is written with a
+    /// DIRECT scoped `Store::append_transcript`, NOT the async tick (a tick would
+    /// deadlock on the held extractor mutex, D3b). The authoritative `process()`
+    /// then reads a transcript that includes the last utterance. A decode error
+    /// is logged and skipped — never fatal across FFI.
+    fn flush_stt(&self) {
+        let Some(stt) = self.stt.as_ref() else { return };
+        let segs = match stt.end() {
+            Ok(segs) => segs,
+            Err(e) => {
+                eprintln!("murmur-ffi: stt flush decode error (session {}): {e}", self.session_id);
+                return;
+            }
+        };
+        let mut flushed = String::new();
+        if let Ok(store) = self.store.lock() {
+            for seg in &segs {
+                if seg.text.trim().is_empty() {
+                    continue;
+                }
+                let chunk = format!("{} ", seg.text);
+                let _ = store.append_transcript(&self.session_id, &chunk);
+                flushed.push_str(&chunk);
+            }
+        }
+        // A final committed event for the UI (the board is refreshed by the
+        // authoritative process() swap that follows).
+        if !flushed.is_empty() {
+            self.emit(WalkEvent::TranscriptCommitted { text: flushed });
         }
     }
 
@@ -422,6 +497,22 @@ impl WalkSession {
         // can interleave with end-of-session processing.
         let _tick_guard = self.extractor.lock().await;
 
+        // Lifecycle guard: a second finish() (or a finish() after cancel())
+        // degrades to the already-built document rather than reprocessing or
+        // resurrecting a tombstoned session.
+        if self.terminated.swap(true, Ordering::SeqCst) {
+            return self.degraded_document();
+        }
+
+        // Stop the pump (spawn_blocking join — never blocks a worker), THEN
+        // flush the final utterance so process() reads the complete transcript
+        // (D6). Both happen while the tick guard is held. Order: stop → flush →
+        // end_and_record → process.
+        self.stop_pump().await;
+        if self.flush_on_finish {
+            self.flush_stt();
+        }
+
         let ended = {
             let store = self.store.lock().unwrap();
             store.end_and_record_session(&self.session_id)
@@ -468,6 +559,35 @@ impl WalkSession {
             // Processed, so there's real pending work — queued: true.
             Err(_) => self.partial_document(true),
         }
+    }
+
+    /// DISCARD (findings 2 + issue #3): stop the pump AND tombstone the session.
+    /// The close cousin of `finish()` — SAME shape (async, tick-guard-holding,
+    /// `stop_pump().await`) differing only in the tail (`delete_session` instead
+    /// of `process()`). Async, NOT a sync export: Swift calls it from a detached
+    /// `Task` in `discardWalk()`, and the pump join can land mid-decode — a sync
+    /// export would block the UI thread. Idempotent: a second `cancel()`, or a
+    /// `cancel()` after `finish()`, is a harmless no-op.
+    pub async fn cancel(self: Arc<Self>) {
+        if self.terminated.swap(true, Ordering::SeqCst) {
+            return; // already finished or cancelled — nothing to do
+        }
+        // Exclude ticks (D3b), then stop the pump deterministically before we
+        // touch the store — no detached thread can append mid-tombstone.
+        let _tick_guard = self.extractor.lock().await;
+        self.stop_pump().await;
+        // Tombstone via the EXISTING cascade delete: it removes the session +
+        // its items + its artifacts in one transaction (the COMPLETE issue #3
+        // fix — a bare "Abandoned" status would leave zombie items). A stale
+        // tick that slips through later fails cleanly at get_session's
+        // `deleted_at IS NULL` filter.
+        if let Ok(store) = self.store.lock() {
+            let _ = store.delete_session(&self.session_id);
+        }
+        // Release the foreign listener. The pump thread (which held its own
+        // Arc<WalkSession>) has exited via stop_pump, so the Arc cycle is
+        // already broken and the session frees once Swift drops its handle.
+        *self.listener.lock().unwrap() = None;
     }
 }
 
@@ -861,6 +981,141 @@ mod tests {
         let session = test_session(sid, store, extractor, Arc::new(MockProvider::new(vec![])), memory);
         // `stt: None` → push_audio does nothing and never panics.
         session.clone().push_audio(vec![0.0; 16_000]);
+    }
+
+    /// A ScriptedDecoder SttStream whose LAST utterance ("today") straddles the
+    /// final horizon and is only finalized by `end()` — so the flush path is
+    /// observable: with flush, "today" reaches the transcript; without, it does
+    /// not. Mirrors the stt crate's `poll_finalizes_incrementally_and_end_flushes`.
+    fn scripted_flush_stt() -> Arc<stt::SttStream> {
+        use stt::{RawSegment, ScriptedDecoder, SttConfig, SttStream};
+        let seg = |cs0: i64, cs1: i64, t: &str| RawSegment { start_cs: cs0, end_cs: cs1, text: t.into() };
+        let decoder = ScriptedDecoder::new(vec![
+            vec![seg(0, 180, "order twelve"), seg(180, 360, "two by tens"), seg(360, 480, "for the")],
+            vec![seg(0, 80, "for the"), seg(80, 300, "deck framing"), seg(300, 480, "today")],
+            vec![seg(0, 80, "today")], // flush window: only end() decodes this
+        ]);
+        Arc::new(SttStream::with_decoder(Box::new(decoder), SttConfig::default(), &[]))
+    }
+
+    /// Push audio and wait until the pump has emitted its first
+    /// TranscriptCommitted — proof the pump drained the ready windows and
+    /// appended before we finish/cancel (removes the pump-vs-teardown race).
+    async fn push_and_await_commit(session: &Arc<WalkSession>, rx: &mut mpsc::UnboundedReceiver<WalkEvent>) {
+        session.clone().push_audio(vec![0.0; 144_000]);
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                match rx.recv().await {
+                    Some(WalkEvent::TranscriptCommitted { .. }) => return,
+                    Some(_) => continue,
+                    None => panic!("channel closed before a TranscriptCommitted"),
+                }
+            }
+        })
+        .await
+        .expect("pump did not commit finalized text in time");
+    }
+
+    fn flush_test_session(flush_on_finish: bool) -> (Arc<WalkSession>, String, Arc<StdMutex<Store>>) {
+        let store = Store::open_in_memory("device-a").unwrap();
+        let sid = store.start_session(None).unwrap().id;
+        let store = Arc::new(StdMutex::new(store));
+        let memory = Arc::new(StdMutex::new(Memory::default()));
+        let mut extractor = LiveExtractor::new(
+            Arc::new(MockProvider::new(vec![])),
+            store.clone(),
+            memory.clone(),
+            &sid,
+        );
+        // Keep the live extractor quiet — this test is about the flush, not ticks.
+        extractor.min_new_chars = 100_000;
+        let session = WalkSession::new_audio_test_session(
+            sid.clone(),
+            store.clone(),
+            extractor,
+            Arc::new(MockProvider::new(vec![])),
+            memory,
+            Arc::new(NullMemoryStore),
+            tokio::runtime::Handle::current(),
+            Some("landscape".into()),
+            scripted_flush_stt(),
+            flush_on_finish,
+        );
+        (session, sid, store)
+    }
+
+    #[tokio::test]
+    async fn finish_flushes_the_final_utterance_by_default() {
+        let (session, sid, store) = flush_test_session(true);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        session.clone().set_event_listener(Arc::new(ChannelListener(tx)));
+        push_and_await_commit(&session, &mut rx).await;
+
+        session.clone().finish().await;
+
+        let transcript = store.lock().unwrap().get_session(&sid).unwrap().transcript;
+        assert!(transcript.contains("deck framing"), "live-pass text is present: {transcript:?}");
+        assert!(transcript.contains("today"), "flush finalized the last utterance (D6): {transcript:?}");
+    }
+
+    #[tokio::test]
+    async fn finish_without_flush_drops_the_final_utterance() {
+        let (session, sid, store) = flush_test_session(false);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        session.clone().set_event_listener(Arc::new(ChannelListener(tx)));
+        push_and_await_commit(&session, &mut rx).await;
+
+        session.clone().finish().await;
+
+        let transcript = store.lock().unwrap().get_session(&sid).unwrap().transcript;
+        assert!(transcript.contains("deck framing"), "live-pass text is still present: {transcript:?}");
+        assert!(!transcript.contains("today"), "speed path does NOT flush the held tail: {transcript:?}");
+    }
+
+    #[tokio::test]
+    async fn cancel_stops_the_pump_and_tombstones_the_session() {
+        let (session, sid, store) = flush_test_session(true);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        session.clone().set_event_listener(Arc::new(ChannelListener(tx)));
+        push_and_await_commit(&session, &mut rx).await;
+
+        session.clone().cancel().await;
+
+        // (b) the session is tombstoned — get_session's `deleted_at IS NULL`
+        // filter now returns NotFound.
+        assert!(
+            store.lock().unwrap().get_session(&sid).is_err(),
+            "cancel() must tombstone the session (issue #3)"
+        );
+        // (a) the pump has exited: drain any events buffered before cancel, then
+        // a further push produces no NEW event (nothing polls the stream).
+        while rx.try_recv().is_ok() {}
+        session.clone().push_audio(vec![0.0; 144_000]);
+        let after = tokio::time::timeout(std::time::Duration::from_millis(300), rx.recv()).await;
+        // Either a timeout (Err) or a closed channel (Ok(None), since cancel drops
+        // the listener) — but NEVER a new event: the pump has stopped.
+        assert!(!matches!(after, Ok(Some(_))), "no new event after cancel — the pump has stopped");
+
+        // Idempotent: a second cancel(), and a finish() after cancel(), do not panic.
+        session.clone().cancel().await;
+        let _ = session.clone().finish().await;
+    }
+
+    #[tokio::test]
+    async fn bias_terms_from_memory_vocabulary() {
+        let mut memory = Memory::default();
+        memory.remember("vocabulary", "french drain", 0);
+        memory.remember("vocabulary", "ledger board", 0);
+        memory.remember("people", "not a term", 0);
+        let terms = collect_bias_terms(&memory, Some("landscape"));
+        assert_eq!(terms, vec!["french drain".to_string(), "ledger board".to_string()]);
+
+        // Cap at SttConfig::max_bias_terms (100).
+        let mut big = Memory::default();
+        for i in 0..150 {
+            big.remember("vocabulary", &format!("term{i}"), 0);
+        }
+        assert_eq!(collect_bias_terms(&big, None).len(), 100);
     }
 
     #[tokio::test]
