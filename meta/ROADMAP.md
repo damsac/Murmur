@@ -18,7 +18,7 @@ Updated when priorities shift. Either person can propose changes via PR.
 
 1. **Plan 08 Part C** — noise robustness (see Active).
 2. **Rebuild-era TestFlight pipeline** — release.yml is Era-I, manual-only; a real apps/ios pipeline is required before the next external build.
-3. **Accuracy hardening**: word-level timestamps (whisper token_timestamps) fix the coarse-seam fallback; live-prompt pins in evals advance with the Plan 06a contract.
+3. **Accuracy hardening** (Plan 09): thread 1 (word-level timestamps) **landed** — `token_timestamps` → per-word timing → word-anchored coarse-seam drop, degrading to segment-coarse when absent/mismatched; thread 2 (live-prompt pins) **landed as scaffolding** — golden assembled-prompt snapshot + grader-over-live-board, hermetic. The real-API live-grading extension (non-circular F0.5 movement) is **flagged/deferred** to the optimization loop (item 4). The SNR sweep rerun (`--token-timestamps`, WER/RTF delta + the `word_timestamps: true` default verdict) is **device-gated for dam** (Task 7).
 4. **Prompt-optimization loop** on the 05b eval suite (rank on F0.5, gate on recall).
 5. **Photo attachment schema** (rides a migration after `source`).
 
