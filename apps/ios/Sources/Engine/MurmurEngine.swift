@@ -98,14 +98,19 @@ final class MurmurEngine: WalkEngine {
 
         // beginWalk is fallible across FFI now (store lock / session insert).
         // On failure, hand back a stream that finishes immediately rather than
-        // crashing — capture degrades safely (no session set → append/finish
-        // are no-ops returning the empty document).
+        // crashing. `session` must also be nil'd out: a prior walk that ended
+        // via discardWalk() never calls finish(), so its session survives here
+        // — without the nil, this walk's append/finish would silently operate
+        // on that stale prior session instead of no-op'ing. With it, append is
+        // a no-op and finish() returns the empty document, for first and
+        // subsequent walks alike.
         let newSession: FFIWalkSession
         do {
             newSession = try engine.beginWalk(jobId: nil, template: trade.key) // template key = trade.key (D4)
         } catch {
             continuation?.finish()
             self.continuation = nil
+            self.session = nil
             return stream
         }
         newSession.setEventListener(listener: BoardListener { [weak self] items in
