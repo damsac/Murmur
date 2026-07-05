@@ -2,7 +2,7 @@
 //! events (Plan 07 D3/D7).
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Condvar, Mutex as StdMutex};
 
 use harness::{LlmProvider, Memory, MemoryStore};
 use murmur_core::{doc_kind_for_template, LiveExtractOutcome, LiveExtractor, SessionProcessor, Store};
@@ -36,6 +36,33 @@ pub struct WalkSession {
     /// `tick_store_fault_count()` so the UI can show a "capture degraded" hint.
     /// Never crashes the tick loop.
     tick_store_faults: AtomicU64,
+    /// The STT stream, present only for audio sessions (D3). `None` → a
+    /// text-only walk (Plan 07 path, unchanged): `push_audio` is a no-op and
+    /// no pump thread is spawned.
+    // Task 1: slot only; read by push_audio + the pump in Task 2.
+    #[allow(dead_code)]
+    stt: Option<Arc<stt::SttStream>>,
+    /// DONE flush toggle (D6): when `true`, `finish()` flushes the final
+    /// buffered utterance through the append path before processing.
+    #[allow(dead_code)]
+    flush_on_finish: bool,
+    /// Pump-thread control (D2): the dedicated OS thread parks on the `Condvar`
+    /// between polls. `finish()`/`cancel()` set `stop` + notify, then join.
+    #[allow(dead_code)]
+    pump: Arc<(StdMutex<PumpState>, Condvar)>,
+    /// The join handle for the pump thread, taken by `stop_pump`.
+    #[allow(dead_code)]
+    pump_handle: StdMutex<Option<std::thread::JoinHandle<()>>>,
+}
+
+/// Shared state the pump thread parks on. `wake` = new PCM was pushed; `stop`
+/// = the session is finishing/cancelling and the pump must exit.
+// Task 1: fields read by the pump loop in Task 2.
+#[derive(Default)]
+#[allow(dead_code)]
+struct PumpState {
+    wake: bool,
+    stop: bool,
 }
 
 impl WalkSession {
@@ -49,6 +76,8 @@ impl WalkSession {
         memory_store: Arc<dyn MemoryStore>,
         runtime_handle: tokio::runtime::Handle,
         template: Option<String>,
+        stt: Option<Arc<stt::SttStream>>,
+        flush_on_finish: bool,
     ) -> Arc<Self> {
         Arc::new(WalkSession {
             session_id,
@@ -61,6 +90,10 @@ impl WalkSession {
             runtime_handle,
             template,
             tick_store_faults: AtomicU64::new(0),
+            stt,
+            flush_on_finish,
+            pump: Arc::new((StdMutex::new(PumpState::default()), Condvar::new())),
+            pump_handle: StdMutex::new(None),
         })
     }
 
@@ -166,6 +199,8 @@ impl MurmurEngine {
             self.memory.clone(),
             &session_id,
         );
+        // Task 1: no audio stream yet (text-only path unchanged). Task 5 wires
+        // the real whisper stream + pump here.
         Ok(WalkSession::new(
             session_id,
             self.store.clone(),
@@ -175,6 +210,8 @@ impl MurmurEngine {
             self.memory_store.clone(),
             self.runtime_handle.clone(),
             Some(template),
+            None,
+            true,
         ))
     }
 }
@@ -397,6 +434,8 @@ mod tests {
             Arc::new(NullMemoryStore),
             tokio::runtime::Handle::current(),
             Some("landscape".into()),
+            None,
+            true,
         )
     }
 

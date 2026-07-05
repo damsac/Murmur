@@ -39,6 +39,12 @@ pub struct EngineConfig {
     pub model_live: String,
     pub model_processing: String,
     pub model_reflection: String,
+    /// Absolute path to the bundled whisper GGML model (D5). `None` → the walk
+    /// runs text-only (no audio ingest). Not secret: fine to print in `Debug`.
+    pub stt_model_path: Option<String>,
+    /// DONE flush-vs-speed toggle (D6). `true` (default) flushes the final
+    /// buffered utterance through the append path before processing.
+    pub stt_flush_on_finish: bool,
 }
 
 impl std::fmt::Debug for EngineConfig {
@@ -51,6 +57,8 @@ impl std::fmt::Debug for EngineConfig {
             .field("model_live", &self.model_live)
             .field("model_processing", &self.model_processing)
             .field("model_reflection", &self.model_reflection)
+            .field("stt_model_path", &self.stt_model_path)
+            .field("stt_flush_on_finish", &self.stt_flush_on_finish)
             .finish()
     }
 }
@@ -179,8 +187,33 @@ mod tests {
             model_live: "claude-haiku-4-5".into(),
             model_processing: "claude-sonnet-4-5".into(),
             model_reflection: "claude-haiku-4-5".into(),
+            stt_model_path: Some("/bundle/ggml-base.en-q5_1.bin".into()),
+            stt_flush_on_finish: true,
         };
-        assert!(!format!("{cfg:?}").contains("sk-super-secret"), "api key must never be printable");
+        let printed = format!("{cfg:?}");
+        assert!(!printed.contains("sk-super-secret"), "api key must never be printable");
+        // The new STT fields are not secret — they SHOULD print.
+        assert!(printed.contains("ggml-base.en-q5_1.bin"), "model path is fine to print");
+        assert!(printed.contains("stt_flush_on_finish"));
+    }
+
+    #[test]
+    fn stt_defaults_are_sane() {
+        // A config with no STT model path builds providers normally — the STT
+        // fields are additive and don't disturb the existing provider wiring.
+        let cfg = EngineConfig {
+            db_path: ":memory:".into(),
+            device_id: "dev".into(),
+            api_key: "sk-test".into(),
+            base_url: None,
+            model_live: "claude-haiku-4-5".into(),
+            model_processing: "claude-sonnet-4-5".into(),
+            model_reflection: "claude-haiku-4-5".into(),
+            stt_model_path: None,
+            stt_flush_on_finish: true,
+        };
+        let providers = build_providers(&cfg);
+        assert!(Arc::ptr_eq(&providers.live, &providers.reflection));
     }
 
     #[test]
@@ -196,6 +229,8 @@ mod tests {
             model_live: "claude-haiku-4-5".into(),
             model_processing: "claude-sonnet-4-5".into(),
             model_reflection: "claude-haiku-4-5".into(),
+            stt_model_path: None,
+            stt_flush_on_finish: true,
         };
         assert!(matches!(MurmurEngine::new(cfg), Err(EngineError::Store(_))));
     }
@@ -210,6 +245,8 @@ mod tests {
             model_live: "claude-haiku-4-5".into(),
             model_processing: "claude-sonnet-4-5".into(),
             model_reflection: "claude-haiku-4-5".into(),
+            stt_model_path: None,
+            stt_flush_on_finish: true,
         };
         let providers = build_providers(&cfg);
         assert!(Arc::ptr_eq(&providers.live, &providers.reflection), "same model shares one Arc");

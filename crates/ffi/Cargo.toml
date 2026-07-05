@@ -15,6 +15,10 @@ crate-type = ["cdylib", "staticlib", "lib"]
 uniffi = { version = "0.28", features = ["tokio"] }
 murmur-core = { path = "../murmur-core" }
 harness = { path = "../harness" }
+# `stt` is an ALWAYS-ON path dependency: its pure logic (SttStream, ScriptedDecoder,
+# Chunker, Finalizer, build_bias_prompt) has no native deps and is needed for the
+# pump wiring + hermetic tests. Only the real WhisperDecoder is behind `whisper`.
+stt = { path = "../stt" }
 tokio = { workspace = true, features = ["sync"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -29,6 +33,9 @@ async-trait = { workspace = true }
 # cdylib/staticlib built for iOS.
 [features]
 uniffi-bindgen-cli = ["uniffi/cli"]
+# Forwards to stt/whisper — only the app/FFI build enables this (build-ffi.sh);
+# `cargo test --workspace` stays feature-off/hermetic (no model, no cmake, no Metal).
+whisper = ["stt/whisper"]
 
 [[bin]]
 name = "uniffi-bindgen"
