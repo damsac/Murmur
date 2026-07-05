@@ -39,29 +39,28 @@ pub struct WalkSession {
     /// The STT stream, present only for audio sessions (D3). `None` → a
     /// text-only walk (Plan 07 path, unchanged): `push_audio` is a no-op and
     /// no pump thread is spawned.
-    // Task 1: slot only; read by push_audio + the pump in Task 2.
-    #[allow(dead_code)]
     stt: Option<Arc<stt::SttStream>>,
     /// DONE flush toggle (D6): when `true`, `finish()` flushes the final
     /// buffered utterance through the append path before processing.
+    // Read by finish()'s flush path in Task 4.
     #[allow(dead_code)]
     flush_on_finish: bool,
     /// Pump-thread control (D2): the dedicated OS thread parks on the `Condvar`
     /// between polls. `finish()`/`cancel()` set `stop` + notify, then join.
-    #[allow(dead_code)]
     pump: Arc<(StdMutex<PumpState>, Condvar)>,
-    /// The join handle for the pump thread, taken by `stop_pump`.
+    /// The join handle for the pump thread, taken by `stop_pump` (Task 4).
+    // Written by start_pump; read by stop_pump in Task 4.
     #[allow(dead_code)]
     pump_handle: StdMutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 /// Shared state the pump thread parks on. `wake` = new PCM was pushed; `stop`
-/// = the session is finishing/cancelling and the pump must exit.
-// Task 1: fields read by the pump loop in Task 2.
+/// = the session is finishing/cancelling and the pump must exit (Task 4).
 #[derive(Default)]
-#[allow(dead_code)]
 struct PumpState {
     wake: bool,
+    // Set by stop_pump in Task 4; the pump loop already breaks on it.
+    #[allow(dead_code)]
     stop: bool,
 }
 
@@ -95,6 +94,105 @@ impl WalkSession {
             pump: Arc::new((StdMutex::new(PumpState::default()), Condvar::new())),
             pump_handle: StdMutex::new(None),
         })
+    }
+
+    /// Test-support constructor injecting a `ScriptedDecoder`-backed
+    /// `SttStream` so the pump + append wiring is exercised hermetically (no
+    /// model, no `whisper` feature, no mic). `pub`, not `#[cfg(test)]`, because
+    /// an integration-test binary (`tests/audio_pump_e2e.rs`) compiles this
+    /// crate as an ordinary dependency and needs to call it — same reasoning as
+    /// `MurmurEngine::with_providers`. Starts the pump before returning.
+    #[doc(hidden)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_audio_test_session(
+        session_id: String,
+        store: Arc<StdMutex<Store>>,
+        extractor: LiveExtractor,
+        processing_provider: Arc<dyn LlmProvider>,
+        memory: Arc<StdMutex<Memory>>,
+        memory_store: Arc<dyn MemoryStore>,
+        runtime_handle: tokio::runtime::Handle,
+        template: Option<String>,
+        stt: Arc<stt::SttStream>,
+        flush_on_finish: bool,
+    ) -> Arc<Self> {
+        let session = WalkSession::new(
+            session_id,
+            store,
+            extractor,
+            processing_provider,
+            memory,
+            memory_store,
+            runtime_handle,
+            template,
+            Some(stt),
+            flush_on_finish,
+        );
+        session.clone().start_pump();
+        session
+    }
+
+    /// Spawn the dedicated STT pump thread (D2) — one OS thread per audio
+    /// session. No-op for a text-only (`stt: None`) session. The thread parks
+    /// on the `Condvar` between polls (cheap when idle) and owns its own
+    /// `Arc<WalkSession>`, so a session is never freed until the pump exits
+    /// (`finish()`/`cancel()` are the only two exits — Task 4).
+    fn start_pump(self: &Arc<Self>) {
+        if self.stt.is_none() {
+            return;
+        }
+        let session = self.clone();
+        let pump = self.pump.clone();
+        let handle = std::thread::spawn(move || {
+            let (lock, cvar) = &*pump;
+            loop {
+                // 1. Park until new PCM (`wake`) or shutdown (`stop`).
+                let mut state = lock.lock().unwrap();
+                while !state.wake && !state.stop {
+                    state = cvar.wait(state).unwrap();
+                }
+                if state.stop {
+                    break;
+                }
+                state.wake = false;
+                drop(state); // release before the long decode
+
+                // 2. Poll the STT stream — the long, BLOCKING Metal decode.
+                // Lock order (D2): `poll()` takes and RELEASES SttStream's
+                // internal engine→input locks and returns the segments before
+                // `feed_segments`/`append_transcript` runs, so the STT engine
+                // lock is never held across the Store/extractor locks — no lock
+                // inversion, no new deadlock surface.
+                let stt = match session.stt.as_ref() {
+                    Some(s) => s,
+                    None => break, // unreachable (guarded above) but never panic
+                };
+                match stt.poll() {
+                    Ok(segs) => session.feed_segments(segs),
+                    // A decode error must NOT kill the pump (capture-never-lost):
+                    // log and continue to the next poll.
+                    Err(e) => eprintln!(
+                        "murmur-ffi: stt pump decode error (session {}): {e}",
+                        session.session_id
+                    ),
+                }
+            }
+        });
+        *self.pump_handle.lock().unwrap() = Some(handle);
+    }
+
+    /// Feed finalized STT segments into the EXISTING append path (D2). Shared
+    /// by the pump loop and the `finish()` flush (Task 4). Non-empty finalized
+    /// text only — extraction sees finalized text exactly as the Swift text
+    /// path delivered it. Task 3 adds the transcript-event emission here.
+    fn feed_segments(self: &Arc<Self>, segs: Vec<stt::FinalizedSegment>) {
+        for seg in &segs {
+            if seg.text.trim().is_empty() {
+                continue;
+            }
+            // The SAME text that feeds extraction is what the UI commits (D4).
+            self.clone().append_transcript(format!("{} ", seg.text));
+        }
     }
 
     /// Records a store fault a tick would otherwise swallow (carry-note 4).
@@ -254,6 +352,22 @@ impl WalkSession {
                 Err(e) => session.record_tick_fault(&format!("maybe_extract: {e}")),
             }
         });
+    }
+
+    /// Enqueue mic PCM for the STT pump (D1/D2). A CHEAP enqueue: buffers the
+    /// samples under a short lock and wakes the pump thread — the long Metal
+    /// decode happens on the pump thread, never here. No-op for a text-only
+    /// (`stt: None`) session. Must not block: Swift calls this from a
+    /// background task fed by the audio render thread.
+    pub fn push_audio(self: Arc<Self>, samples: Vec<f32>) {
+        let Some(stt) = self.stt.as_ref() else {
+            return; // text-only session — the append path handles the walk
+        };
+        stt.push_pcm(&samples);
+        let (lock, cvar) = &*self.pump;
+        let mut state = lock.lock().unwrap();
+        state.wake = true;
+        cvar.notify_one();
     }
 
     /// Number of store faults swallowed by fire-and-forget live ticks so far
@@ -561,6 +675,92 @@ mod tests {
             1,
             "a store fault in the tick must be counted (surfaced), not silently swallowed"
         );
+    }
+
+    /// A `ScriptedDecoder`-backed audio session (no model, no feature): pushing
+    /// PCM drives the pump, whose finalized text reaches the EXISTING append
+    /// path and produces exactly the same board tick a text append would.
+    fn scripted_audio_stt() -> Arc<stt::SttStream> {
+        use stt::{RawSegment, ScriptedDecoder, SttConfig, SttStream};
+        // Realistic time-shifted composition (Plan 06): window k+1 restarts at
+        // chunk-relative cs=0; only the 1 s overlap repeats. 9 s of PCM → both
+        // 5 s/1 s windows drained in one poll().
+        let seg = |cs0: i64, cs1: i64, t: &str| RawSegment { start_cs: cs0, end_cs: cs1, text: t.into() };
+        let decoder = ScriptedDecoder::new(vec![
+            vec![seg(0, 180, "order twelve"), seg(180, 360, "two by tens"), seg(360, 480, "for the")],
+            vec![seg(0, 80, "for the"), seg(80, 300, "deck framing"), seg(300, 480, "today")],
+        ]);
+        Arc::new(SttStream::with_decoder(Box::new(decoder), SttConfig::default(), &[]))
+    }
+
+    #[tokio::test]
+    async fn push_audio_pumps_stt_and_feeds_the_append_path() {
+        let store = Store::open_in_memory("device-a").unwrap();
+        let sid = store.start_session(None).unwrap().id;
+        let store = Arc::new(StdMutex::new(store));
+        let memory = Arc::new(StdMutex::new(Memory::default()));
+
+        let mut extractor = LiveExtractor::new(
+            Arc::new(MockProvider::new(vec![
+                tool_use("add_item", serde_json::json!({"kind": "todo", "text": "order lumber"})),
+                end_turn("captured"),
+            ])),
+            store.clone(),
+            memory.clone(),
+            &sid,
+        );
+        extractor.min_new_chars = 1;
+
+        let session = WalkSession::new_audio_test_session(
+            sid,
+            store,
+            extractor,
+            Arc::new(MockProvider::new(vec![])),
+            memory,
+            Arc::new(NullMemoryStore),
+            tokio::runtime::Handle::current(),
+            Some("landscape".into()),
+            scripted_audio_stt(),
+            true,
+        );
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        session.clone().set_event_listener(Arc::new(ChannelListener(tx)));
+
+        // 9 s of PCM → the pump wakes, polls, drains both windows, and feeds
+        // the finalized text through append_transcript → a live tick.
+        session.clone().push_audio(vec![0.0; 144_000]);
+
+        // The pump's finalized text drives a live tick → one BoardUpdated.
+        let event = tokio::time::timeout(std::time::Duration::from_secs(3), rx.recv())
+            .await
+            .expect("pump did not drive a board tick in time")
+            .expect("channel closed without an event");
+        let WalkEvent::BoardUpdated { items } = event;
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].text, "order lumber");
+
+        // A second push after the first tick must not hang (no deadlock): the
+        // pump has no more scripted windows, so poll() is a no-op.
+        session.clone().push_audio(vec![0.0; 1000]);
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(300), rx.recv()).await;
+    }
+
+    #[tokio::test]
+    async fn push_audio_on_a_text_only_session_is_a_noop() {
+        let store = Store::open_in_memory("device-a").unwrap();
+        let sid = store.start_session(None).unwrap().id;
+        let store = Arc::new(StdMutex::new(store));
+        let memory = Arc::new(StdMutex::new(Memory::default()));
+        let extractor = LiveExtractor::new(
+            Arc::new(MockProvider::new(vec![])),
+            store.clone(),
+            memory.clone(),
+            &sid,
+        );
+        let session = test_session(sid, store, extractor, Arc::new(MockProvider::new(vec![])), memory);
+        // `stt: None` → push_audio does nothing and never panics.
+        session.clone().push_audio(vec![0.0; 16_000]);
     }
 
     #[tokio::test]
