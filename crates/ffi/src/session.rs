@@ -186,12 +186,36 @@ impl WalkSession {
     /// text only — extraction sees finalized text exactly as the Swift text
     /// path delivered it. Task 3 adds the transcript-event emission here.
     fn feed_segments(self: &Arc<Self>, segs: Vec<stt::FinalizedSegment>) {
+        let mut committed = String::new();
         for seg in &segs {
             if seg.text.trim().is_empty() {
                 continue;
             }
             // The SAME text that feeds extraction is what the UI commits (D4).
-            self.clone().append_transcript(format!("{} ", seg.text));
+            let chunk = format!("{} ", seg.text);
+            committed.push_str(&chunk);
+            self.clone().append_transcript(chunk);
+        }
+        // One TranscriptCommitted per pump pass carrying all finalized text —
+        // synchronous from the pump (the board tick is async on runtime_handle;
+        // this event is independent of it). Same string that fed extraction.
+        if !committed.is_empty() {
+            self.emit(WalkEvent::TranscriptCommitted { text: committed });
+        }
+        // The greyed preview tail (D4): never persisted, never extracted.
+        if let Some(stt) = self.stt.as_ref() {
+            let tail = stt.preview_tail();
+            if !tail.is_empty() {
+                self.emit(WalkEvent::TranscriptPreview { text: tail });
+            }
+        }
+    }
+
+    /// Deliver one event to the listener (if any). Central so the pump's
+    /// transcript events and the board snapshot share one code path.
+    fn emit(&self, event: WalkEvent) {
+        if let Some(listener) = self.listener.lock().unwrap().clone() {
+            listener.on_event(event);
         }
     }
 
@@ -582,7 +606,9 @@ mod tests {
             .await
             .expect("tick did not fire in time")
             .expect("channel closed without an event");
-        let WalkEvent::BoardUpdated { items } = event;
+        let WalkEvent::BoardUpdated { items } = event else {
+            panic!("expected BoardUpdated, got {event:?}");
+        };
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].text, "order lumber");
     }
@@ -622,7 +648,9 @@ mod tests {
             .await
             .expect("tick did not fire in time")
             .expect("channel closed without an event");
-        let WalkEvent::BoardUpdated { items } = event;
+        let WalkEvent::BoardUpdated { items } = event else {
+            panic!("expected BoardUpdated, got {event:?}");
+        };
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].text, "order lumber");
 
@@ -731,12 +759,19 @@ mod tests {
         // the finalized text through append_transcript → a live tick.
         session.clone().push_audio(vec![0.0; 144_000]);
 
-        // The pump's finalized text drives a live tick → one BoardUpdated.
-        let event = tokio::time::timeout(std::time::Duration::from_secs(3), rx.recv())
-            .await
-            .expect("pump did not drive a board tick in time")
-            .expect("channel closed without an event");
-        let WalkEvent::BoardUpdated { items } = event;
+        // The pump's finalized text drives a live tick → one BoardUpdated
+        // (transcript events also share the channel — skip them here).
+        let items = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                match rx.recv().await {
+                    Some(WalkEvent::BoardUpdated { items }) => return items,
+                    Some(_) => continue,
+                    None => panic!("channel closed without a BoardUpdated"),
+                }
+            }
+        })
+        .await
+        .expect("pump did not drive a board tick in time");
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].text, "order lumber");
 
@@ -744,6 +779,71 @@ mod tests {
         // pump has no more scripted windows, so poll() is a no-op.
         session.clone().push_audio(vec![0.0; 1000]);
         let _ = tokio::time::timeout(std::time::Duration::from_millis(300), rx.recv()).await;
+    }
+
+    #[tokio::test]
+    async fn pump_emits_transcript_committed_matching_the_extracted_text() {
+        let store = Store::open_in_memory("device-a").unwrap();
+        let sid = store.start_session(None).unwrap().id;
+        let store = Arc::new(StdMutex::new(store));
+        let memory = Arc::new(StdMutex::new(Memory::default()));
+
+        let mut extractor = LiveExtractor::new(
+            Arc::new(MockProvider::new(vec![
+                tool_use("add_item", serde_json::json!({"kind": "todo", "text": "order lumber"})),
+                end_turn("captured"),
+            ])),
+            store.clone(),
+            memory.clone(),
+            &sid,
+        );
+        extractor.min_new_chars = 1;
+
+        let session = WalkSession::new_audio_test_session(
+            sid,
+            store,
+            extractor,
+            Arc::new(MockProvider::new(vec![])),
+            memory,
+            Arc::new(NullMemoryStore),
+            tokio::runtime::Handle::current(),
+            Some("landscape".into()),
+            scripted_audio_stt(),
+            true,
+        );
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        session.clone().set_event_listener(Arc::new(ChannelListener(tx)));
+        session.clone().push_audio(vec![0.0; 144_000]);
+
+        // Collect events until we see a TranscriptCommitted AND a BoardUpdated.
+        let mut committed: Option<String> = None;
+        let mut board_text: Option<String> = None;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                match rx.recv().await {
+                    Some(WalkEvent::TranscriptCommitted { text }) => committed = Some(text),
+                    Some(WalkEvent::BoardUpdated { items }) => {
+                        if let Some(item) = items.first() {
+                            board_text = Some(item.text.clone());
+                        }
+                    }
+                    Some(WalkEvent::TranscriptPreview { .. }) => {}
+                    None => break,
+                }
+                if committed.is_some() && board_text.is_some() {
+                    break;
+                }
+            }
+        })
+        .await;
+
+        let committed = committed.expect("pump must emit a TranscriptCommitted event");
+        // Finalized words the scripted decoder produced feed BOTH the committed
+        // event and the append/extraction path — same finalized text (D4).
+        assert!(committed.contains("order"), "committed text carries the finalized words: {committed:?}");
+        assert!(committed.contains("deck framing"), "committed text: {committed:?}");
+        assert_eq!(board_text.as_deref(), Some("order lumber"), "same finalized text drove extraction");
     }
 
     #[tokio::test]
@@ -816,8 +916,11 @@ mod tests {
         // Every snapshot actually delivered carries a non-empty board — the
         // authoritative swap never exposes the pre-06a empty window.
         while let Ok(event) = rx.try_recv() {
-            let WalkEvent::BoardUpdated { items } = event;
-            assert!(!items.is_empty(), "no snapshot should ever show an empty board (D3b)");
+            // Transcript events may now share this channel — skip them; only
+            // board snapshots carry the empty-board invariant.
+            if let WalkEvent::BoardUpdated { items } = event {
+                assert!(!items.is_empty(), "no snapshot should ever show an empty board (D3b)");
+            }
         }
     }
 }
