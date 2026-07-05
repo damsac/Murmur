@@ -4,7 +4,9 @@ use whisper_rs::{
     FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters,
 };
 
-use crate::decoder::{Decoder, RawSegment};
+use whisper_rs::WhisperSegment;
+
+use crate::decoder::{Decoder, RawSegment, WordTiming};
 use crate::SttError;
 
 /// whisper.cpp backend (Metal). Owns a loaded model context; each `decode`
@@ -13,6 +15,10 @@ use crate::SttError;
 pub struct WhisperDecoder {
     ctx: WhisperContext,
     language: String,
+    /// When on, `decode` sets whisper `token_timestamps` and reconstructs
+    /// per-word timing onto `RawSegment.words` (Plan 09 D5). Flows from
+    /// `SttConfig.word_timestamps` (default true, crate-internal).
+    word_timestamps: bool,
 }
 
 impl WhisperDecoder {
@@ -23,7 +29,11 @@ impl WhisperDecoder {
     /// decode, proven working); device builds pass `true` (Metal). The value
     /// flows from `SttConfig.use_gpu` ← `EngineConfig.stt_use_gpu` ← Swift's
     /// `#if targetEnvironment(simulator)`.
-    pub fn open(model: &Path, language: &str, use_gpu: bool) -> Result<Self, SttError> {
+    ///
+    /// `word_timestamps` flows from `SttConfig.word_timestamps` (Plan 09 D5):
+    /// when on, per-token `t0`/`t1` are grouped into `RawSegment.words`.
+    pub fn open(model: &Path, language: &str, use_gpu: bool, word_timestamps: bool)
+        -> Result<Self, SttError> {
         let mut params = WhisperContextParameters::default();
         params.use_gpu(use_gpu);
         let ctx = WhisperContext::new_with_params(
@@ -31,8 +41,39 @@ impl WhisperDecoder {
             params,
         )
         .map_err(|e| SttError::ModelLoad(e.to_string()))?;
-        Ok(Self { ctx, language: language.to_string() })
+        Ok(Self { ctx, language: language.to_string(), word_timestamps })
     }
+}
+
+/// Group whisper tokens into words. Word boundaries are marked by a leading
+/// space in the token's text (BPE); special/timestamp tokens (empty or
+/// bracketed text) are skipped. Each word takes the FIRST sub-token's `t0` and
+/// the LAST sub-token's `t1` (centiseconds, chunk-relative — same units as
+/// `RawSegment.start_cs`/`end_cs`). The finalizer (D4) is the safety net: if
+/// this reconstruction's count disagrees with the segment's whitespace split,
+/// `words_from_segments` falls back to segment-coarse, so an imperfect grouping
+/// degrades gracefully rather than corrupting output.
+fn build_word_timings(seg: &WhisperSegment) -> Vec<WordTiming> {
+    let mut words: Vec<WordTiming> = Vec::new();
+    for i in 0..seg.n_tokens() {
+        let Some(tok) = seg.get_token(i) else { continue };
+        let Ok(raw) = tok.to_str_lossy() else { continue };
+        // Skip special/timestamp markers (empty trimmed, or bracketed).
+        let trimmed = raw.trim();
+        if trimmed.is_empty() || trimmed.starts_with('[') || trimmed.starts_with("<|") {
+            continue;
+        }
+        let data = tok.token_data();
+        // A leading space starts a new word (BPE); the first content token also
+        // starts one. Otherwise the sub-token extends the current word.
+        if raw.starts_with(' ') || words.is_empty() {
+            words.push(WordTiming { text: trimmed.to_string(), start_cs: data.t0, end_cs: data.t1 });
+        } else if let Some(last) = words.last_mut() {
+            last.text.push_str(trimmed);
+            last.end_cs = data.t1;
+        }
+    }
+    words
 }
 
 impl Decoder for WhisperDecoder {
@@ -46,6 +87,10 @@ impl Decoder for WhisperDecoder {
         params.set_print_special(false);
         params.set_print_timestamps(false);
         params.set_translate(false);
+        // Plan 09 D5: enable per-token timestamps so we can reconstruct per-word
+        // timing below. Leaves segmentation/max_len/split_on_word untouched (D2),
+        // so the no_speech_prob basis (Plan 08) is byte-for-byte unchanged.
+        params.set_token_timestamps(self.word_timestamps);
         if let Some(p) = initial_prompt {
             params.set_initial_prompt(p);
         }
@@ -55,6 +100,13 @@ impl Decoder for WhisperDecoder {
         for i in 0..n {
             if let Some(seg) = state.get_segment(i) {
                 let text = seg.to_str_lossy().map(|c| c.into_owned()).unwrap_or_default();
+                // Reconstruct per-word timing from token t0/t1 when enabled; the
+                // finalizer self-heals to coarse if the count disagrees (D4).
+                let words = if self.word_timestamps {
+                    build_word_timings(&seg)
+                } else {
+                    Vec::new()
+                };
                 out.push(RawSegment {
                     start_cs: seg.start_timestamp(),
                     end_cs: seg.end_timestamp(),
@@ -63,6 +115,7 @@ impl Decoder for WhisperDecoder {
                     // feeds the Finalizer's drop gate. Only compiled with the
                     // `whisper` feature, so it never affects the hermetic build.
                     no_speech_prob: seg.no_speech_probability(),
+                    words,
                 });
             }
         }
@@ -83,10 +136,70 @@ mod tests {
     fn real_model_decodes_silence() {
         let model = std::env::var("MURMUR_WHISPER_MODEL")
             .expect("set MURMUR_WHISPER_MODEL to a ggml-*.bin path");
-        let mut d = WhisperDecoder::open(std::path::Path::new(&model), "en", true).unwrap();
+        let mut d = WhisperDecoder::open(std::path::Path::new(&model), "en", true, true).unwrap();
         let silence = vec![0.0f32; 16_000];
         let segs = d.decode(&silence, Some("Terms used in this session: french drain.")).unwrap();
         // silence may yield zero or a blank segment — the contract is "no error".
         let _ = segs;
+    }
+
+    /// Word-timestamp population on real audio (Plan 09 Task 5). Gated on
+    /// MURMUR_WHISPER_MODEL; if MURMUR_WHISPER_SPEECH_WAV points at a 16 kHz mono
+    /// f32-decodable WAV of known content it also spot-checks word placement.
+    /// `#[ignore]` keeps it out of CI (no model, no fixture committed).
+    #[test]
+    #[ignore = "needs a real model file via MURMUR_WHISPER_MODEL (+ optional MURMUR_WHISPER_SPEECH_WAV)"]
+    fn real_model_populates_word_timings() {
+        let model = std::env::var("MURMUR_WHISPER_MODEL")
+            .expect("set MURMUR_WHISPER_MODEL to a ggml-*.bin path");
+        let mut d = WhisperDecoder::open(std::path::Path::new(&model), "en", true, true).unwrap();
+
+        let Ok(wav_path) = std::env::var("MURMUR_WHISPER_SPEECH_WAV") else {
+            // No speech WAV: fall back to the contract check — token_timestamps
+            // on must not crash the decode; word population is then validated by
+            // the Task 7 sweep on real audio.
+            let silence = vec![0.0f32; 16_000];
+            let _ = d.decode(&silence, None).unwrap();
+            return;
+        };
+
+        // Minimal 16-bit PCM WAV reader (no dep): assumes 16 kHz mono s16le.
+        let bytes = std::fs::read(&wav_path).expect("read speech WAV");
+        let samples: Vec<f32> = bytes[44..]
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]) as f32 / 32768.0)
+            .collect();
+        let segs = d.decode(&samples, None).unwrap();
+
+        // count + monotonicity: at least one segment aligns word-for-word and its
+        // per-word spans are non-decreasing.
+        let aligned = segs.iter().find(|s| {
+            !s.words.is_empty() && s.words.len() == s.text.split_whitespace().count()
+        });
+        let seg = aligned.expect("at least one segment with word-aligned timing");
+        let mut prev = i64::MIN;
+        for w in &seg.words {
+            assert!(w.start_cs >= prev, "word start_cs non-decreasing");
+            assert!(w.end_cs >= w.start_cs, "word end_cs >= start_cs");
+            prev = w.start_cs;
+        }
+
+        // Per-word ground-truth spot-check (finding 2): if the fixture contains
+        // known words, they must land within a tolerance window of their expected
+        // centisecond position — catches gross BPE mis-grouping the count guard
+        // alone (D3) would pass. Expected positions are optional env pairs like
+        // MURMUR_WHISPER_EXPECT="french:120,drain:200" (word:center_cs), ±50 cs.
+        if let Ok(expect) = std::env::var("MURMUR_WHISPER_EXPECT") {
+            let all_words: Vec<&WordTiming> = segs.iter().flat_map(|s| s.words.iter()).collect();
+            for pair in expect.split(',') {
+                let (word, center) = pair.split_once(':').expect("word:center_cs");
+                let center: i64 = center.parse().expect("center_cs is an int");
+                let hit = all_words.iter().find(|w| w.text.eq_ignore_ascii_case(word))
+                    .unwrap_or_else(|| panic!("expected word {word:?} not found in timings"));
+                let mid = (hit.start_cs + hit.end_cs) / 2;
+                assert!((mid - center).abs() <= 50,
+                    "word {word:?} landed at {mid} cs, expected within ±50 of {center}");
+            }
+        }
     }
 }

@@ -156,7 +156,7 @@ impl SttStream {
     pub fn with_model(model: &std::path::Path, cfg: SttConfig, vocab: &[String])
         -> Result<Self, SttError> {
         cfg.validate()?; // reject overlap ≥ chunk before opening the model
-        let decoder = whisper::WhisperDecoder::open(model, &cfg.language, cfg.use_gpu)?;
+        let decoder = whisper::WhisperDecoder::open(model, &cfg.language, cfg.use_gpu, cfg.word_timestamps)?;
         Ok(Self::with_decoder(Box::new(decoder), cfg, vocab))
     }
 
