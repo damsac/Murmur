@@ -8,3 +8,10 @@ publish = false
 whisper-rs = { version = "=0.16.0", features = ["metal"] }  # exact pin: a silent patch bump would confound Table 1 mid-spike
 hound = "3"        # WAV read (16 kHz mono f32 — whisper's input format)
 # deliberately minimal; WER/stream logic is hand-rolled and disposable
+
+# Standalone: never part of the root workspace. The root excludes `spikes` by
+# prefix, but in a git WORKTREE the checkout path (.claude/worktrees/…/spikes)
+# no longer matches that prefix, so cargo would otherwise adopt this as an
+# orphan member. An empty [workspace] table makes the spike its own root
+# regardless of where it is checked out.
+[workspace]
