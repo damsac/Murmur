@@ -27,7 +27,7 @@ dam owns: harness / murmur-core / STT / FFI. sac owns: renderers / component lib
 | 07-carry | all 6 carry notes + 3 cross-model findings: fallible constructors, atomic begin_walk, mint-with-artifact-write, throwing WalkEngine.begin (dead walk never starts), tick fault counter, narrowed artifact sweep | done (merged be88bca) |
 | first walk | **THE MILESTONE LANDED 2026-07-05**: real core + .env key on sim → document EST-0047 end-to-end. Clean checkout builds demo with zero setup; `generate.sh` opts into real | done (merged baa8848) |
 | 08 A+B | STT stage-2 wiring: push_audio → pump thread → append path; TranscriptCommitted/Preview events; finish() flush + async cancel() (Store::delete_session — closes the #156 core half); AudioCaptureSource (mic→16kHz) + WavFileAudioSource; use_gpu knob (sim=CPU compile-time — D7 "Metal degrades on sim" FALSIFIED: SIGTRAP; device=Metal) | **done, merged 2026-07-05** — 290 tests; voice-from-WAV proven end-to-end on sim |
-| 08 Part C | noise robustness: Voice-Isolation A/B knob, VAD/no_speech gate (R3), construction-noise SNR sweep (Tasks 10–12) | next build run |
+| 08 Part C | noise robustness: voiceproc A/B knob (default off), dual R3 gates (energy VAD + no_speech 0.6 — complementary, proven), SNR sweep: base.en bundled, small.en = validated upgrade | **done, merged 2026-07-05** — 295 tests; Plan 08 CLOSED |
 
 ## Where we are (2026-07-05, post re-unification)
 

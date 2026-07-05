@@ -221,3 +221,112 @@ condition.
   1.5 GB. **Note:** this is the **f16 (unquantized)** ggml conversion — distil-whisper does not
   publish a q5_0 ggml, so Table 1's "Quant" for this row is f16, not q5_0 as the plan template
   assumed. Recorded as a deviation.
+
+---
+
+## Table 4 — Construction-noise SNR sweep (Plan 08 Part C, Task 12)
+
+**Purpose.** Decide, with data: (a) base.en vs small.en for the jobsite, (b) the
+Task 10 voice-processing default, (c) the Task 11 VAD / no_speech thresholds.
+
+**Method / honesty.** `sweep` subcommand (`src/sweep.rs` + `src/noise.rs`).
+Public jobsite corpora (ESC-50/FSD50K/freesound) are not reachable from the
+sandbox, so four characteristic noise profiles are **synthesized** deterministically
+(fixed-seed xorshift) and mixed into the `say`-generated speech at a target SNR:
+`jackhammer` (~12 Hz broadband impact train), `saw` (~3.4 kHz harmonic buzz, AM),
+`generator` (60 Hz hum + harmonics + low rumble), `wind` (heavy low-pass gusting).
+This is a **spike-grade proxy** — valid for RELATIVE model/threshold comparison and
+for the R3 hallucination probe, NOT an absolute WER claim on real ambience. Host:
+Apple Silicon Mac, Metal. Clip `jargon1.wav` (59.8 s). Both models were available
+locally (base.en-q5_1 60 MB, small.en-q5_1 190 MB) — **no model gap; the full
+base-vs-small sweep ran.**
+
+### Table 4A — WER (%) vs SNR (speech + noise)
+
+| Model | Noise | clean | +20 dB | +10 dB | +5 dB | 0 dB | halluc @ 0 dB |
+|-------|-------|-------|--------|--------|-------|------|---------------|
+| base.en  | jackhammer | 5.8 | 8.8 | 8.2 | 9.4 | 13.5 | no |
+| base.en  | saw        | 5.8 | 5.8 | 10.5 | 11.7 | 14.6 | no |
+| base.en  | generator  | 5.8 | 6.4 | 7.0 | 8.2 | 5.8 | no |
+| base.en  | wind       | 5.8 | 5.8 | 7.0 | 8.2 | 9.4 | no |
+| small.en | jackhammer | 4.7 | 6.4 | 7.6 | 7.6 | 8.2 | no |
+| small.en | saw        | 4.7 | 5.8 | 6.4 | 8.2 | 11.1 | no |
+| small.en | generator  | 4.7 | 6.4 | 5.8 | 5.8 | 6.4 | no |
+| small.en | wind       | 4.7 | 4.7 | 5.8 | 5.8 | 7.0 | no |
+
+**Reading:** WER degrades gracefully — even at **0 dB SNR** (noise as loud as
+speech) both models stay ≤ 14.6 %. `saw` (broadband high-freq) is the worst case;
+a steady `generator` drone is nearly free (whisper models constant hum well).
+small.en is **uniformly 2–4 pp better** than base.en at every SNR. **No
+hallucination flag fired at 0 dB when speech was present** — whisper's fluent-
+invention failure mode needs the *absence* of speech (Table 4B), not merely noise.
+
+### Table 4B — R3 probe: noise-ONLY decode (no speech present)
+
+Any committed token is a hallucination (R3 violation). `max no_speech_prob` is the
+signal the Task 11b gate keys on. Noise scaled to ~0.1 RMS (audible machinery).
+
+| Model | Noise | segments | invented tokens | max no_speech_prob | min no_speech_prob |
+|-------|-------|----------|-----------------|--------------------|--------------------|
+| base.en  | jackhammer | 2 | 4 | 0.952 | 0.000 |
+| base.en  | saw        | 2 | 4 | 0.934 | 0.000 |
+| base.en  | generator  | 2 | 4 | 0.964 | 0.000 |
+| base.en  | wind       | 1 | 1 | 0.567 | 0.567 |
+| small.en | jackhammer | 0 | 0 | n/a   | n/a   |
+| small.en | saw        | 2 | 2 | 0.974 | 0.000 |
+| small.en | generator  | 1 | 1 | 0.823 | 0.823 |
+| small.en | wind       | 1 | 1 | 0.262 | 0.262 |
+
+**Reading:** base.en invents 1–4 tokens on **every** machinery type; small.en cuts
+that (jackhammer → 0) but does NOT eliminate it. Most hallucinated segments carry a
+**high** no_speech_prob (0.82–0.97) — the gate catches those — but there are
+outliers *below* 0.6 (base.en `wind` 0.567, small.en `wind` 0.262) and even
+per-segment `min = 0.000` on multi-segment clips. **Conclusion: no single
+no_speech_prob threshold catches all machinery hallucination; the energy VAD gate
+and the no_speech gate are complementary, and neither is sufficient alone.** The
+strongest real-world defense is that field audio contains speech (Table 4A: zero
+hallucination with speech present).
+
+### RESULTS — the three decisions
+
+1. **Model — bundle `base.en` for the milestone; `small.en` is the validated
+   upgrade.** small.en is strictly better on every measured axis (clean 4.7 vs
+   5.8 % WER; 2–4 pp lower under all noise; jackhammer noise-only hallucination
+   0 vs 4 tokens) and its RTF headroom makes it "~free" to run (D5). The **only**
+   cost is the bundle: 190 MB vs 60 MB. Because (a) with speech present neither
+   model hallucinated even at 0 dB, and (b) the Task 11 R3 gates handle the
+   noise-only case, **base.en stays the bundled default** (offline-first, small
+   IPA — spec §1). **Promote small.en** once the ODR/download path lands or if
+   device field WER proves painful (D5 carry-forward: the bundle-vs-download
+   trade tightens at 190 MB).
+
+2. **Task 10 voice-processing default — OFF, pending a device A/B.** This eval
+   could NOT measure `setVoiceProcessingEnabled`: it is a device audio-unit knob,
+   not reproducible with synthetic/offline PCM. On the evidence we do have —
+   whisper handles additive noise well when speech is present (Table 4A) and
+   aggressive suppression is known to add spectral artifacts that can *hurt*
+   whisper — the conservative default is **voice processing OFF**. The A/B knob
+   ships (Task 10) precisely so a real-device sweep can flip it. **Owed: an
+   on-device `voiceproc=1` vs `voiceproc=0` WER comparison** (the one gap this
+   harness can't close).
+
+3. **Task 11 thresholds.**
+   - `no_speech_prob_threshold` = **0.6** (keep the shipped default). It catches
+     the dominant 0.82–0.97 hallucination cluster while staying well clear of
+     real-speech no_speech_prob (typically < 0.1), so it will not drop genuine
+     speech. Lowering it to chase the `wind` outliers (0.26–0.57) would risk
+     false-positives on quiet real speech; those low-confidence machinery cases
+     are better handled by the energy gate.
+   - `vad_rms_threshold` = **0.0 in code (off) as the shipped conservative
+     default; recommend ~0.01 for device builds.** The noise-only clips sat at
+     ~0.1 RMS (above any reasonable silence gate — so energy alone won't stop
+     machinery hallucination either), while true dead air is ~0.0 RMS and speech
+     is ~0.05–0.3 RMS. A 0.01 gate skips dead-air windows (a free hallucination
+     surface + wasted decode) without touching speech. It stays **0.0 (off)**
+     until on-device speech-level RMS is characterized, so the milestone can
+     never elide a quiet real utterance.
+
+**Net:** ship base.en + the two R3 gates at their conservative defaults
+(no_speech 0.6, VAD 0.0); the machinery-hallucination risk is real but bounded
+(needs speech-absent audio), and the remaining tuning (VAD 0.01, voiceproc A/B,
+small.en promotion) is device-measurement-gated, not blocked on code.

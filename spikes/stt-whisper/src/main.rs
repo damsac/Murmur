@@ -4,7 +4,9 @@
 // NOT a workspace member. Nothing here is production code.
 
 mod bench;
+mod noise;
 mod stream;
+mod sweep;
 mod wer;
 
 use std::collections::HashMap;
@@ -157,12 +159,15 @@ fn main() {
         "accuracy" => wer::run_accuracy(&flags),
         "bias" => wer::run_bias(&flags),
         "stream" => stream::run(&flags),
+        "sweep" => sweep::run(&flags),
         _ => {
-            eprintln!("usage: stt-whisper-spike <bench|stream|accuracy|bias> [flags]");
+            eprintln!("usage: stt-whisper-spike <bench|stream|accuracy|bias|sweep> [flags]");
             eprintln!("  bench    --model M --audio A");
             eprintln!("  stream   --model M --audio A --chunk 5 --overlap 1");
             eprintln!("  accuracy --model M --audio A --reference R [--snr DB]");
             eprintln!("  bias     --model M --audio A --reference R --terms T [--snr DB]");
+            eprintln!("  sweep    --modeldir D --audio A --reference R   (construction-noise SNR sweep, Task 12)");
+            eprintln!("           (or --models base.bin,small.bin)");
             std::process::exit(2);
         }
     }
