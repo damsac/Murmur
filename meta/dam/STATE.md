@@ -10,7 +10,7 @@ What dam is working on right now. Updated with every PR.
 
 dam owns: harness / murmur-core / STT / FFI. sac owns: renderers / component library / visual direction (`apps/ios/`).
 
-## Where the core is (main @ baa8848, 277 tests, clippy clean)
+## Where the core is (main @ 6c025f9, 322 tests, clippy clean, CI-gated)
 
 | Plan | What | Status |
 |------|------|--------|

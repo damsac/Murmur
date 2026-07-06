@@ -12,15 +12,13 @@ Updated when priorities shift. Either person can propose changes via PR.
 |------|-------|--------|
 | Real-mic device voice walk (`live=1`) + on-device tuning: voiceproc A/B, vad_rms ~0.01, quiet-flush validation (final-review notes A/B) | dam | Plan 08 FULLY merged — device session is the gate |
 | Issue #155 — PR #1 review follow-ups (4 state bugs + seam hygiene) | sac | open (several now also guarded core-side by 07-carry) |
-| Rebuild-era nix-based CI (cargo test needs nix deps — naive runner job goes red) | dam | follow-up from #157 |
 
 ## Up Next (sequenced)
 
-1. **Plan 08 Part C** — noise robustness (see Active).
-2. **Rebuild-era TestFlight pipeline** — release.yml is Era-I, manual-only; a real apps/ios pipeline is required before the next external build.
-3. **Accuracy hardening** (Plan 09): thread 1 (word-level timestamps) **landed** — `token_timestamps` → per-word timing → word-anchored coarse-seam drop, degrading to segment-coarse when absent/mismatched; thread 2 (live-prompt pins) **landed as scaffolding** — golden assembled-prompt snapshot + grader-over-live-board, hermetic. The real-API live-grading extension (non-circular F0.5 movement) is **flagged/deferred** to the optimization loop (item 4). The SNR sweep rerun (`--token-timestamps`, WER/RTF delta + the `word_timestamps: true` default verdict) is **device-gated for dam** (Task 7).
-4. **Prompt-optimization loop** on the 05b eval suite (rank on F0.5, gate on recall).
-5. **Photo attachment schema** (rides a migration after `source`).
+1. **TestFlight first publish** — pipeline BUILT (`pr/dam/testflight-rebuild`, unmerged: merging arms auto-publish on every main push). Sequence: dam signs the Apple agreement → dry-run (workflow_dispatch upload=false) → coordinate with sac → merge. CI itself landed (#160, every PR gated).
+2. **Accuracy hardening** (Plan 09): thread 1 (word-level timestamps) **landed** — `token_timestamps` → per-word timing → word-anchored coarse-seam drop, degrading to segment-coarse when absent/mismatched; thread 2 (live-prompt pins) **landed as scaffolding** — golden assembled-prompt snapshot + grader-over-live-board, hermetic. The real-API live-grading extension (non-circular F0.5 movement) is **flagged/deferred** to the optimization loop (item 4). The SNR sweep rerun (`--token-timestamps`, WER/RTF delta + the `word_timestamps: true` default verdict) is **device-gated for dam** (Task 7).
+3. **Prompt-optimization loop** on the 05b eval suite (rank on F0.5, gate on recall).
+4. **Photo attachment schema** (rides a migration after `source`).
 
 ### Vocabulary → STT biasing loop (Plan 10)
 
