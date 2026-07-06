@@ -48,3 +48,8 @@ Centers of gravity, not hard boundaries.
 | 2026-07-04 | `WalkEngine` seam + `AppModel.init(engine:)` swap point | sac | dam's PR #1 review endorses |
 | proposed | Template keys `landscape \| property \| inspection` as canonical | sac (in code) | awaiting explicit ack |
 | proposed | STT DONE semantics: flush final utterance (site-walk reality) vs speed (old-app canon) | dam | joint call pending |
+
+## 2026-07-06 — two joint decisions closed (sac ack via PR #167, dam via Plan 08 D6)
+
+- **Template keys**: `landscape | property | inspection` are canonical. (dam proposed; sac ACK PR #167.)
+- **STT DONE semantics**: **flush over speed** — the walk's words are the product; latency is negotiable. DONE flushes the final utterance (bounded grace), DISCARD drops immediately. Live implementation today is Rust-side (`EngineConfig.stt_flush_on_finish=true`, Plan 08); the Swift SpeechSource flush from PR #167 is staged fallback (un-instantiated while the whisper path is live). Supersedes the Era-I "cancelRecording over stopRecording / speed over completeness" canon.
