@@ -1,37 +1,79 @@
-# ⚠️ ERA-I PIPELINE — builds the retired Swift app (project.yml/Makefile removed in
-# the 2026-07-05 re-unification). It will NOT succeed against the current Rust +
-# apps/ios tree. Trigger reduced to manual-only (workflow_dispatch) so it never
-# auto-fires; kept as reference. A rebuild-era TestFlight pipeline (apps/ios via
-# xcodegen/build-ffi.sh) must replace this before the next external build.
+# TestFlight release pipeline — REBUILD ERA (Rust core + apps/ios shell).
 #
-# TestFlight release pipeline.
+# This file was rewritten in place on 2026-07-05 for the rebuilt app. The Era-I
+# version (Swift-era app, project.yml/Makefile) is preserved in git history —
+# `git log --follow .github/workflows/release.yml`. It is REWRITTEN IN PLACE (not
+# a new file) on purpose: `github.run_number` is per-workflow-file, so reusing
+# this file keeps the build-number counter monotonic vs the Era-I builds already
+# on App Store Connect. A fresh workflow file would restart run_number at 1 and
+# collide with existing (MARKETING_VERSION, build) pairs in TestFlight.
+#
+# WHAT'S IDENTICAL to Era-I (the proven signing blueprint):
+#   - archive with AUTOMATIC signing (CODE_SIGN_STYLE=Automatic +
+#     -allowProvisioningUpdates + ASC API key -> Apple cloud-generates the
+#     Distribution cert & profile)
+#   - export with MANUAL signing (ExportOptions signingStyle=manual, explicit
+#     provisioningProfiles dict, cert imported via import-codesign-certs, profile
+#     via download-provisioning-profiles, NO -allowProvisioningUpdates on export —
+#     cloud signing fails there under an App Manager key)
+#   - bundle id com.isaacwm.murmur + "Murmur App Store" profile (reused)
+#   - build number = github.run_number; tag v* overrides MARKETING_VERSION
+#   - the brew install||true / brew link --overwrite pattern; XcodeGen #691 guard
+#
+# WHAT CHANGED for the rebuild:
+#   - builds the REAL Rust core: apps/ios/build-ffi.sh --features whisper
+#     --device-only produces the MurmurCoreFFI xcframework on the runner (no nix;
+#     rustup cargo + system Xcode toolchain). Device-only halves the whisper.cpp
+#     compile — a TestFlight archive is device-only anyway.
+#   - provisions the on-device whisper model via apps/ios/fetch-whisper-model.sh
+#     (sha256-pinned, small.en default, ~190 MB) cached with actions/cache.
+#   - project-release.yml (xcodegen) replaces the removed project.yml/Makefile.
+#   - export uses destination=export (produces a signed .ipa artifact); the ASC
+#     upload is a SEPARATE, conditional altool step so a dry-run can verify the
+#     whole chain through signing without publishing.
+#   - NO App Group, NO entitlements, NO analytics injection: apps/ios uses none
+#     (it reads only PPQ_API_KEY from Info.plist) — simpler than Era-I.
 #
 # Two release lanes:
-#   - Push to main         → internal TestFlight (continuous; team dogfoods)
-#   - Push tag (v1.2.3)    → external TestFlight (requires manual ASC submission)
-#
-# Both lanes upload to the same TestFlight via the same job. Internal vs external
-# is configured ONCE in App Store Connect (auto-distribute new builds to internal
-# group; external assignment + beta review stays manual after a tag build lands).
+#   - Push to main         -> internal TestFlight (continuous; team dogfoods)
+#   - Push tag (v1.2.3)     -> external candidate (MARKETING_VERSION from the tag)
+#   - workflow_dispatch     -> dry-run by default (upload=false): builds, signs,
+#                              exports the .ipa artifact, SKIPS the ASC upload.
+#                              Set upload=true to publish a manual build.
 #
 # Setup steps (one-time, outside CI) are documented in meta/TESTFLIGHT_CI_SETUP.md.
 #
 # Required GitHub secrets:
-#   APPLE_TEAM_ID                       Apple Developer Team ID (10-char)
-#   ASC_API_KEY_ID                      App Store Connect API key ID
-#   ASC_API_ISSUER_ID                   App Store Connect issuer UUID
-#   ASC_API_KEY_P8                      Full contents of AuthKey_*.p8 (text)
-#   PPQ_API_KEY                         PPQ.ai API key (baked into Info.plist)
-#   STUDIO_ANALYTICS_API_KEY_RELEASE    Studio Analytics key for Release config
+#   APPLE_TEAM_ID          Apple Developer Team ID (98GXNZ6NKZ)
+#   ASC_API_KEY_ID         App Store Connect API key ID (App Manager role)
+#   ASC_API_ISSUER_ID      App Store Connect issuer UUID
+#   ASC_API_KEY_P8         Full contents of AuthKey_*.p8 (text, not base64)
+#   APPLE_CERT_P12         base64 Apple Distribution cert + private key (.p12)
+#   APPLE_CERT_PASSWORD    password for the .p12
+#   PPQ_API_KEY            LLM API key (expanded into Info.plist at build time)
 
 name: Release
 
 on:
-  workflow_dispatch:   # manual only — Era-I; see header. Was: push to main + v* tags.
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: 'Upload the signed build to TestFlight (false = dry-run: build + sign + export .ipa only)'
+        type: boolean
+        default: false
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
+
+env:
+  # Model choice + sha256 digests live in apps/ios/fetch-whisper-model.sh (the
+  # same script ./generate.sh uses locally) — this is the default it fetches.
+  WHISPER_MODEL: small.en
+  MODEL_FILENAME: ggml-small.en-q5_1.bin
 
 jobs:
   release:
@@ -50,14 +92,21 @@ jobs:
             ~/Library/Caches/Homebrew
             /opt/homebrew/Cellar/xcodegen
             /opt/homebrew/Cellar/xcbeautify
-          key: brew-${{ runner.os }}-xcodegen-xcbeautify
+          key: brew-${{ runner.os }}-xcodegen-xcbeautify-cmake
 
       - name: Install tools
         run: |
-          brew install xcodegen xcbeautify || true
+          brew install xcodegen xcbeautify cmake || true
           brew link --overwrite xcodegen xcbeautify || true
 
-      - name: Determine version
+      - name: Set up Rust (iOS device target)
+        run: |
+          rustup show active-toolchain || rustup default stable
+          # Device slice is what ships (the archive is device-only). build-ffi.sh
+          # runs --device-only in CI, so only the device target is required.
+          rustup target add aarch64-apple-ios
+
+      - name: Determine version, lane, and upload flag
         id: version
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
@@ -66,52 +115,60 @@ jobs:
               echo "::error::Tag '$TAG' does not match v<major>.<minor>.<patch>"
               exit 1
             fi
-            VERSION="${TAG#v}"
-            echo "marketing_version=$VERSION" >> "$GITHUB_OUTPUT"
-            echo "lane=external" >> "$GITHUB_OUTPUT"
-            echo "Release lane: external (tag $TAG → MARKETING_VERSION=$VERSION)"
+            MARKETING_VERSION="${TAG#v}"
+            LANE=external
+            UPLOAD=true
+            echo "Release lane: external (tag $TAG -> MARKETING_VERSION=$MARKETING_VERSION)"
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            MARKETING_VERSION=""
+            LANE=manual
+            UPLOAD="${{ github.event.inputs.upload }}"
+            echo "Release lane: manual (upload=$UPLOAD)"
           else
-            echo "marketing_version=" >> "$GITHUB_OUTPUT"
-            echo "lane=internal" >> "$GITHUB_OUTPUT"
-            echo "Release lane: internal (using MARKETING_VERSION from project.yml)"
+            MARKETING_VERSION=""
+            LANE=internal
+            UPLOAD=true
+            echo "Release lane: internal (MARKETING_VERSION from project-release.yml)"
           fi
+          {
+            echo "marketing_version=$MARKETING_VERSION"
+            echo "lane=$LANE"
+            echo "upload=$UPLOAD"
+          } >> "$GITHUB_OUTPUT"
           echo "Build number: ${{ github.run_number }}"
 
-      - name: Configure project.local.yml
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          PPQ_API_KEY: ${{ secrets.PPQ_API_KEY }}
-          STUDIO_ANALYTICS_API_KEY_RELEASE: ${{ secrets.STUDIO_ANALYTICS_API_KEY_RELEASE }}
+      - name: Cache whisper model
+        id: model-cache
+        uses: actions/cache@v4
+        with:
+          path: apps/ios/Sources/Resources/${{ env.MODEL_FILENAME }}
+          # Keyed on the fetch script itself (not a duplicated sha literal here)
+          # so a digest/model bump in the script busts the cache automatically.
+          key: whisper-model-${{ env.WHISPER_MODEL }}-${{ hashFiles('apps/ios/fetch-whisper-model.sh') }}
+
+      - name: Download and verify whisper model
         run: |
-          if [ -z "$APPLE_TEAM_ID" ]; then
-            echo "::error::APPLE_TEAM_ID secret not set"
-            exit 1
-          fi
-          cat > project.local.yml << EOF
-          settings:
-            base:
-              DEVELOPMENT_TEAM: $APPLE_TEAM_ID
-              PRODUCT_BUNDLE_IDENTIFIER_MURMUR: com.isaacwm.murmur
-              PRODUCT_BUNDLE_IDENTIFIER_TESTS: com.isaacwm.murmur.tests
-              APP_GROUP_IDENTIFIER: group.com.isaacwm.murmur.shared
-              PPQ_API_KEY: "$PPQ_API_KEY"
-            configs:
-              Release:
-                STUDIO_ANALYTICS_ENDPOINT: "https://damsac.studio"
-                STUDIO_ANALYTICS_API_KEY: "$STUDIO_ANALYTICS_API_KEY_RELEASE"
-          EOF
+          cd apps/ios
+          ./fetch-whisper-model.sh "$WHISPER_MODEL"
 
       - name: Materialize ASC API key
         env:
           ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
         run: |
           if [ -z "$ASC_API_KEY_P8" ]; then
             echo "::error::ASC_API_KEY_P8 secret not set"
             exit 1
           fi
+          # For xcodebuild -authenticationKeyPath (archive step).
           mkdir -p "$RUNNER_TEMP/private_keys"
           printf '%s' "$ASC_API_KEY_P8" > "$RUNNER_TEMP/private_keys/AuthKey.p8"
           chmod 600 "$RUNNER_TEMP/private_keys/AuthKey.p8"
+          # For `xcrun altool --upload-app`, which auto-discovers the key by ID
+          # from ~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8.
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          printf '%s' "$ASC_API_KEY_P8" > "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_API_KEY_ID}.p8"
+          chmod 600 "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_API_KEY_ID}.p8"
 
       - name: Import Apple Distribution certificate
         uses: Apple-Actions/import-codesign-certs@v3
@@ -128,12 +185,20 @@ jobs:
           api-key-id: ${{ secrets.ASC_API_KEY_ID }}
           api-private-key: ${{ secrets.ASC_API_KEY_P8 }}
 
-      - name: Generate Xcode project
-        run: make generate
+      - name: Build MurmurCoreFFI xcframework (real core)
+        run: |
+          cd apps/ios
+          ./build-ffi.sh --features whisper --device-only
+
+      - name: Generate Xcode project (release spec)
+        run: |
+          cd apps/ios
+          xcodegen generate --spec project-release.yml
 
       - name: Debug build settings
         run: |
-          xcodebuild -project Murmur.xcodeproj -scheme Murmur -showBuildSettings -configuration Release 2>/dev/null \
+          xcodebuild -project apps/ios/SitewalkGallery.xcodeproj -scheme SitewalkGallery \
+            -showBuildSettings -configuration Release 2>/dev/null \
             | grep -E "^\s+(CODE_SIGN|DEVELOPMENT_TEAM|PROVISIONING|PRODUCT_BUNDLE_ID|MARKETING_VERSION|CURRENT_PROJECT_VERSION)" \
             | sort -u
 
@@ -149,7 +214,7 @@ jobs:
             <key>method</key>
             <string>app-store-connect</string>
             <key>destination</key>
-            <string>upload</string>
+            <string>export</string>
             <key>signingStyle</key>
             <string>manual</string>
             <key>teamID</key>
@@ -170,19 +235,25 @@ jobs:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          PPQ_API_KEY: ${{ secrets.PPQ_API_KEY }}
           MARKETING_VERSION_OVERRIDE: ${{ steps.version.outputs.marketing_version }}
         run: |
+          if [ -z "$APPLE_TEAM_ID" ]; then
+            echo "::error::APPLE_TEAM_ID secret not set"
+            exit 1
+          fi
           BUILD_SETTINGS=(
             "CODE_SIGN_STYLE=Automatic"
             "DEVELOPMENT_TEAM=$APPLE_TEAM_ID"
             "CURRENT_PROJECT_VERSION=${{ github.run_number }}"
+            "PPQ_API_KEY=$PPQ_API_KEY"
           )
           if [ -n "$MARKETING_VERSION_OVERRIDE" ]; then
             BUILD_SETTINGS+=("MARKETING_VERSION=$MARKETING_VERSION_OVERRIDE")
           fi
           set -o pipefail && xcodebuild archive \
-            -project Murmur.xcodeproj \
-            -scheme Murmur \
+            -project apps/ios/SitewalkGallery.xcodeproj \
+            -scheme SitewalkGallery \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/Murmur.xcarchive" \
             -allowProvisioningUpdates \
@@ -192,28 +263,41 @@ jobs:
             "${BUILD_SETTINGS[@]}" \
             | xcbeautify
 
-      - name: Export and upload to TestFlight
-        env:
-          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+      - name: Export signed .ipa
         run: |
           set -o pipefail && xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/Murmur.xcarchive" \
             -exportPath "$RUNNER_TEMP/export" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -authenticationKeyID "$ASC_API_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_API_ISSUER_ID" \
-            -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey.p8" \
             | xcbeautify
 
-      - name: Upload archive artifact
+      - name: Upload .ipa artifact
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: Murmur-${{ steps.version.outputs.lane }}-${{ github.run_number }}
-          path: ${{ runner.temp }}/Murmur.xcarchive
+          name: Murmur-${{ steps.version.outputs.lane }}-${{ github.run_number }}-ipa
+          path: ${{ runner.temp }}/export/*.ipa
           retention-days: 30
+          if-no-files-found: warn
 
-      - name: Clean up API key
+      - name: Upload to TestFlight
+        if: ${{ steps.version.outputs.upload == 'true' }}
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+        run: |
+          IPA=$(find "$RUNNER_TEMP/export" -maxdepth 1 -name '*.ipa' | head -1)
+          echo "Uploading $IPA to TestFlight"
+          xcrun altool --upload-app --type ios --file "$IPA" \
+            --apiKey "$ASC_API_KEY_ID" --apiIssuer "$ASC_API_ISSUER_ID"
+
+      - name: Dry-run notice
+        if: ${{ steps.version.outputs.upload != 'true' }}
+        run: |
+          echo "::notice::Dry-run (upload=false): built, signed, and exported the .ipa artifact but did NOT upload to TestFlight. Re-run with upload=true, or push to main / a v* tag, to publish."
+
+      - name: Clean up API keys
         if: ${{ always() }}
-        run: rm -f "$RUNNER_TEMP/private_keys/AuthKey.p8"
+        run: |
+          rm -f "$RUNNER_TEMP/private_keys/AuthKey.p8"
+          rm -f "$HOME"/.appstoreconnect/private_keys/AuthKey_*.p8
