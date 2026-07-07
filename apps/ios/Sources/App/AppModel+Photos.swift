@@ -97,6 +97,18 @@ extension AppModel {
     /// (bytes written, row not yet committed) and delete a just-captured
     /// photo; app-open is the one quiescent point where neither a capture nor
     /// a walk can be mid-flight.
+    ///
+    /// INVARIANT (sweep-vs-live-walk race — closed by ORDERING alone, and
+    /// these three properties keep it closed):
+    ///   1. Fully SYNCHRONOUS: no `await` before this call in the `.task`,
+    ///      none inside it. A single suspension point could let a walk start
+    ///      first, and the resumed sweep would Fail the LIVE session — its
+    ///      next append/finish then throws InvalidState.
+    ///   2. Runs BEFORE any start-walk path: the user's tap and the autoflow
+    ///      script both come after the `.task` head has executed.
+    ///   3. NEVER re-fired on background→foreground while a `WalkSession` is
+    ///      live — `.task` runs once per view lifetime, and it must stay that
+    ///      way (no scenePhase re-trigger).
     func runAppOpenSweeps() {
         sweepPhotoBytes()
         sweepZombieSessions()

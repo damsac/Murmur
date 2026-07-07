@@ -269,8 +269,9 @@ struct AppRoot: View {
         }
         .tint(Theme.C.ink)
         .task {
-            // App-open sweeps (photo bytes + zombie sessions) — see
-            // AppModel.runAppOpenSweeps() for why these are app-open-only.
+            // INVARIANT: stays FIRST in this .task (no `await` before it) and
+            // is never re-fired while a walk is live — one suspension point
+            // ahead of it would Fail a live session. See runAppOpenSweeps().
             model.runAppOpenSweeps()
             if live {
                 _ = await SpeechSource.requestPermissions()
