@@ -252,6 +252,11 @@ pub struct BuildDocumentTool {
     /// `execute` (carry-note 1 follow-up: a number is durably consumed if and
     /// only if the document artifact lands).
     existing_doc_number: Option<u64>,
+    /// The run's authoritative item ids (Plan 12 D1/C1) — an echoed `item_id`
+    /// on a line is only kept when it is a member of this set. Threaded in by
+    /// the caller from the SAME `created_ids` Arc the finish-swap sweeps by,
+    /// never re-queried from the store (see mod.rs Step 5 / plan C1).
+    valid_item_ids: std::collections::HashSet<String>,
 }
 
 impl BuildDocumentTool {
@@ -266,12 +271,14 @@ impl BuildDocumentTool {
         session_id: &str,
         doc_kind: &str,
         existing_doc_number: Option<u64>,
+        valid_item_ids: Vec<String>,
     ) -> Self {
         BuildDocumentTool {
             store,
             session_id: session_id.to_string(),
             doc_kind: doc_kind.to_string(),
             existing_doc_number,
+            valid_item_ids: valid_item_ids.into_iter().collect(),
         }
     }
 
@@ -302,7 +309,8 @@ impl BuildDocumentTool {
                             "qty": { "type": "string" },
                             "amount_cents": { "type": "integer" },
                             "section": { "type": "string" },
-                            "is_gap": { "type": "boolean" }
+                            "is_gap": { "type": "boolean" },
+                            "item_id": { "type": "string", "description": "the exact id of the captured item this line was built from, copied from the item list; omit for total/rollup lines or lines with no item" }
                         },
                         "required": ["title"]
                     }
@@ -336,6 +344,10 @@ impl Tool for BuildDocumentTool {
             .and_then(|v| v.as_array())
             .ok_or_else(|| tool_err("build_document", "missing 'lines'"))?;
 
+        // D1/D2: echo-and-validate, first-wins dedup. `claimed` tracks which
+        // valid item ids have already been attached to an earlier line so a
+        // duplicate echo degrades to None rather than double-claiming.
+        let mut claimed: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut lines = Vec::with_capacity(lines_in.len());
         for (idx, line) in lines_in.iter().enumerate() {
             let title = line
@@ -353,6 +365,16 @@ impl Tool for BuildDocumentTool {
                 // "OK" row or a §-finding with no dollar figure is not a gap.
                 None => self.doc_kind == "estimate" && amount_cents.is_none(),
             };
+            let echoed_item_id = line.get("item_id").and_then(|v| v.as_str());
+            let item_id = match echoed_item_id {
+                Some(id) if self.valid_item_ids.contains(id) && !claimed.contains(id) => {
+                    claimed.insert(id.to_string());
+                    Some(id.to_string())
+                }
+                // missing, not in the run's authoritative set, or already
+                // claimed by an earlier line — degrade to None, never fail.
+                _ => None,
+            };
             lines.push(serde_json::json!({
                 "id": crate::ids::new_id(),
                 "title": title,
@@ -361,6 +383,7 @@ impl Tool for BuildDocumentTool {
                 "amount_cents": amount_cents,
                 "section": section,
                 "is_gap": is_gap,
+                "item_id": item_id,
             }));
         }
 
@@ -569,7 +592,7 @@ mod tests {
     #[tokio::test]
     async fn malformed_build_document_payload_does_not_burn_a_number() {
         let (store, sid) = shared_store_with_session();
-        let tool = super::BuildDocumentTool::new(store.clone(), &sid, "estimate", None);
+        let tool = super::BuildDocumentTool::new(store.clone(), &sid, "estimate", None, vec![]);
         // missing total_kind -> validation error, no mint
         let err = tool
             .execute(serde_json::json!({"total_label_key": "total", "lines": []}))
@@ -586,7 +609,7 @@ mod tests {
     #[tokio::test]
     async fn build_document_mints_when_no_number_exists() {
         let (store, sid) = shared_store_with_session();
-        let tool = super::BuildDocumentTool::new(store.clone(), &sid, "estimate", None);
+        let tool = super::BuildDocumentTool::new(store.clone(), &sid, "estimate", None, vec![]);
         tool.execute(serde_json::json!({
             "total_kind": "sum", "total_label_key": "total",
             "lines": [{"title": "Mulch", "amount_cents": 28500}]
@@ -603,7 +626,7 @@ mod tests {
     #[tokio::test]
     async fn build_document_writes_structured_json_artifact_with_gaps() {
         let (store, sid) = shared_store_with_session();
-        let tool = super::BuildDocumentTool::new(store.clone(), &sid, "estimate", Some(47));
+        let tool = super::BuildDocumentTool::new(store.clone(), &sid, "estimate", Some(47), vec![]);
         let out = tool.execute(serde_json::json!({
             "total_kind": "sum",
             "total_label_key": "total",
@@ -624,7 +647,7 @@ mod tests {
     #[tokio::test]
     async fn inspection_findings_have_no_amount_but_are_not_gaps() {
         let (store, sid) = shared_store_with_session();
-        let tool = super::BuildDocumentTool::new(store.clone(), &sid, "inspection", Some(389));
+        let tool = super::BuildDocumentTool::new(store.clone(), &sid, "inspection", Some(389), vec![]);
         tool.execute(serde_json::json!({
             "total_kind":"static","total_label_key":"findings",
             "lines":[
@@ -637,6 +660,59 @@ mod tests {
         assert_eq!(v["lines"][0]["amount_cents"], serde_json::Value::Null);
         assert_eq!(v["lines"][0]["is_gap"], false, "a normal §-finding is NOT a gap despite no amount");
         assert_eq!(v["lines"][1]["is_gap"], true, "only the explicitly-flagged finding is a gap");
+    }
+
+    #[tokio::test]
+    async fn build_document_echoes_and_validates_item_ids() {
+        let (store, sid) = shared_store_with_session();
+        // Two authoritative items exist this run: A1, A2 (the valid set).
+        let a1 = store.lock().unwrap().add_item(&sid, "todo", "mulch").unwrap().id;
+        let a2 = store.lock().unwrap().add_item(&sid, "todo", "edging").unwrap().id;
+        let tool = super::BuildDocumentTool::new(
+            store.clone(), &sid, "estimate", Some(7), vec![a1.clone(), a2.clone()],
+        );
+        tool.execute(serde_json::json!({
+            "total_kind":"sum","total_label_key":"total",
+            "lines":[
+                {"title":"Mulch",   "amount_cents":28500, "item_id": a1},           // valid  -> kept
+                {"title":"Edging",  "amount_cents":31000, "item_id": a2},           // valid  -> kept
+                {"title":"Extra",   "amount_cents":31000, "item_id": a2},           // dup a2 -> None (first-wins)
+                {"title":"Ghost",   "amount_cents":100,   "item_id": "not-a-real-id"}, // bad -> None
+                {"title":"Subtotal","amount_cents":90600}                          // omitted -> None
+            ]
+        })).await.unwrap();
+        let store = store.lock().unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&store.latest_document_artifact(&sid).unwrap().unwrap().body).unwrap();
+        assert_eq!(v["lines"][0]["item_id"], a1, "row 0 keeps the valid id it echoed");
+        assert_eq!(v["lines"][1]["item_id"], a2, "row 1 keeps the valid id it echoed");
+        assert_eq!(v["lines"][2]["item_id"], serde_json::Value::Null, "duplicate a2 degrades (first-wins)");
+        assert_eq!(v["lines"][3]["item_id"], serde_json::Value::Null, "hallucinated id degrades");
+        assert_eq!(v["lines"][4]["item_id"], serde_json::Value::Null, "omitted id stays null");
+        // Every stored row id is either in the valid set or null — never garbage.
+        for line in v["lines"].as_array().unwrap() {
+            if let Some(id) = line["item_id"].as_str() {
+                assert!([a1.as_str(), a2.as_str()].contains(&id));
+            }
+        }
+        // The per-line display id (line.id) is still a fresh new_id, distinct from item_id.
+        assert_ne!(v["lines"][0]["id"], v["lines"][0]["item_id"]);
+    }
+
+    #[tokio::test]
+    async fn build_document_with_empty_valid_set_nulls_all_item_ids() {
+        // Belt-and-suspenders: if the run extracted nothing authoritative, every
+        // echoed id is invalid and every row degrades to None — build still lands.
+        let (store, sid) = shared_store_with_session();
+        let tool = super::BuildDocumentTool::new(store.clone(), &sid, "report", None, vec![]);
+        tool.execute(serde_json::json!({
+            "total_kind":"sum","total_label_key":"total",
+            "lines":[{"title":"X","item_id":"anything"}]
+        })).await.unwrap();
+        let store = store.lock().unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&store.latest_document_artifact(&sid).unwrap().unwrap().body).unwrap();
+        assert_eq!(v["lines"][0]["item_id"], serde_json::Value::Null);
     }
 
     #[tokio::test]

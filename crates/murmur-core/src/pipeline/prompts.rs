@@ -131,6 +131,19 @@ pub(crate) fn live_extraction_system_prompt(memory_prompt: &str) -> String {
     )
 }
 
+/// Formats this run's authoritative items as a reference block for the
+/// forced `build_document` call (Plan 12 D1) — one line per item, carrying
+/// the exact `item_id` the model should copy onto a matching document line.
+/// Empty string when there are no authoritative items (the caller omits the
+/// block entirely).
+pub(crate) fn format_document_items(items: &[CapturedItem]) -> String {
+    items
+        .iter()
+        .map(|i| format!("- [{}] {} (item_id: {})", i.kind, i.text, i.id))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// System prompt for the forced `build_document` call (Plan 07 D6). Template-
 /// parameterized: each template gets its own instruction for what a normal
 /// non-dollar line looks like, so the model doesn't over-flag gaps (D2a).
@@ -167,7 +180,12 @@ pub(crate) fn build_document_prompt(template: &str, memory_prompt: &str) -> Stri
          Put an amount only on a line whose number was actually spoken. If a quantity or price \
          was not said, omit amount_cents — never guess. On a priced template an unheard amount is \
          a gap; on a report or inspection, only mark a line a gap when it was genuinely left open \
-         — a normal 'OK' row or a §-section finding with no dollar figure is not a gap.{memory_block}"
+         — a normal 'OK' row or a §-section finding with no dollar figure is not a gap.\n\
+         You will be given the items already captured for this session, each with an item_id. \
+         When a document line corresponds to one of those items, copy its item_id exactly onto \
+         that line. The item list is a REFERENCE, not a checklist — do not invent a line for \
+         every item, and do not drop a line just because it has no item. Total or rollup lines \
+         have no item_id.{memory_block}"
     )
 }
 

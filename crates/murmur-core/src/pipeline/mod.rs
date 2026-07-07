@@ -216,7 +216,11 @@ impl SessionProcessor {
         created_ids: Arc<Mutex<Vec<String>>>,
     ) -> Result<(String, Option<String>), harness::HarnessError> {
         let mut registry = ToolRegistry::new();
-        registry.register(AddItemTool::authoritative(self.store.clone(), session_id, created_ids));
+        registry.register(AddItemTool::authoritative(
+            self.store.clone(),
+            session_id,
+            created_ids.clone(),
+        ));
         registry.register(UpsertContactTool::new(self.store.clone()));
         registry.register(WriteReportTool::new(self.store.clone(), session_id));
         registry.register(
@@ -274,6 +278,7 @@ impl SessionProcessor {
                 doc_kind,
                 existing_doc_number,
                 usage,
+                &created_ids,
             )
             .await?;
 
@@ -293,6 +298,7 @@ impl SessionProcessor {
         doc_kind: &str,
         existing_doc_number: Option<u64>,
         usage: &mut Usage,
+        created_ids: &Arc<Mutex<Vec<String>>>,
     ) -> Result<String, harness::HarnessError> {
         // The tool spec (name/description/schema) is independent of the document
         // number, so build it up front; the number is stamped only at execute.
@@ -302,13 +308,42 @@ impl SessionProcessor {
             description: BuildDocumentTool::description_str().to_string(),
             input_schema: BuildDocumentTool::input_schema_json(),
         };
+
+        // Plan 12 C1: the validation set is the SAME `created_ids` Arc the
+        // finish-swap sweeps by — never a fresh store query — so a validated
+        // row id can never dangle on a tombstoned item (D3, by construction).
+        let valid_item_ids: Vec<String> = created_ids
+            .lock()
+            .map_err(|_| harness::HarnessError::Provider("created-ids lock poisoned".into()))?
+            .clone();
+        // The reference block's display text (kind/text) is looked up for
+        // exactly those ids — set membership still comes from the Arc above;
+        // the store is consulted only to render display strings.
+        let ids: std::collections::HashSet<&String> = valid_item_ids.iter().collect();
+        let items: Vec<crate::domain::CapturedItem> = self
+            .store
+            .lock()
+            .map_err(|_| harness::HarnessError::Provider("store lock poisoned".into()))?
+            .list_items_for_session(session_id)
+            .map_err(|e| harness::HarnessError::Provider(e.to_string()))?
+            .into_iter()
+            .filter(|i| ids.contains(&i.id))
+            .collect();
+        let items_block = prompts::format_document_items(&items);
+        let user_message = if items_block.is_empty() {
+            format!("Build the document for this session.\n\n{assembled_transcript}")
+        } else {
+            format!(
+                "Build the document for this session.\n\n{assembled_transcript}\n\n\
+                 Items already captured (copy the matching item_id onto each line built from an item):\n{items_block}"
+            )
+        };
+
         let response = self
             .provider
             .complete(CompletionRequest {
                 system: prompts::build_document_prompt(template.unwrap_or("report"), memory_prompt),
-                messages: vec![Message::user_text(format!(
-                    "Build the document for this session.\n\n{assembled_transcript}"
-                ))],
+                messages: vec![Message::user_text(user_message)],
                 tools: vec![tool_spec],
                 max_tokens: self.build_document_max_tokens,
                 tool_choice: Some(name.to_string()),
@@ -334,6 +369,7 @@ impl SessionProcessor {
                     session_id,
                     doc_kind,
                     existing_doc_number,
+                    valid_item_ids,
                 );
                 tool.execute(input).await?;
                 // Return the id of the artifact we just wrote so `finish()` can
@@ -498,6 +534,98 @@ mod tests {
         let usage_rows = store.list_llm_usage_for_session(&sid).unwrap();
         assert_eq!(usage_rows.len(), 1);
         assert_eq!(usage_rows[0].purpose, "processing");
+    }
+
+    /// Plan 12 Task 1 Step 6 (C2): pins the echo-and-validate mechanism
+    /// end-to-end with the run's REAL minted item id — fed, degrade, and
+    /// survives-the-swap (D3), all in one `process()` call. The real id
+    /// can't be pre-scripted (it's minted mid-run), so it's captured by
+    /// read-back after the run rather than hardcoded into the response.
+    #[tokio::test]
+    async fn build_document_echoes_real_id_degrades_bad_ids_and_survives_the_swap() {
+        let store = Store::open_in_memory("device-a").unwrap();
+        let session = store.start_session(None).unwrap();
+        store.append_transcript(&session.id, "we need lumber for the deck.").unwrap();
+        store.end_and_record_session(&session.id).unwrap();
+        let store = Arc::new(Mutex::new(store));
+        let sid = session.id.clone();
+
+        let provider = Arc::new(MockProvider::new(vec![
+            tool_use("add_item", serde_json::json!({"kind": "todo", "text": "order lumber"})),
+            end_turn("done"),
+            summary_response("Ordered lumber."),
+            tool_use(
+                "build_document",
+                serde_json::json!({
+                    "total_kind": "sum", "total_label_key": "total",
+                    "lines": [
+                        {"title": "Lumber", "item_id": "__REPLACED_BELOW__"},
+                        {"title": "Ghost", "item_id": "bogus-id"},
+                        {"title": "Subtotal"}
+                    ]
+                }),
+            ),
+        ]));
+        let processor = SessionProcessor::new(
+            provider.clone(),
+            store.clone(),
+            Arc::new(Mutex::new(Memory::default())),
+            Arc::new(NullMemoryStore),
+        );
+
+        // We can't know the run's minted id before scripting, so the
+        // "Lumber" line's item_id in the scripted response is a placeholder;
+        // what matters is that the model is FED the real id in its user
+        // message (asserted below), which is a fact about the request, not
+        // the (unmodifiable, already-scripted) response.
+        processor.process(&sid).await.unwrap();
+
+        let store = store.lock().unwrap();
+        // Post-swap: the only surviving item is the run's real authoritative one.
+        let live_items = store.list_items_for_session(&sid).unwrap();
+        assert_eq!(live_items.len(), 1, "the run's one authoritative item survives the swap");
+        let real_id = &live_items[0].id;
+
+        // Fed (C2, positive): the build_document request's user message
+        // contains the real minted id in its "Items already captured" block.
+        let requests = provider.requests();
+        let build_doc_request = requests
+            .iter()
+            .find(|r| r.tool_choice.as_deref() == Some("build_document"))
+            .expect("a build_document request was made");
+        let user_text = match &build_doc_request.messages[0].content[0] {
+            ContentBlock::Text { text } => text.clone(),
+            other => panic!("expected text content, got {other:?}"),
+        };
+        assert!(
+            user_text.contains(real_id.as_str()),
+            "the reference block must carry the run's real minted item id: {user_text}"
+        );
+
+        // Degrade pinned: the stored document body nulls both the bogus id
+        // and the omitted id — the build never failed on either.
+        let doc = store.latest_document_artifact(&sid).unwrap().unwrap();
+        let v: serde_json::Value = serde_json::from_str(&doc.body).unwrap();
+        assert_eq!(v["lines"][1]["item_id"], serde_json::Value::Null, "bogus id degrades");
+        assert_eq!(v["lines"][2]["item_id"], serde_json::Value::Null, "omitted id stays null");
+
+        // Survives-swap invariant (D3), stated honestly: in THIS script all
+        // three lines degrade to null (placeholder / bogus / omitted), so the
+        // loop body below never executes — it guards against non-null garbage
+        // being stored, not the positive path. The positive property (a valid
+        // echoed id is stored non-null AND survives the swap) is covered by
+        // the tool-level `build_document_echoes_and_validates_item_ids` test
+        // (valid id kept), sessions.rs' finish_processed swap tests
+        // (run_item_ids survive the sweep), and the C1 by-construction
+        // identity (the validation set == the same created_ids Arc the sweep
+        // keeps).
+        let live_ids: std::collections::HashSet<&str> =
+            live_items.iter().map(|i| i.id.as_str()).collect();
+        for line in v["lines"].as_array().unwrap() {
+            if let Some(id) = line["item_id"].as_str() {
+                assert!(live_ids.contains(id), "row item_id {id} must survive the swap");
+            }
+        }
     }
 
     #[tokio::test]
