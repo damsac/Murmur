@@ -356,24 +356,46 @@ impl WalkSession {
 
     /// Re-queries the board and emits exactly one `BoardUpdated` snapshot —
     /// the shared tail of both a live-pass tick and the finish-time swap (D3).
+    ///
+    /// Photo counts (photo_count fast-follow, Plan 11 D6) are loaded with ONE
+    /// batched `GROUP BY item_id` query per snapshot
+    /// (`count_live_photos_by_item_for_session`) and threaded into every
+    /// `convert::board_item` call below — never a per-item query (no N+1 on
+    /// the hot board path). NOTE (staleness): this snapshot only fires on a
+    /// live-extraction tick or the finish-time swap. `add_photo`/`remove_photo`
+    /// (engine-keyed, `crates/ffi/src/photos.rs`) do NOT themselves trigger a
+    /// re-emission — `MurmurEngine` holds no registry of live `WalkSession`s to
+    /// call back into, so there is no cheap existing emission path to hook.
+    /// A photo attached mid-walk therefore shows a stale (possibly 0) count on
+    /// the live board until the NEXT tick or the finish swap re-queries it;
+    /// the capture UI's own local confirmation is the immediate feedback (D6).
     fn emit_board_snapshot(&self) {
         let Some(listener) = self.listener.lock().unwrap().clone() else { return };
         // Don't panic across FFI on a poisoned lock (this is also called from
         // finish()): count the degradation and skip the snapshot instead.
-        let items = match self.store.lock() {
-            Ok(store) => match store.list_items_for_session(&self.session_id) {
-                Ok(items) => items,
-                Err(e) => {
-                    self.record_tick_fault(&format!("list_items_for_session: {e}"));
-                    return;
-                }
-            },
+        let (items, photo_counts) = match self.store.lock() {
+            Ok(store) => {
+                let items = match store.list_items_for_session(&self.session_id) {
+                    Ok(items) => items,
+                    Err(e) => {
+                        self.record_tick_fault(&format!("list_items_for_session: {e}"));
+                        return;
+                    }
+                };
+                // A photo-count query fault degrades to "no counts" (all zero)
+                // rather than dropping the whole snapshot — items are the
+                // load-bearing content; counts are best-effort enrichment.
+                let counts = store
+                    .count_live_photos_by_item_for_session(&self.session_id)
+                    .unwrap_or_default();
+                (items, counts)
+            }
             Err(_) => {
                 self.record_tick_fault("store lock poisoned");
                 return;
             }
         };
-        let board_items = items.iter().map(convert::board_item).collect();
+        let board_items = items.iter().map(|item| convert::board_item(item, &photo_counts)).collect();
         listener.on_event(WalkEvent::BoardUpdated { items: board_items });
     }
 
@@ -813,6 +835,60 @@ mod tests {
         };
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].text, "order lumber");
+    }
+
+    /// photo_count fast-follow (Plan 11 D6): a photo attached to a pre-existing
+    /// item shows up in the NEXT `BoardUpdated` snapshot, batched (one
+    /// `count_live_photos_by_item_for_session` query for the whole board, not
+    /// one per item) rather than defaulted to `0`.
+    #[tokio::test]
+    async fn board_snapshot_carries_batched_photo_counts() {
+        let store = Store::open_in_memory("device-a").unwrap();
+        let sid = store.start_session(None).unwrap().id;
+        let pre_item = store
+            .add_item_with_source(&sid, "todo", "existing item", ItemSource::Live)
+            .unwrap();
+        store.add_photo(&sid, Some(&pre_item.id), "a.jpg", None).unwrap();
+        store.add_photo(&sid, Some(&pre_item.id), "b.jpg", None).unwrap();
+        let store = Arc::new(StdMutex::new(store));
+        let memory = Arc::new(StdMutex::new(Memory::default()));
+
+        let mut extractor = LiveExtractor::new(
+            Arc::new(MockProvider::new(vec![
+                tool_use("add_item", serde_json::json!({"kind": "todo", "text": "order lumber"})),
+                end_turn("captured"),
+            ])),
+            store.clone(),
+            memory.clone(),
+            &sid,
+        );
+        extractor.min_new_chars = 1;
+
+        let session = test_session(
+            sid.clone(),
+            store.clone(),
+            extractor,
+            Arc::new(MockProvider::new(vec![])),
+            memory,
+        );
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        session.clone().set_event_listener(Arc::new(ChannelListener(tx)));
+
+        session.clone().append_transcript("order twelve two by tens for the deck".into());
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("tick did not fire in time")
+            .expect("channel closed without an event");
+        let WalkEvent::BoardUpdated { items } = event else {
+            panic!("expected BoardUpdated, got {event:?}");
+        };
+        assert_eq!(items.len(), 2, "the pre-existing item + the newly extracted item");
+        let pre = items.iter().find(|i| i.id == pre_item.id).expect("pre-existing item present");
+        assert_eq!(pre.photo_count, 2, "batched per-item photo count wired into the snapshot");
+        let new_item = items.iter().find(|i| i.text == "order lumber").expect("new item present");
+        assert_eq!(new_item.photo_count, 0, "no photos attached to the freshly extracted item");
     }
 
     #[tokio::test]
