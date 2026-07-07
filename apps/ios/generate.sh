@@ -69,17 +69,25 @@ settings:
     ANTHROPIC_BASE_URL: "$BASE_URL"
 EOF
 
-# Whisper model check (Plan 08 D5): the model must be an APP-TARGET resource
-# under Sources/Resources (Bundle.main — a package resource would land in
-# Bundle.module and never resolve). Absent model = the live walk silently runs
-# text-only, so say it loudly here instead.
-MODEL="Sources/Resources/ggml-base.en-q5_1.bin"
-if [ ! -f "$MODEL" ]; then
-  echo "NOTE: $MODEL not found — live walks will run TEXT-ONLY (no on-device STT)." >&2
-  echo "      Fetch it (gitignored, ~60 MB):" >&2
-  echo "      curl -L -o apps/ios/$MODEL \\" >&2
-  echo "        https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin" >&2
-fi
+# Whisper model fetch (Plan 08 D5, model-download PR): the model must be an
+# APP-TARGET resource under Sources/Resources (Bundle.main — a package
+# resource would land in Bundle.module and never resolve). Default model is
+# small.en (spike RESULTS.md: strictly better WER/hallucination than base.en
+# at every measured SNR, ~free RTF headroom on the Mac proxy) — override with
+# STT_MODEL=base.en for the one-arg revert (matches the `sttmodel=` runtime
+# launch arg in GalleryApp.swift). fetch-whisper-model.sh caches on sha256, so
+# repeat runs of generate.sh don't re-download once the file is verified
+# present.
+#
+# CAVEAT: small.en's promotion is decided on Mac-proxy RTF only — the iPhone
+# T5 device tier (spikes/stt-whisper/RESULTS.md Table 4) is still PENDING, so
+# small.en's on-device RTF is unproven. That's why this stays a one-var
+# revert (STT_MODEL=base.en / sttmodel=base.en) rather than a hard swap.
+STT_MODEL="${STT_MODEL:-small.en}"
+./fetch-whisper-model.sh "$STT_MODEL" || {
+  echo "NOTE: whisper model fetch failed — live walks will run TEXT-ONLY (no on-device STT)." >&2
+  echo "      Retry manually: apps/ios/fetch-whisper-model.sh $STT_MODEL" >&2
+}
 
 xcodegen generate --spec project-real.yml
 echo "==> generated SitewalkGallery.xcodeproj (REAL murmur-core engine active when a key was found)"

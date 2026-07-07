@@ -95,25 +95,29 @@ xcodebuild -create-xcframework \
 # Whisper model provisioning (Plan 08 D5/Task 8)
 # ---------------------------------------------------------------------------
 # The FFI libs are now built WITH the `whisper` feature, so the app can run
-# on-device STT. It needs the GGML model bundled as an APP-TARGET resource:
+# on-device STT. It needs a GGML model bundled as an APP-TARGET resource:
 #
-#   ggml-base.en-q5_1.bin  (~60 MB, MIT, huggingface.co/ggerganov/whisper.cpp)
+#   ggml-small.en-q5_1.bin  (~190 MB, MIT, huggingface.co/ggerganov/whisper.cpp)
+#     — the default (small.en promotion; see fetch-whisper-model.sh header for
+#     the RTF/WER rationale and the iPhone-T5-unproven caveat)
+#   ggml-base.en-q5_1.bin   (~60 MB) — the one-arg revert (STT_MODEL=base.en)
 #
-# This binary is GITIGNORED (large — like the xcframework). Fetch it into the
-# app target's Sources/Resources once:
+# Both binaries are GITIGNORED (large — like the xcframework), sha256-pinned,
+# and fetched/cache-verified by ./fetch-whisper-model.sh (called automatically
+# from ./generate.sh, which runs after this script). Manual fetch:
 #
-#   curl -L -o apps/ios/Sources/Resources/ggml-base.en-q5_1.bin \
-#     https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin
+#   ./fetch-whisper-model.sh            # default: small.en
+#   ./fetch-whisper-model.sh base.en    # revert
 #
 # WHY Sources/Resources and NOT Packages/MurmurCoreFFI/Resources: SwiftPM
 # package resources land in `Bundle.module` (the package's resource bundle),
-# but GalleryApp.resolveEngine reads `Bundle.main.path(forResource:
-# "ggml-base.en-q5_1", ofType: "bin")` — the APP bundle. A model placed in the
-# package would silently never resolve. The app-target `Sources` glob (picked
-# up by both project.yml and project-real.yml) is the mechanism that actually
-# works — verified on the simulator. If the model is absent the live walk
-# degrades to text-only — no crash (the Rust side treats a nil path as
-# text-only); ./generate.sh prints a NOTE when it's missing. Keep
+# but GalleryApp.resolveEngine resolves the model via `Bundle.main.path(
+# forResource: "ggml-<model>-q5_1", ofType: "bin")` — the APP bundle. A model
+# placed in the package would silently never resolve. The app-target `Sources`
+# glob (picked up by both project.yml and project-real.yml) is the mechanism
+# that actually works — verified on the simulator. If neither model is present
+# the live walk degrades to text-only — no crash (the Rust side treats a nil
+# path as text-only); ./generate.sh prints a NOTE when the fetch fails. Keep
 # CODE_SIGNING_ALLOWED: NO for the simulator.
 #
 # NOTE: the tracked demo spec (project.yml) deliberately does NOT bundle the
