@@ -84,10 +84,23 @@ EOF
 # small.en's on-device RTF is unproven. That's why this stays a one-var
 # revert (STT_MODEL=base.en / sttmodel=base.en) rather than a hard swap.
 STT_MODEL="${STT_MODEL:-small.en}"
-./fetch-whisper-model.sh "$STT_MODEL" || {
+if ./fetch-whisper-model.sh "$STT_MODEL"; then
+  # Exactly ONE model may be bundled: project.yml globs Sources/ wholesale, so
+  # if both ggml bins are on disk (e.g. a default small.en run followed by a
+  # STT_MODEL=base.en revert) xcodegen would bundle both and silently fatten
+  # the app by the other model's size. generate.sh owns the bundle contents,
+  # so prune the non-selected model here (fetch-whisper-model.sh stays
+  # single-purpose: fetch + verify only).
+  if [ "$STT_MODEL" = "base.en" ]; then OTHER="small.en"; else OTHER="base.en"; fi
+  OTHER_FILE="Sources/Resources/ggml-$OTHER-q5_1.bin"
+  if [ -f "$OTHER_FILE" ]; then
+    rm -f "$OTHER_FILE"
+    echo "==> removed $OTHER_FILE (only the selected model — $STT_MODEL — is bundled)"
+  fi
+else
   echo "NOTE: whisper model fetch failed — live walks will run TEXT-ONLY (no on-device STT)." >&2
   echo "      Retry manually: apps/ios/fetch-whisper-model.sh $STT_MODEL" >&2
-}
+fi
 
 xcodegen generate --spec project-real.yml
 echo "==> generated SitewalkGallery.xcodeproj (REAL murmur-core engine active when a key was found)"

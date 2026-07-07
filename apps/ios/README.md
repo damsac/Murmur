@@ -44,7 +44,10 @@ the first fetch): default **small.en** (~190 MB), with a one-arg revert to
 **base.en** (~60 MB) via `STT_MODEL=base.en ./generate.sh` or the runtime
 `sttmodel=base.en` launch arg. small.en's promotion is Mac-proxy evidence only
 — see `fetch-whisper-model.sh`'s header and `spikes/stt-whisper/RESULTS.md`
-(iPhone T5 device tier still PENDING).
+(iPhone T5 device tier still PENDING). After a successful fetch `generate.sh`
+deletes the non-selected model from `Sources/Resources/` — `project.yml` globs
+`Sources/` wholesale, so leaving both bins on disk would silently bundle both
+(+250 MB total). Exactly one model is ever bundled.
 
 > Switching modes in an existing checkout can leave a stale SwiftPM package graph
 > in DerivedData — if a build errors with `Unable to find module dependency:
