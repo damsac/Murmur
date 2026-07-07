@@ -385,9 +385,18 @@ impl WalkSession {
                 // A photo-count query fault degrades to "no counts" (all zero)
                 // rather than dropping the whole snapshot — items are the
                 // load-bearing content; counts are best-effort enrichment.
-                let counts = store
-                    .count_live_photos_by_item_for_session(&self.session_id)
-                    .unwrap_or_default();
+                // The fault is still SURFACED via the tick counter (carry-note
+                // 4 posture, matching the item-list fault above; lock-safe:
+                // record_tick_fault is atomic + eprintln, no store re-lock).
+                let counts = match store.count_live_photos_by_item_for_session(&self.session_id) {
+                    Ok(counts) => counts,
+                    Err(e) => {
+                        self.record_tick_fault(&format!(
+                            "count_live_photos_by_item_for_session: {e}"
+                        ));
+                        std::collections::HashMap::new()
+                    }
+                };
                 (items, counts)
             }
             Err(_) => {
