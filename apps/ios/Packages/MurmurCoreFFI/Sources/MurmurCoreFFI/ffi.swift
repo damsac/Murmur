@@ -1421,6 +1421,12 @@ public struct DocLine {
      * by the FFI layer from `amount_cents == None`.
      */
     public var isGap: Bool
+    /**
+     * The core item this row was built from (Plan 12). `None` for
+     * total/rollup lines, or an old document body written before Plan 12.
+     * Additive; never derived by the FFI layer.
+     */
+    public var itemId: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -1428,7 +1434,12 @@ public struct DocLine {
         /**
          * Template-aware (D2a) — set by the `build_document` tool, never derived
          * by the FFI layer from `amount_cents == None`.
-         */isGap: Bool) {
+         */isGap: Bool, 
+        /**
+         * The core item this row was built from (Plan 12). `None` for
+         * total/rollup lines, or an old document body written before Plan 12.
+         * Additive; never derived by the FFI layer.
+         */itemId: String?) {
         self.id = id
         self.title = title
         self.detail = detail
@@ -1436,6 +1447,7 @@ public struct DocLine {
         self.amountCents = amountCents
         self.section = section
         self.isGap = isGap
+        self.itemId = itemId
     }
 }
 
@@ -1464,6 +1476,9 @@ extension DocLine: Equatable, Hashable {
         if lhs.isGap != rhs.isGap {
             return false
         }
+        if lhs.itemId != rhs.itemId {
+            return false
+        }
         return true
     }
 
@@ -1475,6 +1490,7 @@ extension DocLine: Equatable, Hashable {
         hasher.combine(amountCents)
         hasher.combine(section)
         hasher.combine(isGap)
+        hasher.combine(itemId)
     }
 }
 
@@ -1492,7 +1508,8 @@ public struct FfiConverterTypeDocLine: FfiConverterRustBuffer {
                 qty: FfiConverterString.read(from: &buf), 
                 amountCents: FfiConverterOptionInt64.read(from: &buf), 
                 section: FfiConverterOptionString.read(from: &buf), 
-                isGap: FfiConverterBool.read(from: &buf)
+                isGap: FfiConverterBool.read(from: &buf), 
+                itemId: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -1504,6 +1521,7 @@ public struct FfiConverterTypeDocLine: FfiConverterRustBuffer {
         FfiConverterOptionInt64.write(value.amountCents, into: &buf)
         FfiConverterOptionString.write(value.section, into: &buf)
         FfiConverterBool.write(value.isGap, into: &buf)
+        FfiConverterOptionString.write(value.itemId, into: &buf)
     }
 }
 

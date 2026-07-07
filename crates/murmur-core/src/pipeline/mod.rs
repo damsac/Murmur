@@ -609,9 +609,16 @@ mod tests {
         assert_eq!(v["lines"][1]["item_id"], serde_json::Value::Null, "bogus id degrades");
         assert_eq!(v["lines"][2]["item_id"], serde_json::Value::Null, "omitted id stays null");
 
-        // Survives-swap invariant (D3): every stored row with a non-null
-        // item_id is present in the post-swap live item set — no row
-        // references a tombstoned item.
+        // Survives-swap invariant (D3), stated honestly: in THIS script all
+        // three lines degrade to null (placeholder / bogus / omitted), so the
+        // loop body below never executes — it guards against non-null garbage
+        // being stored, not the positive path. The positive property (a valid
+        // echoed id is stored non-null AND survives the swap) is covered by
+        // the tool-level `build_document_echoes_and_validates_item_ids` test
+        // (valid id kept), sessions.rs' finish_processed swap tests
+        // (run_item_ids survive the sweep), and the C1 by-construction
+        // identity (the validation set == the same created_ids Arc the sweep
+        // keeps).
         let live_ids: std::collections::HashSet<&str> =
             live_items.iter().map(|i| i.id.as_str()).collect();
         for line in v["lines"].as_array().unwrap() {
