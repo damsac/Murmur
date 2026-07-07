@@ -23,6 +23,14 @@ private let engineLog = Logger(subsystem: "com.damsac.sitewalk", category: "engi
 //                                              (default 0.0; ~0.01 cuts noise)
 //   sttnsp=<float>                           → STT no_speech_prob drop
 //                                              threshold (default 0.6)
+//   sttmodel=base.en|small.en                → which bundled whisper model to
+//                                              load (default small.en — see
+//                                              resolveSttModelPath). One-arg
+//                                              revert to base.en: small.en's
+//                                              on-device RTF is Mac-proxy
+//                                              evidence only — the iPhone T5
+//                                              tier is still PENDING in
+//                                              spikes/stt-whisper/RESULTS.md.
 
 /// Engine selection (Plan 07 D10/Task 11): real `MurmurEngine` when an API
 /// key + config resolve, `DemoWalkEngine` when launched with `demo=1` OR
@@ -75,6 +83,40 @@ private func resolveSttKnobs(_ args: [String]) -> SttKnobs {
     return SttKnobs(useGpu: useGpu, vadRms: vadRms, noSpeechProb: noSpeechProb)
 }
 
+/// Resolves the bundled whisper model path from the `sttmodel=base.en|small.en`
+/// launch arg (default **small.en** — the spike-validated upgrade over
+/// base.en on every measured WER/hallucination axis, `spikes/stt-whisper/
+/// RESULTS.md`). This is the one-arg revert surface: the iPhone T5 device
+/// tier in that same doc is still PENDING, so small.en's on-device RTF is
+/// unproven — launching with `sttmodel=base.en` (or setting
+/// `STT_MODEL=base.en` before `./generate.sh`/`./fetch-whisper-model.sh`)
+/// falls straight back to the previously-shipped default with no code change.
+///
+/// Falls back to whichever model IS bundled if the requested one isn't
+/// present (e.g. only base.en was fetched) — same "degrade, never crash"
+/// posture as the rest of engine resolution. Returns `nil` (text-only) only
+/// if neither model is bundled.
+private func resolveSttModelPath(_ args: [String]) -> String? {
+    let requested = args
+        .first(where: { $0.hasPrefix("sttmodel=") })
+        .map { String($0.dropFirst("sttmodel=".count)) } ?? "small.en"
+    let fallback = requested == "base.en" ? "small.en" : "base.en"
+    for name in [requested, fallback] {
+        if let path = Bundle.main.path(forResource: "ggml-\(name)-q5_1", ofType: "bin") {
+            if name != requested {
+                engineLog.notice(
+                    "sttmodel=\(requested, privacy: .public) requested but not bundled"
+                )
+                engineLog.notice("using \(name, privacy: .public) instead")
+            } else {
+                engineLog.notice("stt model=\(name, privacy: .public)")
+            }
+            return path
+        }
+    }
+    return nil
+}
+
 @MainActor
 private func resolveEngine(demo: Bool) -> WalkEngine? {
     if demo {
@@ -103,14 +145,17 @@ private func resolveEngine(demo: Bool) -> WalkEngine? {
     let dbPath = appSupport
         .appendingPathComponent("murmur.sqlite3")
         .path
-    // Bundled whisper model (Plan 08 D5) — resolved from the app bundle. If the
-    // resource is missing the walk degrades to text-only (no crash): the Rust
-    // side treats a nil path as a text-only session.
-    let sttModelPath = Bundle.main.path(forResource: "ggml-base.en-q5_1", ofType: "bin")
+    // Bundled whisper model (Plan 08 D5; sttmodel= knob added in the
+    // model-download PR) — resolved from the app bundle via
+    // resolveSttModelPath, which also handles the base.en/small.en fallback
+    // and revert. If neither model is bundled the walk degrades to text-only
+    // (no crash): the Rust side treats a nil path as a text-only session.
+    let args = ProcessInfo.processInfo.arguments
+    let sttModelPath = resolveSttModelPath(args)
     if sttModelPath == nil {
         engineLog.notice("stt model not bundled — live walk will run text-only")
     }
-    let stt = resolveSttKnobs(ProcessInfo.processInfo.arguments)
+    let stt = resolveSttKnobs(args)
     let config = EngineConfig(
         dbPath: dbPath,
         deviceId: UIDevice.current.identifierForVendor?.uuidString ?? "unknown-device",
