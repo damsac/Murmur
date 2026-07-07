@@ -1,20 +1,26 @@
 //! Domain -> FFI dictionary projections. Every mapping across the FFI
 //! boundary lives here (plus the records themselves) — nowhere else.
 
+use std::collections::HashMap;
+
 use murmur_core::{Artifact, CapturedItem};
 
 use crate::document::{DocLine, DocumentPayload};
 use crate::events::BoardItem;
 
-/// `CapturedItem` -> `BoardItem`. `right`/`photo_count` have no core
-/// equivalent yet (see `events.rs` doc comment) and default to empty/zero.
-pub fn board_item(item: &CapturedItem) -> BoardItem {
+/// `CapturedItem` -> `BoardItem`. `right` has no core equivalent yet (board
+/// chrome text the Swift layer owns) and stays empty. `photo_count` is looked
+/// up from a batched per-session map (`Store::count_live_photos_by_item_for_session`,
+/// the photo_count fast-follow) — a missing key (no live photos attached to
+/// this item) defaults to `0`. Callers load the map ONCE per snapshot, never
+/// per item (no N+1 query per board item).
+pub fn board_item(item: &CapturedItem, photo_counts: &HashMap<String, u32>) -> BoardItem {
     BoardItem {
         id: item.id.clone(),
         kind: item.kind.clone(),
         text: item.text.clone(),
         right: String::new(),
-        photo_count: 0,
+        photo_count: photo_counts.get(&item.id).copied().unwrap_or(0),
     }
 }
 
@@ -120,10 +126,25 @@ mod tests {
         let item = store
             .add_item_with_source(&session.id, "todo", "order lumber", ItemSource::Live)
             .unwrap();
-        let board = board_item(&item);
+        let board = board_item(&item, &HashMap::new());
         assert_eq!(board.id, item.id);
         assert_eq!(board.kind, "todo");
         assert_eq!(board.text, "order lumber");
+        assert_eq!(board.photo_count, 0, "no entry in the counts map defaults to 0");
+    }
+
+    #[test]
+    fn board_item_photo_count_comes_from_the_batched_map() {
+        let store = Store::open_in_memory("device-a").unwrap();
+        let session = store.start_session(None).unwrap();
+        let item = store
+            .add_item_with_source(&session.id, "todo", "order lumber", ItemSource::Live)
+            .unwrap();
+        store.add_photo(&session.id, Some(&item.id), "a.jpg", None).unwrap();
+        store.add_photo(&session.id, Some(&item.id), "b.jpg", None).unwrap();
+        let counts = store.count_live_photos_by_item_for_session(&session.id).unwrap();
+        let board = board_item(&item, &counts);
+        assert_eq!(board.photo_count, 2);
     }
 
     #[test]
