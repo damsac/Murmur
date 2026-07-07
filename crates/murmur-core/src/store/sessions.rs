@@ -289,6 +289,34 @@ impl Store {
         Ok(sessions)
     }
 
+    /// App-open zombie sweep: a `Recording` session left behind by a crash or
+    /// force-quit mid-walk can never legally resume (there is no live
+    /// `WalkSession`/STT pump for it after relaunch — `MurmurEngine::new`
+    /// starts clean), so it is stuck in `Recording` forever unless something
+    /// moves it out. This transitions every `Recording` row to `Failed`:
+    /// transcript and items are left exactly as they were (they are the
+    /// crash-surviving record of real field data, not garbage) — only the
+    /// status changes, so `Failed -> Processed` (the existing retry path,
+    /// `transition_ended`) can recover the walk later. Deleting instead of
+    /// failing was considered and rejected: it would destroy data the field
+    /// worker actually said before the crash.
+    ///
+    /// Idempotent: a second call finds no `Recording` rows and sweeps zero.
+    /// Returns the number of sessions swept, so the shell can log/surface it.
+    pub fn sweep_zombie_sessions(&self) -> Result<usize, CoreError> {
+        let now = self.now() as i64;
+        let swept = self.conn.execute(
+            "UPDATE sessions SET status = ?1, updated_at = ?2
+             WHERE status = ?3 AND deleted_at IS NULL",
+            rusqlite::params![
+                SessionStatus::Failed.as_str(),
+                now,
+                SessionStatus::Recording.as_str(),
+            ],
+        )?;
+        Ok(swept)
+    }
+
     /// Tombstones a session AND cascades to its live items and artifacts in
     /// one transaction — deleting a session is a single logical delete
     /// operation (sync story: one op, never a half-cascaded state). Already
@@ -765,6 +793,66 @@ mod tests {
             })
             .unwrap();
         assert_eq!(raw_artifact, 1);
+    }
+
+    #[test]
+    fn sweep_zombie_sessions_fails_only_recording_rows() {
+        let s = store();
+        let recording_a = s.start_session(None).unwrap();
+        let recording_b = s.start_session(None).unwrap();
+        let awaiting = s.start_session(None).unwrap();
+        s.end_session(&awaiting.id).unwrap();
+        let processed = s.start_session(None).unwrap();
+        s.end_session(&processed.id).unwrap();
+        s.mark_session_processed(&processed.id, "done.").unwrap();
+
+        let swept = s.sweep_zombie_sessions().unwrap();
+        assert_eq!(swept, 2, "only the two Recording rows are zombies");
+
+        assert_eq!(s.get_session(&recording_a.id).unwrap().status, SessionStatus::Failed);
+        assert_eq!(s.get_session(&recording_b.id).unwrap().status, SessionStatus::Failed);
+        // untouched
+        assert_eq!(s.get_session(&awaiting.id).unwrap().status, SessionStatus::AwaitingProcessing);
+        assert_eq!(s.get_session(&processed.id).unwrap().status, SessionStatus::Processed);
+    }
+
+    #[test]
+    fn sweep_zombie_sessions_is_idempotent() {
+        let s = store();
+        s.start_session(None).unwrap();
+        assert_eq!(s.sweep_zombie_sessions().unwrap(), 1);
+        // second call: nothing left in Recording — zero, no error, no re-sweep
+        assert_eq!(s.sweep_zombie_sessions().unwrap(), 0);
+    }
+
+    #[test]
+    fn sweep_zombie_sessions_preserves_transcript_and_items() {
+        let s = store();
+        let session = s.start_session(None).unwrap();
+        s.append_transcript(&session.id, "we walked the yard").unwrap();
+        let item = s.add_item(&session.id, "todo", "order lumber").unwrap();
+
+        s.sweep_zombie_sessions().unwrap();
+
+        let failed = s.get_session(&session.id).unwrap();
+        assert_eq!(failed.status, SessionStatus::Failed);
+        assert_eq!(failed.transcript, "we walked the yard");
+        // items survive the sweep — they are the crash-surviving record
+        let items: Vec<_> = s.list_items_for_session(&session.id).unwrap().into_iter().map(|i| i.id).collect();
+        assert_eq!(items, vec![item.id]);
+    }
+
+    #[test]
+    fn failed_zombie_session_can_still_retry_to_processed() {
+        // Recording -> Failed (sweep) -> Processed must remain a legal retry
+        // path, same as the existing AwaitingProcessing/Failed -> Processed
+        // allowlist.
+        let s = store();
+        let session = s.start_session(None).unwrap();
+        s.sweep_zombie_sessions().unwrap();
+        assert_eq!(s.get_session(&session.id).unwrap().status, SessionStatus::Failed);
+        let done = s.mark_session_processed(&session.id, "recovered").unwrap();
+        assert_eq!(done.status, SessionStatus::Processed);
     }
 
     #[test]
