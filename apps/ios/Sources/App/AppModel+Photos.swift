@@ -14,21 +14,63 @@ extension AppModel {
 
     /// sac: the capture UX (camera vs picker, confirm, where the button
     /// lives) is yours. This just wires bytes → FFI.
-    func capturePhoto(image: Data, itemId: String?) {
+    ///
+    /// Off-main (PR #176 should-fix): both the disk write and the FFI
+    /// `attachPhoto` call used to run synchronously on the main actor, and
+    /// the FFI call blocks on a store lock shared with the Rust pump thread —
+    /// enough to stall a tap during live extraction. The call itself stays a
+    /// plain, non-async, fire-and-forget entry point (no call site changes),
+    /// but the body now runs on a chained background `Task` (see
+    /// `photoCaptureChain`): bytes-write and attach happen off the main
+    /// actor, then the tail of the task hops back (implicitly — `AppModel`
+    /// is `@MainActor`) to mutate `photos`/`photoError` and fire
+    /// `onComplete`.
+    ///
+    /// `onComplete` is how `addPhoto` (AppModel.swift, sac's walk-time
+    /// caller) applies its optimistic chip bump AFTER the attach actually
+    /// succeeds, instead of racing it synchronously the way the old code
+    /// implicitly could.
+    ///
+    /// Ordering under rapid taps: captures are chained onto
+    /// `photoCaptureChain` (await the previous capture's Task before
+    /// starting this one), so two quick taps run their bytes-write +
+    /// attach + state mutation sequentially, in tap order — never
+    /// interleaved. (Each capture's own UUID filename is independent either
+    /// way, but chaining also keeps `photos` append order matching capture
+    /// order, which is the nicer UX and avoids relitigating "is
+    /// interleaving actually safe" every time this code changes.)
+    func capturePhoto(image: Data, itemId: String?, onComplete: (@MainActor (Bool) -> Void)? = nil) {
         guard let sessionId = currentSessionId else {
             photoError = "no active session to attach a photo to"
+            onComplete?(false)
             return
         }
         let name = "\(UUID().uuidString).jpg"
-        do {
-            try writePhotoBytes(image, name: name) // bytes FIRST (Plan 11 D4)
-            let photo = try engine.attachPhoto(sessionId: sessionId, itemId: itemId, filename: name, capturedAt: nil)
-            photos.append(photo)
-            photoError = nil
-        } catch {
-            photoLogger.error("capturePhoto failed: \(error, privacy: .public)")
-            // sac: how errors surface is a design call.
-            photoError = "\(error)"
+        let dir = photosDirectory // cheap URL/mkdir; fine on the main actor
+        let engine = self.engine
+        let previous = photoCaptureChain
+        photoCaptureChain = Task { [weak self] in
+            await previous?.value
+            guard let self else { return }
+            do {
+                // bytes FIRST (Plan 11 D4) — off-main disk write.
+                try await Task.detached(priority: .userInitiated) {
+                    try image.write(to: dir.appendingPathComponent(name))
+                }.value
+                // attachPhoto is `async` (WalkEngine seam) so the FFI's
+                // store-lock wait doesn't block the main actor either.
+                let photo = try await engine.attachPhoto(
+                    sessionId: sessionId, itemId: itemId, filename: name, capturedAt: nil
+                )
+                self.photos.append(photo)
+                self.photoError = nil
+                onComplete?(true)
+            } catch {
+                self.photoLogger.error("capturePhoto failed: \(error, privacy: .public)")
+                // sac: how errors surface is a design call.
+                self.photoError = "\(error)"
+                onComplete?(false)
+            }
         }
     }
 
@@ -70,10 +112,6 @@ extension AppModel {
         let dir = docs.appendingPathComponent("photos", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
-    }
-
-    private func writePhotoBytes(_ data: Data, name: String) throws {
-        try data.write(to: photosDirectory.appendingPathComponent(name))
     }
 
     private func photoDirContents() -> [String] {

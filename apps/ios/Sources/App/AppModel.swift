@@ -58,6 +58,12 @@ final class AppModel {
     // extension in a different file — Swift's `private` is file-scoped.)
     var photos: [PhotoModel] = []
     var photoError: String?
+    /// Chains capture calls (PR #176 should-fix, AppModel+Photos.swift) so
+    /// rapid taps run their off-main bytes-write + attach sequentially, in
+    /// tap order, rather than interleaving. Not `private`: mutated from
+    /// AppModel+Photos.swift, a same-module extension in a different file —
+    /// Swift's `private` is file-scoped (same pattern as `photos` above).
+    var photoCaptureChain: Task<Void, Never>?
     /// Snapshotted when a walk successfully begins and kept through review
     /// (Plan 11 D7): the real `MurmurEngine` drops its live `WalkSession` once
     /// `finish()` returns, so `engine.currentSessionId` alone would go nil
@@ -223,12 +229,24 @@ final class AppModel {
     /// is uppercase, so lowercase across the seam. The chip bump is
     /// optimistic — the next `boardUpdated` carries the core's
     /// `photoCount` and self-corrects.
+    ///
+    /// PR #176 should-fix: `capturePhoto` now runs its bytes-write + FFI
+    /// attach off the main actor and reports back via `onComplete` instead
+    /// of finishing synchronously. `pinnedID` is snapshotted HERE, before
+    /// the async work starts — matching the old code's implicit behavior
+    /// (it read `lastCapturedID` right after a fully synchronous
+    /// `capturePhoto` call, so it always saw the same value it captured
+    /// with). Re-reading `lastCapturedID` from the completion closure
+    /// instead would risk bumping the WRONG item if a `boardUpdated` lands
+    /// while the attach is in flight.
     func addPhoto(_ data: Data) {
-        capturePhoto(image: data, itemId: lastCapturedID?.uuidString.lowercased())
-        guard photoError == nil,
-              let id = lastCapturedID,
-              let idx = items.firstIndex(where: { $0.id == id }) else { return }
-        items[idx].photos += 1
+        let pinnedID = lastCapturedID
+        capturePhoto(image: data, itemId: pinnedID?.uuidString.lowercased()) { [weak self] success in
+            guard success, let self,
+                  let id = pinnedID,
+                  let idx = self.items.firstIndex(where: { $0.id == id }) else { return }
+            self.items[idx].photos += 1
+        }
     }
 
     func discardWalk() {
