@@ -36,6 +36,11 @@ pub enum EngineError {
     /// store/validation strings only (never an api key).
     #[error("photo error: {0}")]
     Photo(String),
+    /// A session-lifecycle operation outside `begin_walk`/`WalkSession` failed
+    /// (currently: the app-open zombie sweep). A poisoned store lock or a
+    /// store error — recoverable, surface don't crash.
+    #[error("session error: {0}")]
+    Session(String),
 }
 
 /// Config crossing the FFI boundary. `api_key` is an opaque `String` from the
