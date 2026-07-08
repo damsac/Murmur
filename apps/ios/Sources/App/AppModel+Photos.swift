@@ -90,17 +90,49 @@ extension AppModel {
         photos = (try? engine.listPhotos(sessionId: sessionId)) ?? []
     }
 
+    /// Both app-open sweeps, called together from `AppRoot.body`'s `.task`
+    /// (GalleryApp.swift): reconcile photo bytes (Plan 11 D4) and fail any
+    /// crash-orphaned `Recording` session. Both are app-open-ONLY, never
+    /// background — a concurrent photo sweep could race an in-flight capture
+    /// (bytes written, row not yet committed) and delete a just-captured
+    /// photo; app-open is the one quiescent point where neither a capture nor
+    /// a walk can be mid-flight.
+    ///
+    /// INVARIANT (sweep-vs-live-walk race — closed by ORDERING alone, and
+    /// these three properties keep it closed):
+    ///   1. Fully SYNCHRONOUS: no `await` before this call in the `.task`,
+    ///      none inside it. A single suspension point could let a walk start
+    ///      first, and the resumed sweep would Fail the LIVE session — its
+    ///      next append/finish then throws InvalidState.
+    ///   2. Runs BEFORE any start-walk path: the user's tap and the autoflow
+    ///      script both come after the `.task` head has executed.
+    ///   3. NEVER re-fired on background→foreground while a `WalkSession` is
+    ///      live — `.task` runs once per view lifetime, and it must stay that
+    ///      way (no scenePhase re-trigger).
+    func runAppOpenSweeps() {
+        sweepPhotoBytes()
+        sweepZombieSessions()
+    }
+
     /// Reconciling sweep (Plan 11 D4): delete every file in <Documents>/photos/
     /// whose name is NOT in the engine's live set. Idempotent, crash-safe;
     /// reaps tombstoned-row bytes AND never-committed capture orphans with one
-    /// rule. Call on app launch ONLY (v1): a concurrent/background sweep could
-    /// race an in-flight capture (bytes written, row not yet committed) and
-    /// delete a just-captured photo. App-open is a quiescent point (no capture
-    /// in flight).
+    /// rule.
     func sweepPhotoBytes() {
         guard let live = try? Set(engine.liveLivePhotoFilenames()) else { return }
         for file in photoDirContents() where !live.contains(file) {
             deletePhotoFile(file)
+        }
+    }
+
+    /// A crash/force-quit mid-walk leaves a `Recording` session that can
+    /// never resume (there is no live `WalkSession` for it after relaunch).
+    /// Best effort like the photo sweep — a failure here (e.g. store lock
+    /// contention) just means the zombie waits for the next app-open; it
+    /// never blocks launch or crashes the app.
+    func sweepZombieSessions() {
+        if let swept = try? engine.sweepZombieSessions(), swept > 0 {
+            photoLogger.notice("swept \(swept, privacy: .public) zombie session(s)")
         }
     }
 

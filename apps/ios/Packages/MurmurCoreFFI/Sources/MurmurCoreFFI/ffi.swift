@@ -590,6 +590,27 @@ public protocol MurmurEngineProtocol : AnyObject {
      */
     func removeVocabularyTerm(term: String) throws  -> [String]
     
+    /**
+     * App-open zombie sweep (carry-note, Plan 04): a `Recording` session left
+     * behind by a crash or force-quit mid-walk can never resume — there is no
+     * live `WalkSession`/STT pump for it after relaunch, `MurmurEngine::new`
+     * starts clean — so without this it would sit in `Recording` forever.
+     * The shell calls this once, at app open, the same way it calls
+     * `list_live_photo_filenames`/`sweepPhotoBytes` (Plan 11 D4): an explicit
+     * method the host invokes at a known quiescent point, not something
+     * hidden inside the constructor. Automatic-in-`new` would make sweep
+     * policy invisible and untestable from the shell side, and would run
+     * even for callers (tests, tooling) that open a store without ever
+     * wanting mutation as a side effect of construction.
+     *
+     * Transitions every `Recording` row to `Failed` — never deletes.
+     * Transcript and items survive (they're the crash-surviving record of
+     * real field data); `Failed -> Processed` is the existing retry path, so
+     * a future "recover this walk" UI can reprocess it. Idempotent: returns
+     * the number of sessions swept, `0` on a clean relaunch.
+     */
+    func sweepZombieSessions() throws  -> UInt64
+    
 }
 
 /**
@@ -760,6 +781,32 @@ open func removeVocabularyTerm(term: String)throws  -> [String] {
     return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeEngineError.lift) {
     uniffi_ffi_fn_method_murmurengine_remove_vocabulary_term(self.uniffiClonePointer(),
         FfiConverterString.lower(term),$0
+    )
+})
+}
+    
+    /**
+     * App-open zombie sweep (carry-note, Plan 04): a `Recording` session left
+     * behind by a crash or force-quit mid-walk can never resume — there is no
+     * live `WalkSession`/STT pump for it after relaunch, `MurmurEngine::new`
+     * starts clean — so without this it would sit in `Recording` forever.
+     * The shell calls this once, at app open, the same way it calls
+     * `list_live_photo_filenames`/`sweepPhotoBytes` (Plan 11 D4): an explicit
+     * method the host invokes at a known quiescent point, not something
+     * hidden inside the constructor. Automatic-in-`new` would make sweep
+     * policy invisible and untestable from the shell side, and would run
+     * even for callers (tests, tooling) that open a store without ever
+     * wanting mutation as a side effect of construction.
+     *
+     * Transitions every `Recording` row to `Failed` — never deletes.
+     * Transcript and items survive (they're the crash-surviving record of
+     * real field data); `Failed -> Processed` is the existing retry path, so
+     * a future "recover this walk" UI can reprocess it. Idempotent: returns
+     * the number of sessions swept, `0` on a clean relaunch.
+     */
+open func sweepZombieSessions()throws  -> UInt64 {
+    return try  FfiConverterUInt64.lift(try rustCallWithError(FfiConverterTypeEngineError.lift) {
+    uniffi_ffi_fn_method_murmurengine_sweep_zombie_sessions(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -2004,6 +2051,13 @@ public enum EngineError {
      */
     case Photo(message: String)
     
+    /**
+     * A session-lifecycle operation outside `begin_walk`/`WalkSession` failed
+     * (currently: the app-open zombie sweep). A poisoned store lock or a
+     * store error — recoverable, surface don't crash.
+     */
+    case Session(message: String)
+    
 }
 
 
@@ -2040,6 +2094,10 @@ public struct FfiConverterTypeEngineError: FfiConverterRustBuffer {
             message: try FfiConverterString.read(from: &buf)
         )
         
+        case 6: return .Session(
+            message: try FfiConverterString.read(from: &buf)
+        )
+        
 
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -2061,6 +2119,8 @@ public struct FfiConverterTypeEngineError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(4))
         case .Photo(_ /* message is ignored*/):
             writeInt(&buf, Int32(5))
+        case .Session(_ /* message is ignored*/):
+            writeInt(&buf, Int32(6))
 
         
         }
@@ -2450,6 +2510,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ffi_checksum_method_murmurengine_remove_vocabulary_term() != 40682) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ffi_checksum_method_murmurengine_sweep_zombie_sessions() != 29924) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ffi_checksum_method_walkeventlistener_on_event() != 10314) {

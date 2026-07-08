@@ -502,6 +502,34 @@ impl MurmurEngine {
         session.start_pump();
         Ok(session)
     }
+
+    /// App-open zombie sweep (carry-note, Plan 04): a `Recording` session left
+    /// behind by a crash or force-quit mid-walk can never resume — there is no
+    /// live `WalkSession`/STT pump for it after relaunch, `MurmurEngine::new`
+    /// starts clean — so without this it would sit in `Recording` forever.
+    /// The shell calls this once, at app open, the same way it calls
+    /// `list_live_photo_filenames`/`sweepPhotoBytes` (Plan 11 D4): an explicit
+    /// method the host invokes at a known quiescent point, not something
+    /// hidden inside the constructor. Automatic-in-`new` would make sweep
+    /// policy invisible and untestable from the shell side, and would run
+    /// even for callers (tests, tooling) that open a store without ever
+    /// wanting mutation as a side effect of construction.
+    ///
+    /// Transitions every `Recording` row to `Failed` — never deletes.
+    /// Transcript and items survive (they're the crash-surviving record of
+    /// real field data); `Failed -> Processed` is the existing retry path, so
+    /// a future "recover this walk" UI can reprocess it. Idempotent: returns
+    /// the number of sessions swept, `0` on a clean relaunch.
+    pub fn sweep_zombie_sessions(&self) -> Result<u64, EngineError> {
+        let store = self
+            .store
+            .lock()
+            .map_err(|_| EngineError::Session("store lock poisoned".into()))?;
+        let swept = store
+            .sweep_zombie_sessions()
+            .map_err(|e| EngineError::Session(e.to_string()))?;
+        Ok(swept as u64)
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -844,6 +872,48 @@ mod tests {
         };
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].text, "order lumber");
+    }
+
+    fn no_op_providers() -> Providers {
+        Providers {
+            live: Arc::new(MockProvider::new(vec![])),
+            processing: Arc::new(MockProvider::new(vec![])),
+            reflection: Arc::new(MockProvider::new(vec![])),
+        }
+    }
+
+    #[tokio::test]
+    async fn sweep_zombie_sessions_is_exposed_and_transitions_recording_rows() {
+        let store = Store::open_in_memory("device-a").unwrap();
+        // A zombie left behind by a "crash": Recording, never ended.
+        let zombie_id = store.start_session(None).unwrap().id;
+        let engine = MurmurEngine::with_providers(
+            store,
+            Memory::default(),
+            Arc::new(NullMemoryStore),
+            no_op_providers(),
+        );
+
+        let swept = engine.sweep_zombie_sessions().unwrap();
+        assert_eq!(swept, 1);
+
+        // A fresh begin_walk still works after the sweep (engine stays usable).
+        let session = engine.begin_walk(None, "landscape".into()).unwrap();
+        assert_ne!(session.session_id(), zombie_id, "a new walk gets its own session");
+    }
+
+    #[tokio::test]
+    async fn sweep_zombie_sessions_is_idempotent_across_ffi() {
+        let store = Store::open_in_memory("device-a").unwrap();
+        store.start_session(None).unwrap();
+        let engine = MurmurEngine::with_providers(
+            store,
+            Memory::default(),
+            Arc::new(NullMemoryStore),
+            no_op_providers(),
+        );
+        assert_eq!(engine.sweep_zombie_sessions().unwrap(), 1);
+        assert_eq!(engine.sweep_zombie_sessions().unwrap(), 0);
     }
 
     /// photo_count fast-follow (Plan 11 D6): a photo attached to a pre-existing
