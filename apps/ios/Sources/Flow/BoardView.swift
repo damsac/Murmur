@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // Live jobs board — the app's home. Trade is switchable from the business
 // name (validation strategy: watch which template operators react to).
@@ -18,6 +19,25 @@ struct BoardView: View {
                         .tracking(2.0)
                         .foregroundStyle(Theme.C.orangeDeep)
                     Spacer()
+                    // Input-mode chip: VOICE (the product) vs DEMO (the canned
+                    // walk — graduates into onboarding). Tap to toggle;
+                    // launch-arg-forced modes lock it.
+                    Button { model.toggleMode() } label: {
+                        Text(model.walkMode == .voice ? "MIC · VOICE" : "DEMO WALK")
+                            .font(Theme.F.mono(8, .semibold))
+                            .tracking(1.0)
+                            .foregroundStyle(model.walkMode == .voice ? Theme.C.greenTag : Theme.C.yellowTag)
+                            .padding(.horizontal, 6)
+                            .padding(.top, 3)
+                            .padding(.bottom, 2)
+                            .background(model.walkMode == .voice ? Theme.C.greenTint : Theme.C.yellowTint)
+                            .padding(6)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(-6)
+                    .opacity(model.modeLocked ? 0.5 : 1)
+                    .disabled(model.modeLocked)
                     // Vocabulary entry: a stamped chip in the tag grammar —
                     // this is a field tool, not settings, so no gear. Padding
                     // widens the tap target without growing the stamp.
@@ -58,6 +78,32 @@ struct BoardView: View {
             .padding(.horizontal, Theme.S.screenPad)
             .padding(.top, 14)
             .padding(.bottom, 12)
+
+            if model.micDenied {
+                // A voice walk was attempted with mic permission denied.
+                // Same red-note grammar as the photo error bar; tapping goes
+                // straight to the app's Settings pane.
+                Button {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    HStack(spacing: 0) {
+                        Theme.C.redTag.frame(width: 3)
+                        Text("MIC IS OFF — SITEWALK CAN'T HEAR YOUR WALK. TAP TO ENABLE IN SETTINGS")
+                            .font(Theme.F.mono(8, .semibold))
+                            .tracking(0.4)
+                            .foregroundStyle(Theme.C.redTag)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 6)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .background(Theme.C.redTint)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, Theme.S.screenPad)
+                .padding(.bottom, 10)
+            }
 
             MetaStrip(left: model.trade.boardMeta, right: "SYNCED 07:58")
 

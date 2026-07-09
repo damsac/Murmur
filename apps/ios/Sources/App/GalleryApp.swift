@@ -84,17 +84,15 @@ private func resolveSttKnobs(_ args: [String]) -> SttKnobs {
 }
 
 /// Live-mic vs. scripted text walk. `live=1`/`live=0` always win. Default:
+/// (superseded by the in-app mode chip — this now only reports an EXPLICIT
+/// arg; absent args defer to the user's persisted choice in AppModel.)
 /// scripted on sim (Metal STT SIGTRAPs on MTLSimDevice; QA assumes scripted),
 /// **live** on device. CAVEAT: small.en's on-device RTF is unmeasured (see
 /// resolveSttModelPath) — `sttmodel=base.en`/`live=0` reverts if too slow.
-private func resolveLive(_ args: [String]) -> Bool {
+private func resolveLive(_ args: [String]) -> Bool? {
     if args.contains("live=1") { return true }
     if args.contains("live=0") { return false }
-    #if targetEnvironment(simulator)
-    return false
-    #else
-    return true
-    #endif
+    return nil
 }
 
 /// Resolves the bundled whisper model path from the `sttmodel=base.en|small.en`
@@ -227,24 +225,34 @@ struct RootRouter: View {
 
 struct AppRoot: View {
     @State private var model: AppModel
-    private let live: Bool
+    private let live: Bool?
     private let wavwalk: Bool
     private let autoflowRounds: Int
 
     @MainActor
-    init(live: Bool, wavwalk: Bool = false, demo: Bool, voiceProcessing: Bool = false,
+    init(live: Bool?, wavwalk: Bool = false, demo: Bool, voiceProcessing: Bool = false,
          autoflowRounds: Int) {
         self.live = live
         self.wavwalk = wavwalk
         self.autoflowRounds = autoflowRounds
-        // Both live (mic) and wavwalk (fixture) are real whisper walks — neither
-        // is the scripted text path. wavwalk drives the STT path from a bundled
-        // WAV instead of the mic (Plan 08 D7).
-        let whisperWalk = live || wavwalk
+        // Mode is a USER choice (persisted, board chip) unless a launch arg
+        // forces it: wavwalk/live=1 → voice; demo=1/live=0 → demo; autoflow
+        // without an explicit voice arg → demo (scripted determinism for
+        // screenshots/CI). Forced modes lock the chip and never persist.
+        let forcedMode: AppModel.WalkMode?
+        if wavwalk || live == true {
+            forcedMode = .voice
+        } else if demo || live == false {
+            forcedMode = .demo
+        } else if autoflowRounds > 0 {
+            forcedMode = .demo
+        } else {
+            forcedMode = nil
+        }
         _model = State(
             initialValue: AppModel(
                 engine: resolveEngine(demo: demo),
-                scripted: !whisperWalk,
+                forcedMode: forcedMode,
                 wavFixture: wavwalk,
                 voiceProcessing: voiceProcessing
             )
@@ -257,7 +265,7 @@ struct AppRoot: View {
                 .navigationDestination(for: AppModel.Phase.self) { phase in
                     switch phase {
                     case .walking:
-                        WalkView(model: model, scriptedLabel: !(live || wavwalk))
+                        WalkView(model: model)
                     case .building:
                         BuildView(model: model)
                     case .review:
@@ -273,9 +281,11 @@ struct AppRoot: View {
             // is never re-fired while a walk is live — one suspension point
             // ahead of it would Fail a live session. See runAppOpenSweeps().
             model.runAppOpenSweeps()
-            if live {
-                _ = await SpeechSource.requestPermissions()
-            }
+            // (Removed: the legacy SpeechSource permission ask for live=1.
+            // STT is Rust-side whisper — Apple Speech Recognition is never
+            // used on the walk path, and its system dialog carries "sent to
+            // Apple" copy that is untrue for this product. Mic permission is
+            // requested where it belongs: AppModel.startWalk, voice mode.)
             for round in 0..<autoflowRounds {
                 if round > 0 {
                     model.completeSend()

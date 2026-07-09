@@ -6,7 +6,6 @@ import PhotosUI
 
 struct WalkView: View {
     @Bindable var model: AppModel
-    var scriptedLabel: Bool
     @State private var showCamera = false
     @State private var pickerItem: PhotosPickerItem?
 
@@ -18,8 +17,8 @@ struct WalkView: View {
 
             MetaStrip(
                 left: model.trade.site,
-                right: scriptedLabel ? "DEMO WALK — SCRIPTED" : "REC — SAVED LOCAL",
-                warn: true
+                right: model.walkMode == .demo ? "DEMO WALK — SCRIPTED" : "REC — ON-DEVICE STT",
+                warn: model.walkMode == .demo
             )
 
             ScrollView {
