@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SITEWALK — Notes-First Flow Study</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Semi+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,600;0,8..60,700;1,8..60,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#FAFAF7; --paper-deep:#F1F0EA; --sheet:#FFFFFE;
+    --ink:#141412; --ink-60:#5E5C54; --ink-35:#A7A49A;
+    --hair:rgba(20,20,18,.16); --hair-soft:rgba(20,20,18,.09);
+    --orange:#E8531F; --orange-deep:#C43F12; --orange-tint:#FCEAE2; --on-orange:#FFF8F5;
+    --red:#A63A2E; --red-tint:#F7E8E5; --yellow:#9A7213; --yellow-tint:#F6EFD9;
+    --green:#3E6B35; --green-tint:#E9F0E4;
+    --ui:'Barlow',sans-serif; --cond:'Barlow Semi Condensed',sans-serif;
+    --mono:'IBM Plex Mono',monospace; --serif:'Source Serif 4',serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{background:var(--paper)}
+  body{
+    font-family:var(--ui); color:var(--ink);
+    background:
+      repeating-linear-gradient(0deg,transparent 0 31px,var(--hair-soft) 31px 32px),
+      repeating-linear-gradient(90deg,transparent 0 31px,var(--hair-soft) 31px 32px),
+      var(--paper);
+    padding:0 clamp(20px,4vw,64px) 56px; min-height:100vh;
+  }
+  body::after{content:'';position:fixed;inset:0;pointer-events:none;opacity:.05;z-index:60;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E")}
+
+  header{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:24px;
+    padding:34px 0 20px;border-bottom:2px solid var(--ink)}
+  .wordmark{display:flex;align-items:center;gap:14px}
+  .wordmark .mark{width:15px;height:15px;background:var(--orange)}
+  .wordmark h1{font-weight:800;font-size:30px;letter-spacing:.14em}
+  .wordmark .sub{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--orange-deep);
+    border:1.5px solid var(--orange-deep);padding:4px 8px 3px}
+  .tagline{font-family:var(--serif);font-style:italic;font-size:19px;color:var(--ink-60);margin-top:8px}
+  .switcher{display:flex;border:1.5px solid var(--ink)}
+  .switcher button{appearance:none;border:0;cursor:pointer;background:transparent;font-family:var(--mono);
+    font-size:11px;letter-spacing:.14em;padding:11px 18px 10px;color:var(--ink-60);border-left:1.5px solid var(--ink)}
+  .switcher button:first-child{border-left:0}
+  .switcher button.active{background:var(--ink);color:var(--paper)}
+  .switch-label{font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--ink-60);margin-right:12px;align-self:center}
+
+  /* flow ribbon */
+  .flow{display:flex;align-items:center;justify-content:center;gap:14px;padding:30px 0 6px;flex-wrap:wrap}
+  .flow .step{font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--ink-35);
+    border:1.5px solid var(--hair);padding:8px 14px}
+  .flow .step.here{color:var(--ink);border-color:var(--ink);background:var(--paper)}
+  .flow .step.here b{color:var(--orange-deep)}
+  .flow .arrow{color:var(--ink-35);font-family:var(--mono);font-size:13px}
+
+  .frames{display:flex;flex-wrap:wrap;gap:clamp(28px,4vw,60px);justify-content:center;align-items:flex-start;padding:26px 0 8px}
+  .unit{width:340px;flex:none}
+  .cap{display:flex;gap:10px;margin:16px 2px 0;font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;color:var(--ink-60);line-height:1.55}
+  .cap .i{color:var(--orange-deep);font-weight:600;flex:none}
+  .cap .t{text-transform:uppercase;letter-spacing:.13em;color:var(--ink);font-weight:600}
+
+  .phone{width:340px;height:726px;background:#1B1B19;border-radius:52px;padding:9px;position:relative;
+    box-shadow:0 2px 3px rgba(20,20,18,.18),0 18px 44px -14px rgba(20,20,18,.38),inset 0 0 0 1.5px #3A3A36}
+  .screen{width:100%;height:100%;background:var(--paper);border-radius:43px;overflow:hidden;position:relative;display:flex;flex-direction:column}
+  .island{position:absolute;top:19px;left:50%;transform:translateX(-50%);width:96px;height:27px;background:#100F0E;border-radius:20px;z-index:12}
+  .statusbar{height:56px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 26px 6px;font-weight:600;font-size:14px;position:relative;z-index:11}
+  .sb{display:flex;align-items:flex-end;gap:6px}
+  .bars{display:flex;align-items:flex-end;gap:1.5px;height:10px}
+  .bars i{width:3px;background:var(--ink);border-radius:1px}
+  .bars i:nth-child(1){height:4px}.bars i:nth-child(2){height:6px}.bars i:nth-child(3){height:8px}.bars i:nth-child(4){height:10px}
+  .batt{width:22px;height:11px;border:1.5px solid var(--ink);border-radius:3px;position:relative}
+  .batt::before{content:'';position:absolute;inset:1.5px;right:6px;background:var(--ink);border-radius:1px}
+
+  /* notes screen */
+  .n-head{padding:12px 20px 12px}
+  .n-head .kick{font-family:var(--mono);font-size:10px;letter-spacing:.2em;color:var(--orange-deep);font-weight:600}
+  .n-head h2{font-size:23px;font-weight:700;letter-spacing:-.01em;margin-top:3px}
+  .n-meta{font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;color:var(--ink-60);padding:7px 20px;
+    display:flex;justify-content:space-between;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
+
+  .n-body{flex:1;overflow:hidden;position:relative}
+  .n-scroll{position:absolute;inset:0;overflow:hidden;padding-bottom:6px}
+
+  .summary{margin:12px 20px 2px;padding:11px 14px;background:var(--sheet);border-left:3px solid var(--orange)}
+  .summary .lbl{font-family:var(--mono);font-size:8px;font-weight:600;letter-spacing:.2em;color:var(--ink-60);display:block;margin-bottom:5px}
+  .summary p{font-family:var(--serif);font-size:13px;line-height:1.45;color:var(--ink)}
+
+  .sec{margin-top:13px}
+  .sec-h{display:flex;align-items:center;gap:8px;padding:0 20px 7px}
+  .sec-h .l{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.2em;color:var(--ink-60)}
+  .sec-h .c{font-family:var(--mono);font-size:9px;color:var(--ink-35)}
+  .sec-h::after{content:'';flex:1;height:1px;background:var(--hair)}
+  .row{display:flex;align-items:baseline;gap:9px;padding:8px 20px;border-bottom:1px solid var(--hair-soft)}
+  .row .bullet{width:5px;height:5px;flex:none;background:var(--ink-35);transform:translateY(4px)}
+  .row .tx{flex:1;font-family:var(--cond);font-weight:600;font-size:13.5px;line-height:1.3}
+  .row .tx small{display:block;font-family:var(--mono);font-weight:400;font-size:8.5px;letter-spacing:.03em;color:var(--ink-60);margin-top:2px}
+  .row .rt{font-family:var(--mono);font-size:10px;color:var(--ink-60);flex:none}
+  .tag{font-family:var(--mono);font-size:8px;font-weight:600;letter-spacing:.1em;padding:3px 6px 2px;flex:none;transform:translateY(-1px)}
+  .tag.red{color:var(--red);background:var(--red-tint)} .tag.yellow{color:var(--yellow);background:var(--yellow-tint)}
+  .tag.green{color:var(--green);background:var(--green-tint)} .tag.plain{color:var(--ink-60);background:var(--paper-deep)}
+  .ph{font-family:var(--mono);font-size:8px;font-weight:600;color:var(--ink-60);background:var(--paper-deep);padding:3px 5px 2px;flex:none;display:inline-flex;gap:3px;align-items:center}
+
+  .transcript{margin:14px 20px 8px;padding:9px 12px;border:1px dashed var(--hair);display:flex;justify-content:space-between;align-items:center}
+  .transcript .l{font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;color:var(--ink-60)}
+  .transcript .x{font-family:var(--mono);font-size:9px;color:var(--orange-deep)}
+
+  /* action bar */
+  .actions{flex:none;padding:11px 20px 12px;border-top:1.5px solid var(--ink);background:var(--paper)}
+  .actions .kick{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.18em;color:var(--ink-60);margin-bottom:9px}
+  .doc-btns{display:flex;gap:8px;margin-bottom:8px}
+  .doc-btn{flex:1;cursor:pointer;border:2px solid var(--ink);background:transparent;padding:9px 6px;text-align:center;
+    display:flex;flex-direction:column;gap:3px;align-items:center}
+  .doc-btn.hero{background:var(--orange);border-color:var(--orange);box-shadow:0 3px 0 var(--orange-deep)}
+  .doc-btn .t{font-family:var(--ui);font-weight:700;font-size:12px;letter-spacing:.04em;color:var(--ink)}
+  .doc-btn.hero .t{color:var(--on-orange)}
+  .doc-btn .s{font-family:var(--mono);font-size:6.5px;letter-spacing:.1em;color:var(--ink-60)}
+  .doc-btn.hero .s{color:var(--on-orange);opacity:.85}
+  .util{display:flex;gap:8px}
+  .util button{flex:1;cursor:pointer;background:transparent;border:1.5px solid var(--hair);padding:9px 6px;
+    font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;color:var(--ink-60);
+    display:flex;align-items:center;justify-content:center;gap:5px}
+
+  .home-bar{width:120px;height:4px;border-radius:2px;background:var(--ink);opacity:.8;margin:5px auto 8px;flex:none}
+
+  /* the produced document (compact) */
+  .produced-note{text-align:center;font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:var(--ink-35);margin:14px 0 4px}
+  .doc-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px 12px;border-bottom:2px solid var(--ink)}
+  .doc-head .biz{font-family:var(--serif);font-weight:700;font-size:15px;line-height:1.15}
+  .doc-head .biz small{display:block;font-family:var(--mono);font-weight:400;font-size:7.5px;letter-spacing:.08em;color:var(--ink-60);margin-top:4px}
+  .doc-head .id{text-align:right;flex:none}
+  .doc-head .id .k{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.18em;color:var(--orange-deep)}
+  .doc-head .id .n{font-family:var(--mono);font-size:11px;font-weight:600;margin-top:3px}
+  .doc-head .id .d{font-family:var(--mono);font-size:8px;color:var(--ink-60);margin-top:2px}
+  .doc-row{display:flex;align-items:baseline;gap:10px;padding:8px 18px;border-bottom:1px solid var(--hair-soft)}
+  .doc-row .ds{flex:1}
+  .doc-row .ds .d1{font-family:var(--cond);font-weight:600;font-size:12px}
+  .doc-row .ds .d2{display:block;font-family:var(--mono);font-size:7.5px;color:var(--ink-60);margin-top:2px}
+  .doc-row .qy{font-family:var(--mono);font-size:9px;color:var(--ink-60);flex:none}
+  .doc-row .am{font-family:var(--mono);font-size:11.5px;font-weight:600;flex:none;font-variant-numeric:tabular-nums}
+  .doc-total{display:flex;justify-content:space-between;align-items:baseline;padding:10px 18px 0;margin:0 0 0;border-top:2px solid var(--ink)}
+  .doc-total .k{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.2em}
+  .doc-total .v{font-family:var(--mono);font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+  .doc-foot{flex:none;padding:11px 20px 12px;border-top:1px solid var(--hair);display:flex;gap:10px;background:var(--paper)}
+  .doc-foot .adj{flex:none;width:110px;height:50px;border:2px solid var(--ink);display:flex;align-items:center;justify-content:center;
+    font-family:var(--ui);font-weight:700;font-size:13px;letter-spacing:.08em}
+  .doc-foot .send{flex:1;height:50px;background:var(--orange);color:var(--on-orange);box-shadow:0 3px 0 var(--orange-deep);
+    display:flex;align-items:center;justify-content:center;font-family:var(--ui);font-weight:700;font-size:13px;letter-spacing:.08em}
+
+  .titleblock{margin-top:44px;border:2px solid var(--ink);display:grid;grid-template-columns:2fr 1fr 1fr 1fr;background:var(--paper)}
+  .tb{padding:10px 14px 9px;border-left:1.5px solid var(--ink)}
+  .tb:first-child{border-left:0}
+  .tb .k{font-family:var(--mono);font-size:8.5px;letter-spacing:.2em;color:var(--ink-60);display:block;margin-bottom:4px}
+  .tb .v{font-family:var(--mono);font-size:11.5px;font-weight:600;letter-spacing:.04em}
+  .tb .v .a{color:var(--orange-deep)}
+  @media(max-width:760px){.titleblock{grid-template-columns:1fr 1fr}.tb{border-top:1.5px solid var(--ink)}.tb:nth-child(-n+2){border-top:0}.tb:nth-child(odd){border-left:0}}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <div class="wordmark"><span class="mark"></span><h1>SITEWALK</h1><span class="sub">NOTES-FIRST&nbsp;STUDY</span></div>
+    <p class="tagline">Walk it. Read your notes. Turn them into paperwork.</p>
+  </div>
+  <div style="display:flex"><span class="switch-label">TRADE&nbsp;/</span>
+    <div class="switcher" id="sw">
+      <button data-t="landscape" class="active">LANDSCAPE</button>
+      <button data-t="property">PROPERTY</button>
+      <button data-t="inspection">INSPECTION</button>
+    </div>
+  </div>
+</header>
+
+<div class="flow">
+  <span class="step">WALK</span><span class="arrow">→</span>
+  <span class="step">DONE</span><span class="arrow">→</span>
+  <span class="step here"><b>NOTES</b></span><span class="arrow">→</span>
+  <span class="step">DOCUMENT</span><span class="arrow">→</span>
+  <span class="step">SEND</span>
+</div>
+
+<div class="frames">
+  <!-- NOTES -->
+  <div class="unit">
+    <div class="phone"><div class="screen">
+      <div class="island"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb"><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"></span></span></div>
+      <div class="n-head">
+        <div class="kick" id="n-kick">WALK NOTES · JUST NOW</div>
+        <h2 id="n-title">1418 Alder Ct</h2>
+      </div>
+      <div class="n-meta"><span id="n-meta-l">TUE JUL 09 · 8:12 AM</span><span id="n-meta-r">6 MIN · 5 ITEMS</span></div>
+      <div class="n-body"><div class="n-scroll" id="n-scroll"></div></div>
+      <div class="actions">
+        <div class="kick">TURN THESE NOTES INTO</div>
+        <div class="doc-btns" id="doc-btns"></div>
+        <div class="util">
+          <button>⇪ EXPORT NOTES</button>
+          <button id="util-follow">✓ FOLLOW-UPS</button>
+        </div>
+      </div>
+      <div class="home-bar"></div>
+    </div></div>
+    <div class="cap"><span class="i">01</span><span><span class="t">Notes</span> — the walk, written up like a smart field log: a plain-language summary, then grouped findings, photos, and follow-ups. The transcript is tucked away. This is the trustworthy read before any paperwork.</span></div>
+  </div>
+
+  <!-- PRODUCED DOCUMENT -->
+  <div class="unit">
+    <div class="phone"><div class="screen">
+      <div class="island"></div>
+      <div class="statusbar"><span>9:41</span><span class="sb"><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"></span></span></div>
+      <div style="flex:1;overflow:hidden;background:var(--paper-deep);padding:0 0 0">
+        <div class="produced-note" id="prod-note">↑ TAP “ESTIMATE” — SITEWALK BUILDS IT FROM THE NOTES</div>
+        <div style="background:var(--sheet);margin:0 14px;box-shadow:0 10px 28px -10px rgba(20,20,18,.28)">
+          <div class="doc-head">
+            <div class="biz">Ridgeline Landscape Co.<small id="d-sub">DENVER CO · LIC 44-0781</small></div>
+            <div class="id"><div class="k" id="d-kind">ESTIMATE</div><div class="n" id="d-no">EST-0047</div><div class="d">JUL 09 2026</div></div>
+          </div>
+          <div id="doc-rows"></div>
+          <div class="doc-total" id="doc-total"><span class="k">TOTAL</span><span class="v">$1,210</span></div>
+        </div>
+      </div>
+      <div class="doc-foot"><div class="adj">ADJUST</div><div class="send" id="d-send">SEND ESTIMATE</div></div>
+      <div class="home-bar"></div>
+    </div></div>
+    <div class="cap"><span class="i">02</span><span><span class="t">The document</span> — one tap turns the notes into finished, branded paperwork: prices filled from the price book, honest gaps for anything unheard. The differentiator, sitting one button off the notes. Same notes → Invoice / Work Order / Report.</span></div>
+  </div>
+</div>
+
+<div class="titleblock">
+  <div class="tb"><span class="k">STUDY</span><span class="v">NOTES-FIRST <span class="a">· FLOW</span></span></div>
+  <div class="tb"><span class="k">SHEET</span><span class="v">DS-02</span></div>
+  <div class="tb"><span class="k">DATE</span><span class="v">2026-07-09</span></div>
+  <div class="tb"><span class="k">PAIRS WITH</span><span class="v">PR #189</span></div>
+</div>
+
+<script>
+const T = {
+  landscape:{
+    kick:"WALK NOTES · JUST NOW", title:"1418 Alder Ct", metaL:"TUE JUL 09 · 8:12 AM", metaR:"6 MIN · 5 ITEMS",
+    summary:"Estimate walk on Susan Hollis’s front yard. Fresh bark mulch, boxwood trimming, and bed edging — plus a broken zone-2 irrigation head to replace. Target around $1,200; she wants the quote by Friday.",
+    sections:[
+      {l:"SCOPE",c:"3",rows:[
+        {tx:"Bark mulch — front beds",sub:"DELIVERED + INSTALLED",rt:"3 CU YD"},
+        {tx:"Trim boxwoods along the walkway",sub:"SHAPE + HAUL CLIPPINGS",rt:"× 4"},
+        {tx:"Edge the front beds",sub:"SPADE EDGE, RE-CUT",rt:"~60 LF"},
+      ]},
+      {l:"NEEDS ATTENTION",c:"1",rows:[
+        {tag:["yellow","REPAIR"],tx:"Irrigation head — zone 2 is broken",sub:"REPLACE — PARTS + LABOR",ph:1},
+      ]},
+      {l:"PEOPLE",c:"1",rows:[{tag:["plain","CLIENT"],tx:"Susan Hollis — homeowner"}]},
+      {l:"FOLLOW-UPS",c:"2",rows:[
+        {tag:["yellow","DUE FRI"],tx:"Send the quote by Friday"},
+        {tx:"Target the whole job around $1,200"},
+      ]},
+    ],
+    docs:[{t:"ESTIMATE",s:"QUOTE",hero:1},{t:"INVOICE",s:"BILL"},{t:"WORK ORDER",s:"CREW"}],
+    dSub:"DENVER CO · LIC 44-0781", dKind:"ESTIMATE", dNo:"EST-0047", dSend:"SEND ESTIMATE",
+    prodNote:"↑ TAP “ESTIMATE” — SITEWALK BUILDS IT FROM THE NOTES",
+    docRows:[
+      {d1:"Premium bark mulch — front beds",d2:"DELIVERED + INSTALLED",qy:"3 CU YD",am:"$285"},
+      {d1:"Boxwood trim, walkway line",d2:"SHAPE + HAUL",qy:"× 4",am:"$140"},
+      {d1:"Irrigation head — zone 2",d2:"PARTS + LABOR",qy:"× 1",am:"$120"},
+      {d1:"Bed edging, front beds",d2:"SPADE EDGE",qy:"60 LF",am:"$310"},
+      {d1:"Crew labor",d2:"2-MAN · HALF DAY",qy:"4 HR",am:"$355"},
+    ],
+    total:["TOTAL","$1,210"],
+  },
+  property:{
+    kick:"WALK NOTES · JUST NOW", title:"Unit 117 · Gaslight", metaL:"TUE JUL 09 · 9:03 AM", metaR:"5 MIN · 5 ITEMS",
+    summary:"Move-out walkthrough of Unit 117. Two deposit deductions — a carpet stain in the main bedroom and missing kitchen blinds. Walls are normal wear; water heater logged; balcony door drags and needs a maintenance ticket.",
+    sections:[
+      {l:"DEDUCTIONS",c:"2",rows:[
+        {tag:["red","DEDUCT"],tx:"Carpet stain — bedroom 1",sub:"NEAR WINDOW — CLEANING",ph:2},
+        {tag:["red","DEDUCT"],tx:"Blinds missing — kitchen",sub:"2 SLATS",ph:1},
+      ]},
+      {l:"CONDITION — OK",c:"2",rows:[
+        {tag:["green","OK"],tx:"Walls — normal wear throughout"},
+        {tag:["plain","NOTE"],tx:"Water heater — mfg 2019, logged"},
+      ]},
+      {l:"FOLLOW-UPS",c:"1",rows:[
+        {tag:["yellow","MAINT"],tx:"Balcony door drags — maintenance ticket"},
+      ]},
+    ],
+    docs:[{t:"CONDITION",s:"REPORT",hero:1},{t:"MOVE-OUT",s:"DEPOSIT"},{t:"WORK ORDER",s:"MAINT"}],
+    dSub:"PORTLAND OR · 214 UNITS", dKind:"MOVE-OUT REPORT", dNo:"MO-0112", dSend:"SEND REPORT",
+    prodNote:"↑ TAP “CONDITION” — SITEWALK BUILDS THE REPORT FROM THE NOTES",
+    docRows:[
+      {d1:"Carpet — bedroom 1",d2:"STAIN · PHOTO ×2",qy:"DEDUCT",am:"$140"},
+      {d1:"Blinds — kitchen",d2:"2 SLATS · PHOTO ×1",qy:"DEDUCT",am:"$45"},
+      {d1:"Walls — all rooms",d2:"NORMAL WEAR",qy:"OK",am:"—"},
+      {d1:"Water heater",d2:"MFG 2019 · LOGGED",qy:"NOTE",am:"—"},
+      {d1:"Balcony door",d2:"DRAGS → MAINT",qy:"MAINT",am:"—"},
+    ],
+    total:["DEPOSIT DEDUCTION","$185"],
+  },
+  inspection:{
+    kick:"WALK NOTES · JUST NOW", title:"77 Larkspur Ln", metaL:"TUE JUL 09 · 12:20 PM", metaR:"14 MIN · 5 ITEMS",
+    summary:"Pre-purchase inspection of 77 Larkspur. One safety item — the hall-bath GFCI won’t trip. Roof and site grading need repair, furnace filter is overdue. Attic ventilation checked out fine.",
+    sections:[
+      {l:"SAFETY",c:"1",rows:[
+        {tag:["red","SAFETY"],tx:"GFCI — hall bathroom won’t trip",sub:"ELECTRICAL — § 6.4"},
+      ]},
+      {l:"REPAIR",c:"2",rows:[
+        {tag:["yellow","REPAIR"],tx:"Roof — 3 lifted shingles, south slope",sub:"§ 2.1",ph:3},
+        {tag:["yellow","REPAIR"],tx:"Grading slopes toward the foundation",sub:"NE CORNER — § 1.3",ph:1},
+      ]},
+      {l:"MONITOR",c:"1",rows:[
+        {tag:["yellow","MAINT"],tx:"Furnace filter overdue",sub:"HVAC — § 5.1"},
+      ]},
+      {l:"CHECKED — OK",c:"1",rows:[
+        {tag:["green","OK"],tx:"Attic ventilation — ridge + soffit adequate"},
+      ]},
+    ],
+    docs:[{t:"INSPECTION",s:"TREC REPORT",hero:1},{t:"SUMMARY",s:"1-PAGE"}],
+    dSub:"AUSTIN TX · TREC 24119", dKind:"INSPECTION", dNo:"IR-0389", dSend:"SEND REPORT",
+    prodNote:"↑ TAP “INSPECTION” — FINDINGS FILE INTO TREC SECTIONS",
+    docRows:[
+      {d1:"GFCI — hall bathroom",d2:"FAILS TO TRIP",qy:"SAFETY",am:"§ 6.4"},
+      {d1:"Roof covering — south slope",d2:"3 LIFTED SHINGLES",qy:"REPAIR",am:"§ 2.1"},
+      {d1:"Site grading — NE corner",d2:"TOWARD FOUNDATION",qy:"REPAIR",am:"§ 1.3"},
+      {d1:"Furnace filter",d2:"OVERDUE",qy:"MAINT",am:"§ 5.1"},
+      {d1:"Attic ventilation",d2:"ADEQUATE",qy:"OK",am:"§ 3.2"},
+    ],
+    total:["FINDINGS","1 SAFETY · 2 REPAIR"],
+  },
+};
+
+const $=s=>document.querySelector(s);
+const tag=([c,l])=>`<span class="tag ${c}">${l}</span>`;
+const CAM='<svg viewBox="0 0 24 24" width="8" height="8" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="2.5" y="7" width="19" height="13" rx="1.5"/><path d="M8.5 7l2-3h3l2 3"/><circle cx="12" cy="13" r="3.5"/></svg>';
+
+function render(k){
+  const d=T[k];
+  $('#n-kick').textContent=d.kick; $('#n-title').textContent=d.title;
+  $('#n-meta-l').textContent=d.metaL; $('#n-meta-r').textContent=d.metaR;
+
+  let html=`<div class="summary"><span class="lbl">SUMMARY</span><p>${d.summary}</p></div>`;
+  d.sections.forEach(s=>{
+    html+=`<div class="sec"><div class="sec-h"><span class="l">${s.l}</span><span class="c">${s.c}</span></div>`;
+    s.rows.forEach(r=>{
+      const lead = r.tag ? tag(r.tag) : `<span class="bullet"></span>`;
+      const sub = r.sub ? `<small>${r.sub}</small>` : '';
+      const ph = r.ph ? `<span class="ph">${CAM}×${r.ph}</span>` : '';
+      const rt = r.rt ? `<span class="rt">${r.rt}</span>` : '';
+      html+=`<div class="row">${lead}<span class="tx">${r.tx}${sub}</span>${ph}${rt}</div>`;
+    });
+    html+=`</div>`;
+  });
+  html+=`<div class="transcript"><span class="l">SHOW WHAT I HEARD — FULL TRANSCRIPT</span><span class="x">▸</span></div>`;
+  $('#n-scroll').innerHTML=html;
+
+  $('#doc-btns').innerHTML=d.docs.map(b=>
+    `<div class="doc-btn${b.hero?' hero':''}"><span class="t">${b.t}</span><span class="s">${b.s}</span></div>`).join('');
+
+  // produced document
+  $('#prod-note').textContent=d.prodNote;
+  $('.doc-head .biz').childNodes[0].nodeValue = k==='landscape'?'Ridgeline Landscape Co.':k==='property'?'Corbett Property Group':'TrueLine Home Inspection';
+  $('#d-sub').textContent=d.dSub; $('#d-kind').textContent=d.dKind; $('#d-no').textContent=d.dNo; $('#d-send').textContent=d.dSend;
+  $('#doc-rows').innerHTML=d.docRows.map(r=>
+    `<div class="doc-row"><span class="ds"><span class="d1">${r.d1}</span><span class="d2">${r.d2}</span></span><span class="qy">${r.qy}</span><span class="am">${r.am}</span></div>`).join('');
+  $('#doc-total').innerHTML=`<span class="k">${d.total[0]}</span><span class="v" style="${d.total[1].length>9?'font-size:11px;letter-spacing:.06em':''}">${d.total[1]}</span>`;
+}
+
+document.querySelectorAll('#sw button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('#sw button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active'); render(b.dataset.t);
+}));
+const u=new URLSearchParams(location.search).get('trade');
+render(T[u]?u:'landscape');
+if(T[u]) document.querySelectorAll('#sw button').forEach(x=>x.classList.toggle('active',x.dataset.t===u));
+</script>
+</body>
+</html>
