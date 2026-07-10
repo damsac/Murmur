@@ -69,6 +69,7 @@ on:
       - 'docs/**'
       - 'meta/**'
       - '**.md'
+      - '.gitignore'
   workflow_dispatch:
     inputs:
       upload:
@@ -297,10 +298,32 @@ jobs:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
         run: |
+          set -o pipefail
           IPA=$(find "$RUNNER_TEMP/export" -maxdepth 1 -name '*.ipa' | head -1)
+          if [ -z "$IPA" ]; then
+            echo "::error::No .ipa found in $RUNNER_TEMP/export — nothing to upload"
+            exit 1
+          fi
           echo "Uploading $IPA to TestFlight"
+          LOG="$RUNNER_TEMP/altool-upload.log"
+          # altool's real exit code is the primary signal, but it has
+          # historically exited 0 on some validation failures (the cause of
+          # builds #18-22 silently landing rejected: "Missing required icon
+          # file... 120x120" reported success here). Belt-and-suspenders:
+          # tee the output and grep it for altool's own failure markers, and
+          # fail the step if either check trips.
           xcrun altool --upload-app --type ios --file "$IPA" \
-            --apiKey "$ASC_API_KEY_ID" --apiIssuer "$ASC_API_ISSUER_ID"
+            --apiKey "$ASC_API_KEY_ID" --apiIssuer "$ASC_API_ISSUER_ID" \
+            2>&1 | tee "$LOG"
+          STATUS=${PIPESTATUS[0]}
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::altool exited $STATUS — upload failed"
+            exit "$STATUS"
+          fi
+          if grep -qiE 'upload failed|error|\*\*\* Error' "$LOG"; then
+            echo "::error::altool exited 0 but its output reports a failure — treating as a failed upload"
+            exit 1
+          fi
 
       - name: Dry-run notice
         if: ${{ steps.version.outputs.upload != 'true' }}
