@@ -42,6 +42,11 @@ targets:
       path: Sources/App/Info.plist
       properties:
         CFBundleDisplayName: Sitewalk
+        # Belt-and-suspenders (see TARGETED_DEVICE_FAMILY comment below): app
+        # uses only exempt (HTTPS/TLS) encryption — no custom crypto. Explicit
+        # here too so a future project.yml edit can't silently drop it and
+        # strand builds on ASC's manual "Missing Compliance" review (build #24).
+        ITSAppUsesNonExemptEncryption: false
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
     settings:
