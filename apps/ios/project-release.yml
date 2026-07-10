@@ -58,3 +58,9 @@ targets:
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: ""
         TARGETED_DEVICE_FAMILY: "1"
+        # Belt-and-suspenders: project.yml (included above) already sets this,
+        # and xcodegen deep-merges settings dicts so it would carry through on
+        # its own, but the icon is the exact thing build #18-22 shipped without
+        # — keep it explicit here so a future edit to project.yml can't
+        # silently drop it from the release spec.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
