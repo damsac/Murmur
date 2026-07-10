@@ -216,6 +216,7 @@ struct RootRouter: View {
 
 struct AppRoot: View {
     @State private var model: AppModel
+    @State private var needsOnboarding: Bool
     private let live: Bool?
     private let wavwalk: Bool
     private let autoflowRounds: Int
@@ -226,6 +227,21 @@ struct AppRoot: View {
         self.live = live
         self.wavwalk = wavwalk
         self.autoflowRounds = autoflowRounds
+        // Profile QA args — processed BEFORE AppModel reads the stored
+        // profile. resetprofile=1 clears it (first-run QA: onboarding shows);
+        // autoprofile=1 stamps a sample profile (headless board/letterhead
+        // screenshots — no taps available in simctl).
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("resetprofile=1") { BusinessProfile.clear() }
+        if args.contains("autoprofile=1") {
+            BusinessProfile.save(BusinessProfile(
+                businessName: "Testflight Lawn Co",
+                cityState: "Denver CO",
+                licenseNumber: "44-1234",
+                tradeKey: "landscape"
+            ))
+        }
+        _needsOnboarding = State(initialValue: BusinessProfile.current == nil)
         // Mode is a USER choice (persisted, board chip) unless a launch arg
         // forces it: wavwalk/live=1 → voice; demo=1/live=0 → demo; autoflow
         // without an explicit voice arg → demo (scripted determinism for
@@ -251,6 +267,20 @@ struct AppRoot: View {
     }
 
     var body: some View {
+        if needsOnboarding {
+            // First run: no business profile yet — the paperwork can't carry
+            // the operator's name until this arc completes.
+            OnboardingFlow {
+                model.reloadProfile()
+                withAnimation(.easeOut(duration: 0.3)) { needsOnboarding = false }
+            }
+            .transition(.opacity)
+        } else {
+            appFlow
+        }
+    }
+
+    private var appFlow: some View {
         NavigationStack(path: Bindable(model).path) {
             BoardView(model: model)
                 .navigationDestination(for: AppModel.Phase.self) { phase in
@@ -322,11 +352,12 @@ struct AppRoot: View {
 
 struct GalleryRoot: View {
     enum Dest: String, Hashable, CaseIterable {
-        case components, jobs, capture, document, vocab
+        case components, onboarding, jobs, capture, document, vocab
 
         var title: String {
             switch self {
             case .components: return "COMPONENT KIT"
+            case .onboarding: return "00 · ONBOARDING"
             case .jobs: return "01 · JOBS BOARD"
             case .capture: return "02 · CAPTURE"
             case .document: return "04 · DOCUMENT REVIEW"
@@ -388,6 +419,7 @@ struct GalleryRoot: View {
             .navigationDestination(for: Dest.self) { dest in
                 switch dest {
                 case .components: ComponentsPage()
+                case .onboarding: OnboardingFlow(onComplete: {})
                 case .jobs: JobsBoardScreen(trade: Fixtures.landscape)
                 case .capture: CaptureScreen(trade: Fixtures.landscape)
                 case .document: DocumentReviewScreen(trade: Fixtures.landscape)
