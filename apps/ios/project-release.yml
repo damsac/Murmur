@@ -52,7 +52,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.isaacwm.murmur
-        MARKETING_VERSION: "1.0"
+        # 2.0.0 clears every Era-I version: the old app's last TestFlight build
+        # was 1.0.1 (11), and TestFlight orders versions semantically — testers
+        # on 1.0.1 are never offered a 1.0 build, so rebuild uploads at 1.0
+        # were invisible to them. The rebuild IS the 2.0.
+        MARKETING_VERSION: "2.0.0"
         CURRENT_PROJECT_VERSION: "1"
         # Distribution build is signed. Automatic style lets the archive step
         # cloud-generate the Distribution cert + profile with -allowProvisioningUpdates
