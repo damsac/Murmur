@@ -6,7 +6,6 @@ import PhotosUI
 
 struct WalkView: View {
     @Bindable var model: AppModel
-    var scriptedLabel: Bool
     @State private var showCamera = false
     @State private var pickerItem: PhotosPickerItem?
 
@@ -18,8 +17,8 @@ struct WalkView: View {
 
             MetaStrip(
                 left: model.trade.site,
-                right: scriptedLabel ? "DEMO WALK — SCRIPTED" : "REC — SAVED LOCAL",
-                warn: true
+                right: model.walkMode == .demo ? "DEMO WALK — SCRIPTED" : "REC — ON-DEVICE STT",
+                warn: model.walkMode == .demo
             )
 
             ScrollView {
@@ -88,11 +87,18 @@ struct WalkView: View {
                             )
                     }
                     .buttonStyle(.plain)
+                    // DONE is finishable once ANYTHING has been captured —
+                    // transcript OR extracted items (issue #168). On a voice
+                    // walk the live board lags the speech (batched extraction),
+                    // and finish() runs a full extraction pass anyway, so
+                    // gating on items alone stranded the user on a stuck screen
+                    // whenever items hadn't landed yet. Transcript-or-items.
+                    let nothingCaptured = model.transcript.isEmpty && model.items.isEmpty
                     Button { model.finishWalk() } label: { DoneButton() }
                         .buttonStyle(.plain)
                         .frame(maxWidth: .infinity)
-                        .disabled(model.items.isEmpty)
-                        .opacity(model.items.isEmpty ? 0.4 : 1)
+                        .disabled(nothingCaptured)
+                        .opacity(nothingCaptured ? 0.4 : 1)
                 }
             }
             .padding(.horizontal, Theme.S.screenPad)

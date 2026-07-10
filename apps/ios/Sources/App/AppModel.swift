@@ -89,7 +89,26 @@ final class AppModel {
     private var audioSource: (any PCMAudioSource)?
     private var pumpTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
-    private let scripted: Bool
+
+    /// The walk's input mode — a USER choice now, not a launch condition.
+    /// `.voice` = mic → on-device whisper (the product). `.demo` = the canned
+    /// scripted walk (kept for showing the moment; graduates into onboarding).
+    /// Persisted across launches; launch args (`live=`, `demo=1`, autoflow)
+    /// still force a mode for QA — forced modes lock the toggle and don't
+    /// persist (D10: every existing launch arg keeps working).
+    enum WalkMode: String { case voice, demo }
+    var walkMode: WalkMode {
+        didSet {
+            guard !modeLocked else { return }
+            UserDefaults.standard.set(walkMode.rawValue, forKey: Self.walkModeKey)
+        }
+    }
+    let modeLocked: Bool
+    private static let walkModeKey = "sitewalk.walkMode"
+    /// Set when the user tries a voice walk with mic permission denied —
+    /// BoardView surfaces it with an "open Settings" affordance.
+    var micDenied = false
+
     /// When live, drive the STT path from a bundled fixture WAV instead of the
     /// mic (`wavwalk=1`, D7) — a mic-free way to exercise real whisper.
     private let wavFixture: Bool
@@ -104,12 +123,25 @@ final class AppModel {
     @ObservationIgnored
     var makeScriptedSource: (TradeFixture) -> TranscriptSource = { ScriptedSource(trade: $0) }
 
-    init(engine: WalkEngine? = nil, scripted: Bool = true, wavFixture: Bool = false,
+    init(engine: WalkEngine? = nil, forcedMode: WalkMode? = nil, wavFixture: Bool = false,
          voiceProcessing: Bool = false) {
         self.engine = engine ?? DemoWalkEngine()
-        self.scripted = scripted
+        if let forcedMode {
+            self.walkMode = forcedMode
+            self.modeLocked = true
+        } else {
+            self.walkMode = UserDefaults.standard.string(forKey: Self.walkModeKey)
+                .flatMap(WalkMode.init(rawValue:)) ?? .voice
+            self.modeLocked = false
+        }
         self.wavFixture = wavFixture
         self.voiceProcessing = voiceProcessing
+    }
+
+    func toggleMode() {
+        guard !modeLocked else { return }
+        walkMode = walkMode == .voice ? .demo : .voice
+        if walkMode == .demo { micDenied = false }
     }
 
     // MARK: Trade switching (validation strategy: same bones, swappable template)
@@ -121,7 +153,27 @@ final class AppModel {
 
     // MARK: Walk lifecycle
 
+    /// Voice walks gate on mic permission BEFORE the session starts — a walk
+    /// that can't hear must never begin (same posture as throwing begin()).
+    /// Returns immediately when already authorized; first-ever tap shows the
+    /// system prompt. Denied → `micDenied` surfaces on the board.
     func startWalk() {
+        if walkMode == .voice && !wavFixture {
+            Task { [weak self] in
+                guard let self else { return }
+                if await AudioCaptureSource.requestPermissions() {
+                    self.micDenied = false
+                    self.beginWalk()
+                } else {
+                    self.micDenied = true
+                }
+            }
+        } else {
+            beginWalk()
+        }
+    }
+
+    private func beginWalk() {
         pumpTask?.cancel()
         eventTask?.cancel()
 
@@ -173,7 +225,7 @@ final class AppModel {
 
         phase = .walking
         path = [.walking]
-        if scripted {
+        if walkMode == .demo {
             startScriptedSource()
         } else {
             startAudioSource()
