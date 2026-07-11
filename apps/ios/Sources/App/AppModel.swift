@@ -383,11 +383,20 @@ final class AppModel {
     /// The walk's items + summary land on the notes screen immediately; a
     /// document is built later, deliberately, by a `buildPrimaryDocument()`
     /// tap (or a future per-kind button — sac's taxonomy).
+    /// True while finish() is computing the notes — the notes screen shows a
+    /// skeleton + top progress bar. dam's UX note: navigate ONCE (straight to
+    /// the notes phase) and fill in place, rather than a separate building
+    /// screen that then shifts to notes (the layout-shift he flagged).
+    var notesLoading = false
+
     func finishWalk() {
         source?.stop()
         audioSource?.stop()
-        phase = .building
-        path = [.building]
+        // Navigate once, immediately, into the notes phase in a loading state.
+        notes = nil
+        notesLoading = true
+        phase = .notes
+        path = [.notes]
         Task {
             // Flush before finish (issue #155 / CANON: flush over speed —
             // the last words of a walk are often the price). `stop()` lets a
@@ -397,8 +406,7 @@ final class AppModel {
             _ = await pumpTask?.value
             let notes = await engine.finish()
             self.notes = notes
-            self.phase = .notes
-            self.path = [.notes]
+            self.notesLoading = false
         }
     }
 

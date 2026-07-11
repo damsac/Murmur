@@ -8,6 +8,7 @@ struct WalkView: View {
     @Bindable var model: AppModel
     @State private var showCamera = false
     @State private var pickerItem: PhotosPickerItem?
+    @State private var showDiscardConfirm = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -50,15 +51,26 @@ struct WalkView: View {
 
             VStack(spacing: 12) {
                 if model.isPaused {
-                    Button { model.discardWalk() } label: {
-                        Text("DISCARD WALK — NOTHING SAVED")
-                            .font(Theme.F.mono(10, .semibold))
-                            .tracking(1.4)
+                    // A real outlined button (dam's note: the plain red text
+                    // didn't read as tappable) + a confirm, since discard is
+                    // destructive — it drops the whole walk, not just text.
+                    Button(role: .destructive) { showDiscardConfirm = true } label: {
+                        Text("DISCARD WALK")
+                            .font(Theme.F.ui(13, .bold))
+                            .tracking(1.0)
                             .foregroundStyle(Theme.C.redTag)
-                            .frame(height: 30)
+                            .frame(height: 44)
                             .frame(maxWidth: .infinity)
+                            .overlay(RoundedRectangle(cornerRadius: Theme.S.radius)
+                                .stroke(Theme.C.redTag, lineWidth: 2))
                     }
                     .buttonStyle(.plain)
+                    .confirmationDialog("Discard this walk?", isPresented: $showDiscardConfirm, titleVisibility: .visible) {
+                        Button("Discard — nothing will be saved", role: .destructive) { model.discardWalk() }
+                        Button("Keep walking", role: .cancel) {}
+                    } message: {
+                        Text("The transcript and everything captured on this walk will be deleted.")
+                    }
                 } else {
                     Waveform()
                 }

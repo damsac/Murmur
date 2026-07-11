@@ -23,29 +23,43 @@ struct NotesView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Indeterminate top bar while finish() computes; everything below
+            // stays a stable skeleton, so nothing shifts when the notes land
+            // (dam's UX note: navigate once, fill in place).
+            if model.notesLoading {
+                ProgressView().progressViewStyle(.linear).tint(Theme.C.orange).frame(height: 2)
+            } else {
+                Theme.C.paper.frame(height: 2)
+            }
             header
-            MetaStrip(left: metaLeft, right: metaRight)
+            MetaStrip(left: metaLeft, right: model.notesLoading ? "READING YOUR WALK…" : metaRight)
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    summaryCard
-                    if isEmpty {
-                        emptyState
+                    if model.notesLoading {
+                        skeleton
                     } else {
-                        ForEach(grouped, id: \.0) { kind, items in
-                            SectionHead(left: sectionTitle(kind), right: "\(items.count)", heavyRule: false)
-                                .padding(.top, 4)
-                            ForEach(items) { CapturedRow(item: $0) }
+                        summaryCard
+                        if isEmpty {
+                            emptyState
+                        } else {
+                            ForEach(grouped, id: \.0) { kind, items in
+                                SectionHead(left: sectionTitle(kind), right: "\(items.count)", heavyRule: false)
+                                    .padding(.top, 4)
+                                ForEach(items) { CapturedRow(item: $0) }
+                            }
+                            transcriptRow
                         }
-                        transcriptRow
-                    }
-                    if let error = model.documentBuildError {
-                        errorBar(error)
+                        if let error = model.documentBuildError {
+                            errorBar(error)
+                        }
                     }
                 }
                 .padding(.bottom, 18)
             }
             .background(Theme.C.paperDeep)
             actionBar
+                .disabled(model.notesLoading)
+                .opacity(model.notesLoading ? 0.4 : 1)
         }
         .background(Theme.C.paperDeep.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
@@ -116,6 +130,28 @@ struct NotesView: View {
         .padding(.horizontal, Theme.S.screenPad)
         .padding(.top, 14)
         .padding(.bottom, 4)
+    }
+
+    // Stable placeholder while notes compute — same rough shape as the real
+    // content so the swap-in doesn't move anything.
+    private var skeleton: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            RoundedRectangle(cornerRadius: 2).fill(Theme.C.paperDeep)
+                .frame(height: 78)
+                .padding(.horizontal, Theme.S.screenPad).padding(.top, 14)
+            ForEach(0..<3, id: \.self) { _ in
+                HStack(spacing: 10) {
+                    RoundedRectangle(cornerRadius: 2).fill(Theme.C.paperDeep).frame(width: 44, height: 16)
+                    VStack(alignment: .leading, spacing: 5) {
+                        RoundedRectangle(cornerRadius: 2).fill(Theme.C.paperDeep).frame(height: 12).frame(maxWidth: .infinity)
+                        RoundedRectangle(cornerRadius: 2).fill(Theme.C.paperDeep).frame(height: 9).frame(maxWidth: 180)
+                    }
+                }
+                .padding(.horizontal, Theme.S.screenPad).padding(.vertical, 12)
+                .overlay(alignment: .bottom) { Theme.C.hairline.frame(height: 1) }
+            }
+        }
+        .opacity(0.7)
     }
 
     private var emptyState: some View {
