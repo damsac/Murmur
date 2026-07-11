@@ -248,7 +248,8 @@ struct OnboardingFlow: View {
         VStack(alignment: .leading, spacing: 0) {
             SectionLabel("MIC CHECK", color: Theme.C.orangeDeep)
                 .padding(.top, 18)
-            Text("Sitewalk hears your walk.")
+            // The heading itself confirms the grant — no jarring banner.
+            Text(micState == .granted ? "You’re ready to walk." : "Sitewalk hears your walk.")
                 .font(Theme.F.ui(23, .bold))
                 .padding(.top, 6)
             Text("EVERYTHING TRANSCRIBES ON YOUR PHONE")
@@ -257,10 +258,12 @@ struct OnboardingFlow: View {
                 .foregroundStyle(Theme.C.ink60)
                 .padding(.top, 4)
 
+            // On grant, each row picks up a small green ON stamp — the
+            // confirmation lives in the content, not a full-width block.
             VStack(spacing: 0) {
-                ledgerRow("MIC", "LISTENS ONLY WHILE YOU WALK")
-                ledgerRow("STT", "TRANSCRIBES ON-DEVICE")
-                ledgerRow("AUDIO", "NEVER LEAVES YOUR PHONE")
+                micRow("MIC", "LISTENS ONLY WHILE YOU WALK")
+                micRow("STT", "TRANSCRIBES ON-DEVICE")
+                micRow("AUDIO", "NEVER LEAVES YOUR PHONE")
             }
             .padding(.top, 22)
             .overlay(alignment: .top) { Theme.C.hairline.frame(height: 1) }
@@ -269,19 +272,16 @@ struct OnboardingFlow: View {
 
             // TODO(#181): the vocabulary-seeding step slots in here once that design lands.
 
-            if micState == .granted {
-                noteBar("MIC IS ON — TALK YOUR FIRST WALK WHENEVER YOU'RE READY",
-                        color: Theme.C.greenTag, tint: Theme.C.greenTint)
-                    .padding(.bottom, 12)
-            } else if micState == .denied {
-                // Same red note-bar grammar as BoardView's mic-denied bar.
-                // Denied never blocks finishing — the board re-surfaces it.
-                noteBar("MIC IS OFF — YOU CAN FINISH NOW AND ENABLE IT ANYTIME IN SETTINGS",
+            // Only the DENIED case still needs a bar — it's a real problem the
+            // operator has to act on. Grant is confirmed inline above.
+            if micState == .denied {
+                noteBar("MIC IS OFF — YOU CAN CONTINUE AND ENABLE IT ANYTIME IN SETTINGS",
                         color: Theme.C.redTag, tint: Theme.C.redTint)
                     .padding(.bottom, 12)
             }
 
-            if micState == .idle {
+            switch micState {
+            case .idle:
                 blockButton("REQUEST MIC ACCESS") {
                     Task {
                         let granted = await AudioCaptureSource.requestPermissions()
@@ -289,12 +289,39 @@ struct OnboardingFlow: View {
                     }
                 }
                 .padding(.bottom, 10)
-            } else {
-                blockButton("FINISH") { onComplete() }
+            case .granted:
+                blockButton("START WALKING") { onComplete() }
+                    .padding(.bottom, 10)
+            case .denied:
+                blockButton("CONTINUE") { onComplete() }
                     .padding(.bottom, 10)
             }
         }
         .padding(.horizontal, Theme.S.screenPad)
+    }
+
+    /// Ledger row for the mic step — like `ledgerRow`, but gains a green ON
+    /// stamp on the right once permission is granted.
+    private func micRow(_ index: String, _ label: String) -> some View {
+        HStack(spacing: 14) {
+            Text(index)
+                .font(Theme.F.mono(10, .semibold))
+                .foregroundStyle(Theme.C.orangeDeep)
+            Text(label)
+                .font(Theme.F.mono(11, .semibold))
+                .tracking(1.6)
+                .foregroundStyle(Theme.C.ink)
+            Spacer(minLength: 0)
+            if micState == .granted {
+                Text("ON")
+                    .font(Theme.F.mono(8, .semibold)).tracking(1.0)
+                    .foregroundStyle(Theme.C.greenTag)
+                    .padding(.horizontal, 6).padding(.top, 3).padding(.bottom, 2)
+                    .background(Theme.C.greenTint)
+            }
+        }
+        .padding(.vertical, 13)
+        .overlay(alignment: .bottom) { Theme.C.hairline.frame(height: 1) }
     }
 
     private func noteBar(_ text: String, color: Color, tint: Color) -> some View {

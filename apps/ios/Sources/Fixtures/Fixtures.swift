@@ -108,6 +108,32 @@ enum DocKinds {
         legalKinds(for: templateKey).first ?? "report"
     }
 
+    /// Notes-screen action-button copy per kind: the button title and a small
+    /// stamp beneath it (the mockup's "ESTIMATE / QUOTE"). sac-owned taxonomy.
+    static func label(for kind: String) -> String {
+        switch kind {
+        case "estimate": return "Estimate"
+        case "invoice": return "Invoice"
+        case "work_order": return "Work Order"
+        case "condition": return "Condition"
+        case "move_out": return "Move-Out"
+        case "inspection": return "Inspection"
+        default: return "Report"
+        }
+    }
+
+    static func stamp(for kind: String) -> String {
+        switch kind {
+        case "estimate": return "QUOTE"
+        case "invoice": return "BILL"
+        case "work_order": return "CREW"
+        case "condition": return "REPORT"
+        case "move_out": return "DEPOSIT"
+        case "inspection": return "TREC REPORT"
+        default: return "EXPORT"
+        }
+    }
+
     static func isPricingKind(_ kind: String) -> Bool {
         kind == "estimate" || kind == "invoice"
     }
