@@ -593,6 +593,25 @@ public protocol MurmurEngineProtocol : AnyObject {
     func removeVocabularyTerm(term: String) throws  -> [String]
     
     /**
+     * Retries every `Failed` session once (oldest-first, capped — see
+     * `SessionProcessor::retry_failed_sessions`'s doc comment for the
+     * no-loop / cap-ordering rationale). Returns the count that reached
+     * `Processed` — thin on purpose; the host re-reads its own session
+     * list/history view rather than this call threading payloads back.
+     *
+     * Lock hygiene: `SessionProcessor::retry_failed_sessions` takes the
+     * store lock only for the short synchronous list-query inside its own
+     * loop body, never across a `process().await` — same discipline as
+     * `build_document`, which never holds the engine's `std::sync::Mutex`
+     * across an `.await` either.
+     *
+     * A still-Failed session (still offline, LLM still down) is not an
+     * error here — it's simply not counted in the returned total; only a
+     * poisoned lock or a store fault surfaces as `EngineError::Session`.
+     */
+    func retryFailedSessions() async throws  -> UInt32
+    
+    /**
      * App-open zombie sweep (carry-note, Plan 04): a `Recording` session left
      * behind by a crash or force-quit mid-walk can never resume — there is no
      * live `WalkSession`/STT pump for it after relaunch, `MurmurEngine::new`
@@ -802,6 +821,40 @@ open func removeVocabularyTerm(term: String)throws  -> [String] {
         FfiConverterString.lower(term),$0
     )
 })
+}
+    
+    /**
+     * Retries every `Failed` session once (oldest-first, capped — see
+     * `SessionProcessor::retry_failed_sessions`'s doc comment for the
+     * no-loop / cap-ordering rationale). Returns the count that reached
+     * `Processed` — thin on purpose; the host re-reads its own session
+     * list/history view rather than this call threading payloads back.
+     *
+     * Lock hygiene: `SessionProcessor::retry_failed_sessions` takes the
+     * store lock only for the short synchronous list-query inside its own
+     * loop body, never across a `process().await` — same discipline as
+     * `build_document`, which never holds the engine's `std::sync::Mutex`
+     * across an `.await` either.
+     *
+     * A still-Failed session (still offline, LLM still down) is not an
+     * error here — it's simply not counted in the returned total; only a
+     * poisoned lock or a store fault surfaces as `EngineError::Session`.
+     */
+open func retryFailedSessions()async throws  -> UInt32 {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ffi_fn_method_murmurengine_retry_failed_sessions(
+                    self.uniffiClonePointer()
+                    
+                )
+            },
+            pollFunc: ffi_ffi_rust_future_poll_u32,
+            completeFunc: ffi_ffi_rust_future_complete_u32,
+            freeFunc: ffi_ffi_rust_future_free_u32,
+            liftFunc: FfiConverterUInt32.lift,
+            errorHandler: FfiConverterTypeEngineError.lift
+        )
 }
     
     /**
@@ -2294,8 +2347,10 @@ public enum EngineError {
     
     /**
      * A session-lifecycle operation outside `begin_walk`/`WalkSession` failed
-     * (currently: the app-open zombie sweep). A poisoned store lock or a
-     * store error — recoverable, surface don't crash.
+     * (the app-open zombie sweep, or `retry_failed_sessions`). A poisoned
+     * store lock or a store error — recoverable, surface don't crash. A
+     * still-Failed session after a retry attempt is NOT this variant — it's
+     * simply not counted in `retry_failed_sessions`'s return value.
      */
     case Session(message: String)
     
@@ -2869,6 +2924,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ffi_checksum_method_murmurengine_remove_vocabulary_term() != 40682) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ffi_checksum_method_murmurengine_retry_failed_sessions() != 46346) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ffi_checksum_method_murmurengine_sweep_zombie_sessions() != 29924) {

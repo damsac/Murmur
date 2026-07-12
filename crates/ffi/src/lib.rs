@@ -13,6 +13,7 @@ pub mod events;
 pub mod notes;
 pub mod photos;
 pub mod session;
+pub mod session_retry;
 pub mod vocabulary;
 
 pub use convert::{document_payload, partial_document_from_items};
