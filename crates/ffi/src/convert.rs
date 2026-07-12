@@ -7,6 +7,7 @@ use murmur_core::{Artifact, CapturedItem};
 
 use crate::document::{DocLine, DocumentPayload};
 use crate::events::BoardItem;
+use crate::notes::{NotesBucket, NotesEntry};
 
 /// `CapturedItem` -> `BoardItem`. `right` has no core equivalent yet (board
 /// chrome text the Swift layer owns) and stays empty. `photo_count` is looked
@@ -22,6 +23,20 @@ pub fn board_item(item: &CapturedItem, photo_counts: &HashMap<String, u32>) -> B
         right: String::new(),
         photo_count: photo_counts.get(&item.id).copied().unwrap_or(0),
     }
+}
+
+/// Plan 14 D2-14: core-side `NotesEntry` (string `bucket`) -> FFI
+/// `NotesEntry` (enum `bucket`). A row whose `bucket` string isn't one of
+/// the three known variants is DROPPED (R6: never fabricate/coerce a
+/// bucket) — Swift only ever sees valid variants, so its exhaustive
+/// `switch` is safe.
+pub fn notes_entries(core: &[murmur_core::NotesEntry]) -> Vec<NotesEntry> {
+    core.iter()
+        .filter_map(|e| {
+            let bucket = NotesBucket::from_wire(&e.bucket)?;
+            Some(NotesEntry { bucket, label: e.label.clone(), detail: e.detail.clone() })
+        })
+        .collect()
 }
 
 #[derive(Debug, thiserror::Error)]

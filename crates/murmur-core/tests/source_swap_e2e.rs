@@ -19,7 +19,7 @@ fn end_turn(t: &str) -> CompletionResponse {
     CompletionResponse { content: vec![ContentBlock::Text { text: t.into() }],
         stop_reason: StopReason::EndTurn, usage: Usage { input_tokens: 10, output_tokens: 2 } }
 }
-fn summary(t: &str) -> CompletionResponse { tool_use("write_summary", serde_json::json!({"summary": t})) }
+fn summary(t: &str) -> CompletionResponse { tool_use("write_notes", serde_json::json!({"summary": t})) }
 
 #[tokio::test]
 async fn live_board_survives_failure_and_swaps_clean_on_success() {

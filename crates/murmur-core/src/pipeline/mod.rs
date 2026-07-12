@@ -9,6 +9,8 @@ pub mod live;
 
 pub mod document;
 
+pub mod notes;
+
 pub(crate) mod prompts;
 
 use std::sync::{Arc, Mutex};
@@ -96,7 +98,11 @@ impl SessionProcessor {
             max_turns: 16,
             max_tokens: 4096,
             transcript_budget_tokens: 12_000,
-            summary_max_tokens: 512,
+            // C2: 512 -> 1024 so the narrative summary + up to 12 notes
+            // entries fit in one write_notes response without truncation.
+            // No new call (D1-14) — this is an output-token budget bump on
+            // the one pass that already ran.
+            summary_max_tokens: 1024,
         }
     }
 
@@ -181,7 +187,7 @@ impl SessionProcessor {
         // Exit: persist outcome + cost atomically, success or not.
         let store = self.locked()?;
         match result {
-            Ok((summary, spoken_total_cents)) => {
+            Ok((summary, spoken_total_cents, buckets)) => {
                 let ids = created_ids
                     .lock()
                     .map_err(|_| CoreError::InvalidState("created-ids lock poisoned".into()))?
@@ -196,6 +202,17 @@ impl SessionProcessor {
                         "session_meta",
                         "session_meta",
                         &serde_json::json!({ "spoken_total_cents": cents }).to_string(),
+                    )?;
+                }
+                // Plan 14 D5-14: persist buckets as a notes artifact BEFORE the
+                // finish swap, only when non-empty (mirrors session_meta above).
+                // clear_authoritative_outputs already sweeps it on reprocess.
+                if !buckets.is_empty() {
+                    store.add_artifact(
+                        session_id,
+                        "notes",
+                        "notes",
+                        &notes::serialize_buckets(&buckets),
                     )?;
                 }
                 let session = store.finish_session_processed(session_id, &summary, &usage, &ids)?;
@@ -217,7 +234,7 @@ impl SessionProcessor {
         memory_prompt: &str,
         usage: &mut Usage,
         created_ids: Arc<Mutex<Vec<String>>>,
-    ) -> Result<(String, Option<i64>), harness::HarnessError> {
+    ) -> Result<(String, Option<i64>, Vec<notes::NotesEntry>), harness::HarnessError> {
         let mut registry = ToolRegistry::new();
         registry.register(AddItemTool::authoritative(
             self.store.clone(),
@@ -256,20 +273,20 @@ impl SessionProcessor {
         };
         usage.add(&outcome.usage);
 
-        let (summary, spoken_total_cents, summary_usage) = prompts::summarize(
+        let (summary, spoken_total_cents, buckets, summary_usage) = prompts::summarize(
             self.provider.clone(),
             assembled_transcript,
             self.summary_max_tokens,
         )
         .await?;
-        // Count the summary call's tokens BEFORE judging its content (R9:
-        // a model that skipped the tool still cost us the call).
+        // Count the summary/notes call's tokens BEFORE judging its content
+        // (R9: a model that skipped the tool still cost us the call).
         usage.add(&summary_usage);
         let summary = summary.ok_or_else(|| {
-            harness::HarnessError::Provider("summary response missing write_summary call".into())
+            harness::HarnessError::Provider("summary response missing write_notes call".into())
         })?;
 
-        Ok((summary, spoken_total_cents))
+        Ok((summary, spoken_total_cents, buckets))
     }
 
     /// Drains the awaiting_processing queue (spec §6: offline sessions queue
@@ -357,7 +374,7 @@ mod tests {
     }
 
     fn summary_response(text: &str) -> CompletionResponse {
-        tool_use("write_summary", serde_json::json!({"summary": text}))
+        tool_use("write_notes", serde_json::json!({"summary": text}))
     }
 
     #[tokio::test]
@@ -756,7 +773,7 @@ mod tests {
         let (processor, store, sid) = processor_with(vec![
             end_turn("nothing to extract"),
             tool_use(
-                "write_summary",
+                "write_notes",
                 serde_json::json!({
                     "summary": "Mulch and railing; keep it under twelve hundred.",
                     "spoken_total_cents": 120000
@@ -783,5 +800,87 @@ mod tests {
         let store = store.lock().unwrap();
         let artifacts = store.list_artifacts_for_session(&sid).unwrap();
         assert!(!artifacts.iter().any(|a| a.kind == "session_meta"), "no total stated -> no artifact");
+    }
+
+    /// Plan 14 D5-14/Task 3: a `write_notes` response carrying buckets
+    /// persists as a `kind="notes"` artifact, parseable back to the same
+    /// entries.
+    #[tokio::test]
+    async fn process_persists_notes_buckets_as_an_artifact() {
+        let (processor, store, sid) = processor_with(vec![
+            end_turn("nothing to extract"),
+            tool_use(
+                "write_notes",
+                serde_json::json!({
+                    "summary": "Estimate walk on the front yard.",
+                    "notes": [
+                        {"bucket": "scope_of_work", "label": "Mulch", "detail": "Darker than last year."},
+                        {"bucket": "constraints", "label": "Budget", "detail": "Under $1,200."}
+                    ]
+                }),
+            ),
+        ]);
+        processor.process(&sid).await.unwrap();
+        let store = store.lock().unwrap();
+        let artifacts = store.list_artifacts_for_session(&sid).unwrap();
+        let notes = artifacts.iter().find(|a| a.kind == "notes").expect("notes artifact written");
+        let parsed = notes::parse_notes_artifact(&notes.body);
+        assert_eq!(
+            parsed,
+            vec![
+                notes::NotesEntry {
+                    bucket: "scope_of_work".into(),
+                    label: "Mulch".into(),
+                    detail: "Darker than last year.".into(),
+                },
+                notes::NotesEntry {
+                    bucket: "constraints".into(),
+                    label: "Budget".into(),
+                    detail: "Under $1,200.".into(),
+                },
+            ]
+        );
+    }
+
+    /// No buckets in the response -> no `notes` artifact at all (mirrors the
+    /// `session_meta` absence test).
+    #[tokio::test]
+    async fn process_writes_no_notes_artifact_when_no_buckets_were_returned() {
+        let (processor, store, sid) = processor_with(vec![
+            end_turn("nothing to extract"),
+            summary_response("Walked the site."),
+        ]);
+        processor.process(&sid).await.unwrap();
+        let store = store.lock().unwrap();
+        let artifacts = store.list_artifacts_for_session(&sid).unwrap();
+        assert!(!artifacts.iter().any(|a| a.kind == "notes"), "no buckets -> no notes artifact");
+    }
+
+    /// R6 pin (D3-14): buckets never become item rows. The extraction agent
+    /// created exactly one item (`add_item`); the notes pass's two buckets
+    /// must add zero rows on top of that.
+    #[tokio::test]
+    async fn process_notes_pass_never_adds_item_rows() {
+        let (processor, store, sid) = processor_with(vec![
+            tool_use("add_item", serde_json::json!({"kind": "todo", "text": "order lumber"})),
+            end_turn("done"),
+            tool_use(
+                "write_notes",
+                serde_json::json!({
+                    "summary": "Estimate walk.",
+                    "notes": [
+                        {"bucket": "scope_of_work", "label": "Mulch", "detail": "Darker."},
+                        {"bucket": "constraints", "label": "Budget", "detail": "Under $1,200."}
+                    ]
+                }),
+            ),
+        ]);
+        processor.process(&sid).await.unwrap();
+        let store = store.lock().unwrap();
+        assert_eq!(
+            store.list_items_for_session(&sid).unwrap().len(),
+            1,
+            "buckets must never become board items"
+        );
     }
 }

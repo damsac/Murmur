@@ -19,6 +19,6 @@ pub use convert::{document_payload, partial_document_from_items};
 pub use document::{DocLine, DocumentPayload};
 pub use engine::{EngineConfig, EngineError, MurmurEngine, Providers};
 pub use events::{BoardItem, WalkEvent, WalkEventListener};
-pub use notes::NotesPayload;
+pub use notes::{NotesBucket, NotesEntry, NotesPayload};
 pub use photos::PhotoRef;
 pub use session::WalkSession;

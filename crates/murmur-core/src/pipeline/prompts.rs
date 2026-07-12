@@ -9,8 +9,9 @@ use harness::{
 };
 
 use crate::domain::CapturedItem;
+use crate::pipeline::notes::{parse_notes_value, NotesEntry};
 
-const WRITE_SUMMARY: &str = "write_summary";
+const WRITE_NOTES: &str = "write_notes";
 
 /// System prompt for the extraction pass. `memory_prompt` is
 /// `Memory::to_prompt()` output ("" when empty).
@@ -39,20 +40,43 @@ pub(crate) fn extraction_system_prompt(memory_prompt: &str) -> String {
     )
 }
 
-fn summary_tool_spec() -> ToolSpec {
+fn notes_tool_spec() -> ToolSpec {
     ToolSpec {
-        name: WRITE_SUMMARY.into(),
-        description: "Record the session summary for the library list.".into(),
+        name: WRITE_NOTES.into(),
+        description: "Record the session's narrative summary, spoken total (if any), and \
+                       comprehensive coordination notes."
+            .into(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
-                "summary": { "type": "string", "description": "1-2 plain sentences: what happened, key outcomes" },
+                "summary": { "type": "string", "description": "2-4 plain sentences: what, why, when" },
                 "spoken_total_cents": {
                     "type": "integer",
                     "description": "The operator's stated target/grand total for the WHOLE job, in cents \
                                      — ONLY when a specific dollar total was clearly spoken (e.g. \"keep it \
                                      under twelve hundred\" -> 120000). Omit entirely if no total was stated \
                                      or you are unsure — never guess."
+                },
+                "notes": {
+                    "type": "array",
+                    "description": "At most 12 entries; prefer fewer, denser entries. Each entry is a \
+                                     client/team coordination detail the terse board doesn't carry — the \
+                                     full spoken context behind a decision, a constraint, or a site \
+                                     condition. Capture only what was said; never invent a budget, \
+                                     deadline, or access detail — a missed note is cheaper than a \
+                                     fabricated constraint.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "bucket": {
+                                "type": "string",
+                                "enum": ["scope_of_work", "constraints", "conditions_and_issues"]
+                            },
+                            "label": { "type": "string", "description": "terse, mirrors a board label" },
+                            "detail": { "type": "string", "description": "the full spoken context" }
+                        },
+                        "required": ["bucket", "label", "detail"]
+                    }
                 }
             },
             "required": ["summary"]
@@ -60,10 +84,12 @@ fn summary_tool_spec() -> ToolSpec {
     }
 }
 
-/// One-shot forced summary call (the Plan 02 reflection-engine pattern).
+/// One-shot forced notes call (the Plan 02 reflection-engine pattern; Plan
+/// 14 D1: the same pass that already returned `spoken_total_cents` now also
+/// returns the narrative summary's richer detail as `notes[]`).
 ///
 /// Provider errors stay `Err` (no tokens were incurred). A successful call
-/// that lacks a `write_summary` block returns `Ok((None, None, usage))` so
+/// that lacks a `write_notes` block returns `Ok((None, None, [], usage))` so
 /// the caller can log the spend (R9) before deciding it's a failure. The
 /// transcript excerpt is passed through as-is — it already carries its own
 /// `## transcript` header from the context assembler.
@@ -72,32 +98,51 @@ fn summary_tool_spec() -> ToolSpec {
 /// that legitimately reads the transcript — and threaded as a scalar hint
 /// into the on-demand pricing pass (`DocumentBuilder::build`) later, so the
 /// pricing prompt itself never needs transcript access.
+///
+/// C2 (R7): a `notes` value that's truncated (model hit `max_tokens` mid-array)
+/// or malformed (non-array, garbled entries) degrades to `buckets: []` — the
+/// parseable `summary` is still returned. `parse_notes_value` is the same
+/// tolerant walk the stored artifact uses, so a garbled tool response and a
+/// garbled stored artifact degrade identically.
 pub(crate) async fn summarize(
     provider: Arc<dyn LlmProvider>,
     transcript_excerpt: &str,
     max_tokens: u32,
-) -> Result<(Option<String>, Option<i64>, Usage), HarnessError> {
+) -> Result<(Option<String>, Option<i64>, Vec<NotesEntry>, Usage), HarnessError> {
     let response = provider
         .complete(CompletionRequest {
-            system: "Summarize one transcribed field-work session in 1-2 plain sentences \
-                     for a session list. Lead with what happened; include key outcomes."
+            system: "You are building a client/team coordination artifact from one transcribed \
+                     field-work session. Write a narrative summary (2-4 plain sentences: what, \
+                     why, when) AND comprehensive notes grouped into three buckets: \
+                     scope_of_work (directives with client detail baked in — \"darker mulch than \
+                     last year\"), constraints (budget, permits, deadline, site access/gate \
+                     codes, client preferences), and conditions_and_issues (site findings \
+                     affecting the work). At most 12 notes entries; prefer fewer, denser entries. \
+                     Capture only what was said; never invent a budget, deadline, or access \
+                     detail — a missed note is cheaper than a fabricated constraint."
                 .into(),
             messages: vec![Message::user_text(transcript_excerpt)],
-            tools: vec![summary_tool_spec()],
+            tools: vec![notes_tool_spec()],
             max_tokens,
-            tool_choice: Some(WRITE_SUMMARY.into()),
+            tool_choice: Some(WRITE_NOTES.into()),
         })
         .await?;
 
     let tool_input = response.content.iter().find_map(|b| match b {
-        ContentBlock::ToolUse { name, input, .. } if name == WRITE_SUMMARY => Some(input),
+        ContentBlock::ToolUse { name, input, .. } if name == WRITE_NOTES => Some(input),
         _ => None,
     });
     let summary =
         tool_input.and_then(|i| i.get("summary").and_then(|s| s.as_str()).map(str::to_string));
     let spoken_total_cents =
         tool_input.and_then(|i| i.get("spoken_total_cents").and_then(|s| s.as_i64()));
-    Ok((summary, spoken_total_cents, response.usage))
+    // C2: a missing/non-array/garbled `notes` field yields [] via
+    // parse_notes_value's tolerant walk — never a panic, never an Err.
+    let buckets = tool_input
+        .and_then(|i| i.get("notes"))
+        .map(parse_notes_value)
+        .unwrap_or_default();
+    Ok((summary, spoken_total_cents, buckets, response.usage))
 }
 
 /// Formats a session's existing items as a newest-first dedup list for a live
@@ -173,25 +218,87 @@ mod tests {
         let provider = Arc::new(MockProvider::new(vec![CompletionResponse {
             content: vec![ContentBlock::ToolUse {
                 id: "tu_1".into(),
-                name: "write_summary".into(),
+                name: "write_notes".into(),
                 input: serde_json::json!({"summary": "Walked the deck; two todos."}),
             }],
             stop_reason: StopReason::ToolUse,
             usage: Usage { input_tokens: 40, output_tokens: 12 },
         }]));
-        let (summary, spoken_total_cents, usage) =
+        let (summary, spoken_total_cents, buckets, usage) =
             summarize(provider.clone(), "transcript text", 512).await.unwrap();
         assert_eq!(summary.as_deref(), Some("Walked the deck; two todos."));
         assert_eq!(spoken_total_cents, None, "no total was stated");
+        assert_eq!(buckets, Vec::new(), "no notes array in the response -> []");
         assert_eq!(usage, Usage { input_tokens: 40, output_tokens: 12 });
         let reqs = provider.requests();
-        assert_eq!(reqs[0].tool_choice.as_deref(), Some("write_summary"));
+        assert_eq!(reqs[0].tool_choice.as_deref(), Some("write_notes"));
         assert!(reqs[0].max_tokens >= 1);
         // the excerpt is the user message verbatim — no extra prefix
         assert_eq!(
             reqs[0].messages[0].content,
             vec![ContentBlock::Text { text: "transcript text".into() }]
         );
+    }
+
+    #[tokio::test]
+    async fn summarize_returns_the_notes_buckets_when_present() {
+        let provider = Arc::new(MockProvider::new(vec![CompletionResponse {
+            content: vec![ContentBlock::ToolUse {
+                id: "tu_1".into(),
+                name: "write_notes".into(),
+                input: serde_json::json!({
+                    "summary": "Estimate walk on the front yard.",
+                    "notes": [
+                        {"bucket": "scope_of_work", "label": "Mulch", "detail": "Darker than last year."},
+                        {"bucket": "unknown_bucket", "label": "x", "detail": "dropped"}
+                    ]
+                }),
+            }],
+            stop_reason: StopReason::ToolUse,
+            usage: Usage { input_tokens: 40, output_tokens: 12 },
+        }]));
+        let (_summary, _spoken_total_cents, buckets, _usage) =
+            summarize(provider, "t", 512).await.unwrap();
+        assert_eq!(
+            buckets,
+            vec![crate::pipeline::notes::NotesEntry {
+                bucket: "scope_of_work".into(),
+                label: "Mulch".into(),
+                detail: "Darker than last year.".into(),
+            }],
+            "unknown bucket dropped, valid entry kept"
+        );
+    }
+
+    #[tokio::test]
+    async fn summarize_degrades_a_malformed_notes_field_to_empty_buckets_not_an_error() {
+        let provider = Arc::new(MockProvider::new(vec![CompletionResponse {
+            content: vec![ContentBlock::ToolUse {
+                id: "tu_1".into(),
+                name: "write_notes".into(),
+                input: serde_json::json!({
+                    "summary": "Still a valid summary.",
+                    "notes": "not an array — a truncated/garbled response"
+                }),
+            }],
+            stop_reason: StopReason::ToolUse,
+            usage: Usage { input_tokens: 40, output_tokens: 12 },
+        }]));
+        let (summary, _spoken_total_cents, buckets, _usage) =
+            summarize(provider, "t", 512).await.unwrap();
+        assert_eq!(summary.as_deref(), Some("Still a valid summary."), "summary is preserved (R7)");
+        assert_eq!(buckets, Vec::new(), "garbled notes -> [] not a hard failure");
+    }
+
+    #[test]
+    fn notes_prompt_carries_r6_and_the_entry_cap() {
+        // The system prompt text is constructed inline in `summarize`; pin the
+        // static tool schema's cap/R6 language instead (schema description is
+        // sent to the model exactly like the system prompt).
+        let spec = notes_tool_spec();
+        let notes_desc = spec.input_schema["properties"]["notes"]["description"].as_str().unwrap();
+        assert!(notes_desc.contains("At most 12 entries"), "entry-count cap");
+        assert!(notes_desc.contains("never invent a budget, deadline"), "R6 clause");
     }
 
     #[test]
@@ -236,9 +343,10 @@ mod tests {
             stop_reason: StopReason::EndTurn,
             usage: Usage { input_tokens: 50, output_tokens: 10 },
         }]));
-        let (summary, spoken_total_cents, usage) = summarize(provider, "t", 512).await.unwrap();
+        let (summary, spoken_total_cents, buckets, usage) = summarize(provider, "t", 512).await.unwrap();
         assert!(summary.is_none(), "missing tool call is not an Err — spend must be loggable");
         assert_eq!(spoken_total_cents, None);
+        assert_eq!(buckets, Vec::new());
         assert_eq!(usage, Usage { input_tokens: 50, output_tokens: 10 });
     }
 
@@ -247,7 +355,7 @@ mod tests {
         let provider = Arc::new(MockProvider::new(vec![CompletionResponse {
             content: vec![ContentBlock::ToolUse {
                 id: "tu_1".into(),
-                name: "write_summary".into(),
+                name: "write_notes".into(),
                 input: serde_json::json!({
                     "summary": "Mulch and railing; keep it under twelve hundred.",
                     "spoken_total_cents": 120000
@@ -256,7 +364,7 @@ mod tests {
             stop_reason: StopReason::ToolUse,
             usage: Usage { input_tokens: 40, output_tokens: 12 },
         }]));
-        let (summary, spoken_total_cents, _usage) =
+        let (summary, spoken_total_cents, _buckets, _usage) =
             summarize(provider, "transcript text", 512).await.unwrap();
         assert!(summary.is_some());
         assert_eq!(spoken_total_cents, Some(120000));

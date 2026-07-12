@@ -21,6 +21,13 @@ pub const MATCH_THRESHOLD: f64 = 0.5;
 const BETA_SQ: f64 = 0.25;
 
 /// Pipeline output as plain data (built from store rows by `run.rs`).
+///
+/// Plan 14 D3-14/WE-B: `summary_present` is the ONLY summary field the
+/// grader reads — no text/length pin — and there is no artifact read at
+/// all, so a longer narrative summary (D2-14: 2-4 sentences) plus a notes
+/// artifact (written to `kind="notes"`, never to item rows) cannot move
+/// the F0.5 score. `cargo test -p evals` (Task 4 gate) is the byte-identical
+/// pin for every corpus scenario.
 #[derive(Clone, Debug)]
 pub struct Observed {
     pub items: Vec<ObservedItem>,

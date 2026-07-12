@@ -21,7 +21,7 @@ fn end_turn(t: &str) -> CompletionResponse {
     CompletionResponse { content: vec![ContentBlock::Text { text: t.into() }], stop_reason: StopReason::EndTurn, usage: Usage { input_tokens: 20, output_tokens: 4 } }
 }
 fn summary(t: &str) -> CompletionResponse {
-    tool_use("write_summary", serde_json::json!({ "summary": t }))
+    tool_use("write_notes", serde_json::json!({ "summary": t }))
 }
 
 /// Builds a MockProvider script that emits exactly the scenario's ground-truth
