@@ -37,8 +37,10 @@ pub enum EngineError {
     #[error("photo error: {0}")]
     Photo(String),
     /// A session-lifecycle operation outside `begin_walk`/`WalkSession` failed
-    /// (currently: the app-open zombie sweep). A poisoned store lock or a
-    /// store error — recoverable, surface don't crash.
+    /// (the app-open zombie sweep, or `retry_failed_sessions`). A poisoned
+    /// store lock or a store error — recoverable, surface don't crash. A
+    /// still-Failed session after a retry attempt is NOT this variant — it's
+    /// simply not counted in `retry_failed_sessions`'s return value.
     #[error("session error: {0}")]
     Session(String),
     /// An on-demand `build_document(kind)` call failed (Plan 13 D1/D8): a
