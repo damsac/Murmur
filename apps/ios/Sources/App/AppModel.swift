@@ -383,11 +383,20 @@ final class AppModel {
     /// The walk's items + summary land on the notes screen immediately; a
     /// document is built later, deliberately, by a `buildPrimaryDocument()`
     /// tap (or a future per-kind button — sac's taxonomy).
+    /// True while finish() is computing the notes — the notes screen shows a
+    /// skeleton + top progress bar. dam's UX note: navigate ONCE (straight to
+    /// the notes phase) and fill in place, rather than a separate building
+    /// screen that then shifts to notes (the layout-shift he flagged).
+    var notesLoading = false
+
     func finishWalk() {
         source?.stop()
         audioSource?.stop()
-        phase = .building
-        path = [.building]
+        // Navigate once, immediately, into the notes phase in a loading state.
+        notes = nil
+        notesLoading = true
+        phase = .notes
+        path = [.notes]
         Task {
             // Flush before finish (issue #155 / CANON: flush over speed —
             // the last words of a walk are often the price). `stop()` lets a
@@ -397,8 +406,7 @@ final class AppModel {
             _ = await pumpTask?.value
             let notes = await engine.finish()
             self.notes = notes
-            self.phase = .notes
-            self.path = [.notes]
+            self.notesLoading = false
         }
     }
 
@@ -415,21 +423,23 @@ final class AppModel {
         path = []
     }
 
-    /// Plan 13 Task 7: the ONE build-document button wired per template's
-    /// primary kind (`DocKinds.primaryKind(for:)`) — engine-keyed
-    /// (`currentSessionId`, snapshotted at walk start and kept through
-    /// review), calling the Stage-1 FFI `build_document` method. On success,
-    /// routes to the EXISTING `ReviewView` (unchanged). Disabled by the
-    /// notes screen while `notes?.queued` (D9: no authoritative board yet).
-    /// // sac: this is the plumbing for ONE button; the full per-trade
-    /// button set (estimate/invoice/work_order, etc.) is yours.
-    func buildPrimaryDocument() {
-        guard let sessionId = currentSessionId else { return }
-        let kind = DocKinds.primaryKind(for: trade.key)
+    /// Which doc kind is currently building (for a per-button spinner); nil
+    /// when idle. `isBuildingDocument` stays as the any-build flag.
+    var buildingKind: String?
+
+    /// Build the finished document for an explicit `kind` (Plan 13 Stage-1 FFI
+    /// `build_document`) and route to the existing ReviewView. Engine-keyed
+    /// via `currentSessionId` (snapshotted at walk start, kept through review —
+    /// works from history too). Each notes-screen action button passes its own
+    /// legal kind; illegal-kind / non-Processed errors surface on the notes
+    /// screen and leave the button available to retry, never crash.
+    func buildDocument(kind: String) {
+        guard let sessionId = currentSessionId, !isBuildingDocument else { return }
         documentBuildError = nil
         isBuildingDocument = true
+        buildingKind = kind
         Task {
-            defer { isBuildingDocument = false }
+            defer { isBuildingDocument = false; buildingKind = nil }
             do {
                 let doc = try await engine.buildDocument(sessionId: sessionId, kind: kind)
                 self.document = doc
@@ -437,11 +447,13 @@ final class AppModel {
                 self.path = [.review]
             } catch {
                 Logger(subsystem: Bundle.main.bundleIdentifier ?? "sitewalk", category: "document")
-                    .error("buildDocument failed: \(error, privacy: .public)")
-                self.documentBuildError = "\(error)"
+                    .error("buildDocument(\(kind, privacy: .public)) failed: \(error, privacy: .public)")
+                self.documentBuildError = "Couldn’t build the \(DocKinds.label(for: kind).lowercased()) — tap to try again."
             }
         }
     }
+
+    func buildPrimaryDocument() { buildDocument(kind: DocKinds.primaryKind(for: trade.key)) }
 
     // MARK: Vocabulary (Plan 10) — the write half of the vocabulary → STT
     // biasing loop. Defensive: a thrown FFI error becomes a logged breadcrumb +
