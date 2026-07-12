@@ -143,7 +143,14 @@ extension AppModel {
     /// sac: this is a good hook for a badge/history refresh once the count
     /// comes back, if a recovered walk should surface anywhere in the UI.
     private func retryFailedSessionsInBackground() {
+        // Review #206 should-fix: `.task` can re-fire on scene re-appearance;
+        // overlapping runs would double-spend LLM calls on the same Failed
+        // sessions (second attempt loses at the state machine, but the tokens
+        // are already burnt). One in-flight retry per app process.
+        guard !isRetryingFailedSessions else { return }
+        isRetryingFailedSessions = true
         Task {
+            defer { isRetryingFailedSessions = false }
             let recovered = (try? await engine.retryFailedSessions()) ?? 0
             if recovered > 0 {
                 photoLogger.notice("retried and recovered \(recovered, privacy: .public) failed session(s)")

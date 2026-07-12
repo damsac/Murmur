@@ -81,6 +81,14 @@ final class AppModel {
     // extension in a different file — Swift's `private` is file-scoped.)
     var photos: [PhotoModel] = []
     var photoError: String?
+    /// In-flight guard for the app-open Failed-session retry (review #206
+    /// should-fix): SwiftUI can re-run the launching `.task` on scene
+    /// re-appearance, and two overlapping retry runs would each drive
+    /// process() on the same Failed session — the second loses harmlessly at
+    /// the state machine but burns a real duplicate LLM call (R9). One retry
+    /// run per app process at a time. Not `private`: mutated from
+    /// AppModel+Photos.swift (same-module extension, different file).
+    var isRetryingFailedSessions = false
     /// Chains capture calls (PR #176 should-fix, AppModel+Photos.swift) so
     /// rapid taps run their off-main bytes-write + attach sequentially, in
     /// tap order, rather than interleaving. Not `private`: mutated from
