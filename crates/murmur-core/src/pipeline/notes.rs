@@ -26,19 +26,20 @@ pub fn parse_notes_artifact(body: &str) -> Vec<NotesEntry> {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
         return Vec::new();
     };
-    parse_notes_value(&value)
+    let entries = value.get("buckets").cloned().unwrap_or(serde_json::Value::Null);
+    parse_notes_value(&entries)
 }
 
-/// Same tolerant walk as `parse_notes_artifact`, but starting from an
-/// already-parsed `serde_json::Value` — shared by the artifact-body parser
-/// and the `write_notes` tool-call `input.notes` parser (Task 2), so a
-/// truncated/malformed tool response degrades identically to a garbled
-/// stored artifact.
+/// Tolerant walk of a bare entries **array** `Value` — shared by the
+/// artifact-body parser (`buckets` field) and the `write_notes` tool-call
+/// `input.notes` parser (Task 2), so a truncated/malformed tool response
+/// degrades identically to a garbled stored artifact. A non-array `value`
+/// (missing field, wrong type) yields `[]`.
 pub fn parse_notes_value(value: &serde_json::Value) -> Vec<NotesEntry> {
-    let Some(buckets) = value.get("buckets").and_then(|b| b.as_array()) else {
+    let Some(entries) = value.as_array() else {
         return Vec::new();
     };
-    buckets
+    entries
         .iter()
         .filter_map(|row| {
             let bucket = row.get("bucket")?.as_str()?;

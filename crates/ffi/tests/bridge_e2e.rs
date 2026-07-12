@@ -52,7 +52,7 @@ fn end_turn(text: &str) -> CompletionResponse {
 }
 
 fn summary_response(text: &str) -> CompletionResponse {
-    tool_use("write_summary", serde_json::json!({"summary": text}))
+    tool_use("write_notes", serde_json::json!({"summary": text}))
 }
 
 #[tokio::test]

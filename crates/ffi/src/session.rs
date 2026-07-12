@@ -771,7 +771,7 @@ mod tests {
     }
 
     fn summary_response(text: &str) -> CompletionResponse {
-        tool_use("write_summary", serde_json::json!({"summary": text}))
+        tool_use("write_notes", serde_json::json!({"summary": text}))
     }
 
     /// A provider whose FIRST call blocks on a barrier before answering —

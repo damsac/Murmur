@@ -66,7 +66,7 @@ async fn site_walk_end_to_end() {
             tool_use("upsert_contact", serde_json::json!({"name": "Dev", "trade": "framer"})),
             tool_use("write_report", serde_json::json!({"title": "Johnson walk", "body": "## Deck\nSister two joists."})),
             end_turn("done"),
-            tool_use("write_summary", serde_json::json!({"summary": "Deck walk: framing fix planned, lumber ordered."})),
+            tool_use("write_notes", serde_json::json!({"summary": "Deck walk: framing fix planned, lumber ordered."})),
         ])),
         store.clone(),
         memory.clone(),
