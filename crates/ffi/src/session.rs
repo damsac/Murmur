@@ -7,8 +7,8 @@ use std::sync::{Arc, Condvar, Mutex as StdMutex};
 
 use harness::{LlmProvider, Memory, MemoryStore};
 use murmur_core::{
-    doc_kind_for_template, CapturedItem, LiveExtractOutcome, LiveExtractor, SessionProcessor,
-    Store,
+    doc_kind_for_template, parse_notes_artifact, CapturedItem, LiveExtractOutcome, LiveExtractor,
+    SessionProcessor, Store,
 };
 use tokio::sync::Mutex as TokioMutex;
 
@@ -422,14 +422,39 @@ impl WalkSession {
         (items, counts)
     }
 
+    /// Plan 14 D5-14/D6-14: reads the session's latest `kind=="notes"`
+    /// artifact (if any) and tolerant-parses it back to core-side
+    /// `NotesEntry` (`bucket` as a wire string — mapped to the FFI enum by
+    /// `notes_payload`, dropping unknown buckets, R6). ANY failure — no
+    /// artifact (pre-14 session, empty/offline finish that never reached
+    /// `process()`), a poisoned lock, a store error — degrades to `[]`,
+    /// never a panic across FFI.
+    fn session_notes(&self) -> Vec<murmur_core::NotesEntry> {
+        let Ok(store) = self.store.lock() else {
+            return Vec::new();
+        };
+        let Ok(artifacts) = store.list_artifacts_for_session(&self.session_id) else {
+            return Vec::new();
+        };
+        // Newest-first: a reprocess writes a fresh notes artifact after
+        // clear_authoritative_outputs sweeps the prior one, but taking the
+        // last match is defensive against any future multi-write scenario.
+        let Some(artifact) = artifacts.iter().rev().find(|a| a.kind == "notes") else {
+            return Vec::new();
+        };
+        parse_notes_artifact(&artifact.body)
+    }
+
     /// Builds a `NotesPayload` from whatever is on the current board (Plan
-    /// 13 D3). Shared by: the offline-degrade path (`queued: true`, D9), the
-    /// empty-transcript short circuit, and the double-finish/degraded exit
-    /// (all `queued: false` — nothing is pending in those cases).
+    /// 13 D3) plus the stored notes artifact (Plan 14 D6-14). Shared by: the
+    /// offline-degrade path (`queued: true`, D9), the empty-transcript short
+    /// circuit, and the double-finish/degraded exit (all `queued: false` —
+    /// nothing is pending in those cases).
     fn partial_notes(&self, summary: &str, queued: bool) -> NotesPayload {
         let doc_kind = doc_kind_for_template(self.template.as_deref());
         let (items, photo_counts) = self.board_items_and_photo_counts();
-        notes_payload(&self.session_id, doc_kind, summary, &items, &photo_counts, queued)
+        let notes = self.session_notes();
+        notes_payload(&self.session_id, doc_kind, summary, &items, &photo_counts, &notes, queued)
     }
 
     /// Degrade path for a `finish()` call that can't transition the session
@@ -438,7 +463,8 @@ impl WalkSession {
     /// crossed into async/FFI territory, so there is no safe panic here: any
     /// unwind here is fatal to the host app. D3's double-finish row: the
     /// session's already-stored summary (or `""` if unreadable), the current
-    /// board, `queued: false` — there is nothing left pending.
+    /// board, the stored notes artifact (or `[]`), `queued: false` — there is
+    /// nothing left pending.
     fn degraded_notes(&self) -> NotesPayload {
         let summary = {
             let store = self.store.lock().unwrap();
@@ -1514,5 +1540,150 @@ mod tests {
                 assert!(!items.is_empty(), "no snapshot should ever show an empty board (D3b)");
             }
         }
+    }
+
+    // --- Plan 14 Task 5: NotesPayload.notes wiring -------------------------
+
+    fn session_with_transcript(text: &str) -> (Arc<StdMutex<Store>>, String) {
+        let store = Store::open_in_memory("device-a").unwrap();
+        let session_row = store.start_session_with_template(None, "landscape").unwrap();
+        let sid = session_row.id.clone();
+        store.append_transcript(&sid, text).unwrap();
+        (Arc::new(StdMutex::new(store)), sid)
+    }
+
+    fn extractor_for(store: Arc<StdMutex<Store>>, memory: Arc<StdMutex<Memory>>, sid: &str) -> LiveExtractor {
+        LiveExtractor::new(Arc::new(MockProvider::new(vec![])), store, memory, sid)
+    }
+
+    /// WE-A: a happy-path `finish()` returns `NotesPayload.notes` mapped to
+    /// the FFI bucket enum; the terse board (`items`) is unchanged by any of
+    /// this.
+    #[tokio::test]
+    async fn finish_returns_notes_entries_with_mapped_buckets() {
+        let (store, sid) = session_with_transcript("mulch the front beds; keep it under $1200");
+        let memory = Arc::new(StdMutex::new(Memory::default()));
+        let extractor = extractor_for(store.clone(), memory.clone(), &sid);
+        let processing_provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::new(vec![
+            tool_use("add_item", serde_json::json!({"kind": "todo", "text": "mulch front beds"})),
+            end_turn("done"),
+            tool_use(
+                "write_notes",
+                serde_json::json!({
+                    "summary": "Estimate walk on the front yard.",
+                    "notes": [
+                        {"bucket": "scope_of_work", "label": "Mulch", "detail": "Darker than last year."},
+                        {"bucket": "constraints", "label": "Budget", "detail": "Under $1,200."}
+                    ]
+                }),
+            ),
+        ]));
+        let session = test_session(sid, store, extractor, processing_provider, memory);
+        let payload = session.finish().await;
+        assert_eq!(payload.items.len(), 1, "the terse board is unchanged");
+        assert_eq!(
+            payload.notes,
+            vec![
+                crate::notes::NotesEntry {
+                    bucket: crate::notes::NotesBucket::ScopeOfWork,
+                    label: "Mulch".into(),
+                    detail: "Darker than last year.".into(),
+                },
+                crate::notes::NotesEntry {
+                    bucket: crate::notes::NotesBucket::Constraints,
+                    label: "Budget".into(),
+                    detail: "Under $1,200.".into(),
+                },
+            ]
+        );
+        assert!(!payload.queued);
+    }
+
+    /// WE-E: an unknown bucket string in the stored artifact is dropped —
+    /// the valid row survives.
+    #[tokio::test]
+    async fn finish_drops_an_unknown_bucket_row() {
+        let (store, sid) = session_with_transcript("mulch the front beds");
+        let memory = Arc::new(StdMutex::new(Memory::default()));
+        let extractor = extractor_for(store.clone(), memory.clone(), &sid);
+        let processing_provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::new(vec![
+            end_turn("nothing to extract"),
+            tool_use(
+                "write_notes",
+                serde_json::json!({
+                    "summary": "Walked the front yard.",
+                    "notes": [
+                        {"bucket": "logistics", "label": "x", "detail": "dropped"},
+                        {"bucket": "scope_of_work", "label": "Mulch", "detail": "kept"}
+                    ]
+                }),
+            ),
+        ]));
+        let session = test_session(sid, store, extractor, processing_provider, memory);
+        let payload = session.finish().await;
+        assert_eq!(payload.notes.len(), 1);
+        assert_eq!(payload.notes[0].label, "Mulch");
+    }
+
+    /// D6-14: a pre-14 session (no notes artifact at all, e.g. a `finish()`
+    /// whose `write_notes` response carried no `notes` field) yields `[]`,
+    /// not an error.
+    #[tokio::test]
+    async fn finish_with_no_notes_in_the_response_yields_empty_notes() {
+        let (store, sid) = session_with_transcript("just talking, nothing notable");
+        let memory = Arc::new(StdMutex::new(Memory::default()));
+        let extractor = extractor_for(store.clone(), memory.clone(), &sid);
+        let processing_provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::new(vec![
+            end_turn("nothing to extract"),
+            summary_response("Walked the site."),
+        ]));
+        let session = test_session(sid, store, extractor, processing_provider, memory);
+        let payload = session.finish().await;
+        assert_eq!(payload.notes, Vec::new());
+        assert!(!payload.queued);
+    }
+
+    /// D6-14: offline/LLM-down — `process()` fails outright, so no notes
+    /// artifact was ever written. `queued: true`, `notes: []`.
+    #[tokio::test]
+    async fn finish_offline_degrade_yields_empty_notes_and_queued_true() {
+        let (store, sid) = session_with_transcript("mulch the front beds");
+        let memory = Arc::new(StdMutex::new(Memory::default()));
+        let extractor = extractor_for(store.clone(), memory.clone(), &sid);
+        // Empty script -> the extraction agent's first call errors immediately
+        // (mock script exhausted) -> process() returns Err -> offline degrade.
+        let processing_provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::new(vec![]));
+        let session = test_session(sid, store, extractor, processing_provider, memory);
+        let payload = session.finish().await;
+        assert_eq!(payload.notes, Vec::new());
+        assert!(payload.queued, "process() failed outright -> queued: true (D9)");
+    }
+
+    /// D6-14: a double-`finish()` call returns the stored notes artifact from
+    /// the first `finish()`, not `[]`.
+    #[tokio::test]
+    async fn double_finish_returns_the_stored_notes() {
+        let (store, sid) = session_with_transcript("mulch the front beds; keep it under $1200");
+        let memory = Arc::new(StdMutex::new(Memory::default()));
+        let extractor = extractor_for(store.clone(), memory.clone(), &sid);
+        let processing_provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::new(vec![
+            tool_use("add_item", serde_json::json!({"kind": "todo", "text": "mulch front beds"})),
+            end_turn("done"),
+            tool_use(
+                "write_notes",
+                serde_json::json!({
+                    "summary": "Estimate walk.",
+                    "notes": [
+                        {"bucket": "constraints", "label": "Budget", "detail": "Under $1,200."}
+                    ]
+                }),
+            ),
+        ]));
+        let session = test_session(sid, store, extractor, processing_provider, memory);
+        let first = session.clone().finish().await;
+        assert_eq!(first.notes.len(), 1);
+        let second = session.finish().await;
+        assert_eq!(second.notes, first.notes, "double-finish reads the stored notes artifact");
+        assert!(!second.queued);
     }
 }
