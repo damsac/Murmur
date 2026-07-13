@@ -80,6 +80,12 @@ impl Tool for UpdateMemoryTool {
     async fn execute(&self, input: serde_json::Value) -> Result<String, HarnessError> {
         let op = input["op"].as_str().ok_or_else(|| Self::err("missing 'op'"))?;
         let section = input["section"].as_str().ok_or_else(|| Self::err("missing 'section'"))?;
+        // Internal (`_`-prefixed) sections are cap/prune-exempt bookkeeping
+        // (Plan 15 D5-15: seed markers) — the agent may not touch them, or a
+        // forged marker would be immortal.
+        if crate::memory::is_internal_section(section) {
+            return Err(Self::err(format!("section '{section}' is internal and cannot be written")));
+        }
         let text = input["text"].as_str().ok_or_else(|| Self::err("missing 'text'"))?;
         let source = match input.get("source").and_then(|s| s.as_str()) {
             None => FactSource::Inferred,
@@ -237,6 +243,28 @@ mod tests {
             .unwrap();
         let m = memory.lock().unwrap();
         assert!(m.word_count() <= 4, "cap enforced after every remember");
+    }
+
+    #[tokio::test]
+    async fn internal_sections_are_rejected() {
+        // Plan 15 D5-15: `_`-prefixed sections are internal (seed markers) —
+        // the agent tool may not write them (they are cap/prune-exempt, so a
+        // forged marker would be immortal).
+        let store = SpyStore::new();
+        let (tool, memory) = tool_with(store.clone());
+        let err = tool
+            .execute(serde_json::json!({"op": "remember", "section": "_seeds", "text": "landscape:1"}))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, HarnessError::Tool { .. }));
+        assert!(memory.lock().unwrap().sections.is_empty(), "no mutation");
+        assert!(store.saved.lock().unwrap().is_empty(), "no save");
+        // forget is rejected too — the whole namespace is off-limits
+        let err = tool
+            .execute(serde_json::json!({"op": "forget", "section": "_private", "text": "x"}))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, HarnessError::Tool { .. }));
     }
 
     #[tokio::test]

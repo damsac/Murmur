@@ -11,7 +11,7 @@ use crate::error::HarnessError;
 use crate::llm::{
     CompletionRequest, ContentBlock, LlmProvider, Message, ToolSpec, Usage,
 };
-use crate::memory::{FactSource, Memory, DEFAULT_WORD_CAP};
+use crate::memory::{is_internal_section, FactSource, Memory, DEFAULT_WORD_CAP};
 
 const WRITE_MEMORY: &str = "write_memory";
 
@@ -77,7 +77,10 @@ impl ReflectionEngine {
     /// ` [corrected]` so the model can honor their precedence (see
     /// `Memory::render` for the marker-masquerading threat model note).
     fn memory_block(&self, memory: &Memory) -> String {
-        if memory.sections.is_empty() {
+        // "(empty)" keys off NON-internal content (Plan 15 D5-15): an
+        // internal-only memory (just a `_seeds` marker) renders "(empty)"
+        // rather than a spurious block, and real content always renders.
+        if !has_non_internal_content(memory) {
             return "(empty)".to_string();
         }
         memory.render(true)
@@ -170,10 +173,22 @@ impl ReflectionEngine {
                 }
             }
         }
+        // The FIFTH internal-section exclusion site (Plan 15 D5-15): the model
+        // never saw internal sections (render skips them), so it can never echo
+        // them back — carry them forward from `current` verbatim (full entries,
+        // provenance and all) or every reflection would erase the `_seeds`
+        // marker and user-deleted seeds would resurrect on the next re-seed.
+        for (name, entries) in &current.sections {
+            if is_internal_section(name) {
+                memory.sections.insert(name.clone(), entries.clone());
+            }
+        }
         // A legit total wipe never happens; an empty write_memory result from a
         // confused model must not erase the user's memory. (Empty current with
-        // an empty result stays OK — first-run case.)
-        if !current.sections.is_empty() && memory.sections.is_empty() {
+        // an empty result stays OK — first-run case.) Compares NON-internal
+        // sections only: a carried-over marker must not mask a genuine wipe,
+        // and a legitimate `{}` over an internal-only memory must not error.
+        if has_non_internal_content(current) && !has_non_internal_content(&memory) {
             return Err(RunError {
                 source: HarnessError::Provider(
                     "reflection produced empty memory from non-empty input".into(),
@@ -188,11 +203,20 @@ impl ReflectionEngine {
     }
 }
 
+/// Whether `m` holds any non-internal, non-empty section — the "real content"
+/// predicate shared by the empty-wipe guard and `memory_block` (Plan 15 D5-15).
+fn has_non_internal_content(m: &Memory) -> bool {
+    m.sections.iter().any(|(name, entries)| !is_internal_section(name) && !entries.is_empty())
+}
+
 /// (added + removed) / (old_count + new_count), 0.0 when both sides are empty.
+/// Internal (`_`-prefixed) sections are excluded from both key sets so the
+/// reflection carry-over never enters the churn signal (Plan 15 D5-15).
 fn churn_between(old: &Memory, new: &Memory) -> f32 {
     let keys = |m: &Memory| -> BTreeSet<(String, String)> {
         m.sections
             .iter()
+            .filter(|(s, _)| !is_internal_section(s))
             .flat_map(|(s, es)| es.iter().map(move |e| (s.clone(), e.text.clone())))
             .collect()
     };
@@ -386,6 +410,96 @@ mod tests {
         assert!(
             p.contains("drop a vocabulary term only if"),
             "reflection must carry the preserve-vocabulary guidance"
+        );
+    }
+
+    // ---- Plan 15 D5-15: internal sections and reflection (the fifth site) ----
+
+    fn seeded_current_memory() -> Memory {
+        let mut m = Memory::default();
+        m.add_vocabulary_term("french drain", 100, FactSource::Stated);
+        m.remember("people", "Dev — framer", 200);
+        m.mark_pack_seeded("landscape:1");
+        m
+    }
+
+    #[tokio::test]
+    async fn reflection_carries_internal_sections_forward() {
+        // The model echoes only what it saw (vocabulary/people) — never _seeds.
+        let provider = Arc::new(MockProvider::new(vec![write_memory_response(
+            serde_json::json!({ "vocabulary": ["french drain"], "people": ["Dev — framer"] }),
+        )]));
+        let engine = ReflectionEngine::new(provider.clone());
+        let out = engine.reflect(&seeded_current_memory(), &[], 999).await.unwrap();
+
+        // (a) marker preserved through the rebuild
+        assert!(out.memory.is_pack_seeded("landscape:1"), "reflection must carry _seeds forward");
+        // (b) the marker never leaks into the reflection prompt
+        let reqs = provider.requests();
+        let ContentBlock::Text { text } = &reqs[0].messages[0].content[0] else {
+            panic!("expected text block")
+        };
+        assert!(!text.contains("_seeds"), "_seeds leaked into the reflection prompt");
+        assert!(!text.contains("landscape:1"), "marker text leaked into the reflection prompt");
+    }
+
+    #[tokio::test]
+    async fn internal_carry_over_does_not_distort_churn() {
+        // old: {french drain, Dev}; new: {french drain, Sara} → churn 0.5 with
+        // or without a _seeds marker present.
+        let echo = serde_json::json!({
+            "vocabulary": ["french drain"], "people": ["Sara — electrician"]
+        });
+        let with_marker = {
+            let provider =
+                Arc::new(MockProvider::new(vec![write_memory_response(echo.clone())]));
+            let engine = ReflectionEngine::new(provider);
+            engine.reflect(&seeded_current_memory(), &[], 999).await.unwrap().churn
+        };
+        let without_marker = {
+            let mut current = seeded_current_memory();
+            current.sections.remove("_seeds");
+            let provider = Arc::new(MockProvider::new(vec![write_memory_response(echo)]));
+            let engine = ReflectionEngine::new(provider);
+            engine.reflect(&current, &[], 999).await.unwrap().churn
+        };
+        assert!((with_marker - without_marker).abs() < 1e-6, "carry-over distorted churn");
+        assert!((with_marker - 0.5).abs() < 1e-6);
+    }
+
+    #[tokio::test]
+    async fn internal_only_memory_tolerates_empty_echo() {
+        // An internal-only current (just _seeds) with a legitimate `{}` echo
+        // must NOT trip the empty-wipe guard, and the marker must survive.
+        let mut current = Memory::default();
+        current.mark_pack_seeded("landscape:1");
+        let provider = Arc::new(MockProvider::new(vec![write_memory_response(
+            serde_json::json!({}),
+        )]));
+        let engine = ReflectionEngine::new(provider.clone());
+        let out = engine.reflect(&current, &[], 999).await.unwrap();
+        assert!(out.memory.is_pack_seeded("landscape:1"));
+        assert_eq!(out.churn, 0.0, "internal-only reflection has zero churn");
+        // The prompt renders "(empty)" — not a spurious `## _seeds` block.
+        let reqs = provider.requests();
+        let ContentBlock::Text { text } = &reqs[0].messages[0].content[0] else {
+            panic!("expected text block")
+        };
+        assert!(text.contains("(empty)"));
+        assert!(!text.contains("_seeds"));
+    }
+
+    #[tokio::test]
+    async fn empty_wipe_guard_still_fires_on_real_content_loss() {
+        // The guard compares NON-internal sections: real content (people)
+        // wiped to `{}` is still an error even though _seeds is carried over.
+        let provider = Arc::new(MockProvider::new(vec![write_memory_response(
+            serde_json::json!({}),
+        )]));
+        let engine = ReflectionEngine::new(provider);
+        let err = engine.reflect(&seeded_current_memory(), &[], 999).await.unwrap_err();
+        assert!(
+            matches!(&err.source, HarnessError::Provider(msg) if msg.contains("empty memory"))
         );
     }
 
