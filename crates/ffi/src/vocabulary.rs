@@ -341,6 +341,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn seeded_terms_reach_both_stt_bias_and_llm_prompt_but_the_marker_reaches_neither() {
+        // Plan 15 Task 3 (D8-15): ONE write, TWO consumers, ZERO leaks.
+        let store = Arc::new(SpyStore { saved: StdMutex::new(Vec::new()) });
+        let e = engine(store.clone());
+        e.seed_vocabulary("landscape".into(), 1, vec!["boxwood".into()]).unwrap();
+        let memory = store.saved.lock().unwrap().last().unwrap().clone();
+
+        // (a) STT bias half: begin_walk's collector sees the seeded term and
+        // the whisper initial_prompt renders it.
+        let bias = crate::session::collect_bias_terms(&memory, Some("landscape"));
+        assert!(bias.iter().any(|t| t == "boxwood"));
+        let prompt = stt::build_bias_prompt(&bias, stt::SttConfig::default().max_bias_terms)
+            .expect("non-empty bias terms produce a prompt");
+        assert!(prompt.contains("boxwood"));
+        assert!(!prompt.contains("_seeds") && !prompt.contains("landscape:1"));
+
+        // (b) LLM half: the agent/reflection context renders the section.
+        let ctx = memory.to_prompt();
+        assert!(ctx.contains("## vocabulary"));
+        assert!(ctx.contains("- boxwood"));
+
+        // (c) the marker reaches NEITHER consumer.
+        assert!(!ctx.contains("_seeds") && !ctx.contains("landscape:1"));
+    }
+
+    #[tokio::test]
     async fn we_e_cap_backstop_tolerates_full_without_error() {
         let store = Arc::new(SpyStore { saved: StdMutex::new(Vec::new()) });
         let e = engine(store.clone());
