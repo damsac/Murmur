@@ -6,11 +6,11 @@ What dam is working on right now. Updated with every PR.
 
 ## Current focus
 
-**The rebuild — this repo.** Murmur pivoted 2026-07-01 to AI meeting notes for blue-collar field work (GC site walks, inspections); as of 2026-07-06 the product is branded **Sitewalk** (CANON). Rust core + native shells, built here in `damsac/sitewalk`. Specs, plans, research, and mocks all live HERE now (`docs/`); `damsac/Murmur` is archive-only.
+**The rebuild — this repo.** Murmur pivoted 2026-07-01 to AI meeting notes for blue-collar field work (GC site walks, inspections). Branded **Sitewalk** 2026-07-06, then **superseded 2026-07-12: the product is now Jefe** (Isaac's pick off the #188 shortlist, dam co-signed in CANON via #202) — hard-hat icon + amber theme shipped in #200. Rust core + native shells, built here in `damsac/sitewalk` (repo name unchanged, redirects cover it). Specs, plans, research, and mocks all live HERE now (`docs/`); `damsac/Murmur` is archive-only.
 
 dam owns: harness / murmur-core / STT / FFI. sac owns: renderers / component library / visual direction (`apps/ios/`).
 
-## Where the core is (main @ 6c025f9, 322 tests, clippy clean, CI-gated)
+## Where the core is (main @ 17d6b24, clippy clean, CI-gated)
 
 | Plan | What | Status |
 |------|------|--------|
@@ -41,43 +41,39 @@ dam owns: harness / murmur-core / STT / FFI. sac owns: renderers / component lib
 | 08 fix | iOS: `resolveLive()` defaults icon-tap launches to live mic on physical devices (sim still defaults to scripted — Metal STT SIGTRAPs on `MTLSimDevice`, and screenshot/QA automation is built around scripted); explicit `live=1`/`live=0` launch args always win on either platform | **done, merged (#182)** |
 | 184 | TestFlight pipeline reconciled and merged/ARMED — dry-run (workflow_dispatch, upload=false) green on run 28900094459; push-to-main now means internal auto-publish, a `v*` tag means an external candidate | **done, merged (#184)** — **first publish SUCCESS: build #18, 2026-07-08, rebuild live on internal TestFlight** (demo engine — no key baked, standing decision) |
 | 185 | zombie-Recording sweep — crash-orphaned `Recording` sessions flip to `Failed` on app open; the race is closed by a pinned ordering invariant; the todo-leak (orphaned partial work not recovered, just failed-out) persists deliberately, pending a future recover UI | **done, merged (#185)** — published as build #19 |
+| 13 | **notes-first core, two stages** (CANON 2026-07-10: notes, not an auto-built document, is the walk's primary output). **Stage 1 (#197)**: additive `build_document(kind)` on-demand path — `MurmurEngine.swift` untouched, old `finish()` still auto-builds, a merge behaves identically to before. Final review caught the **N3 blocker**: the plan's approved condition (`doc_kind_for_template` → `doc_kinds_for_template(t)[0]`, property → `"condition"`) would have changed *live* behavior through the still-shared function — deferred to Stage 2 rather than shipped inert-but-wrong. **Stage 2 (#198)**: the atomic flip — `finish()` now returns `NotesPayload` (no auto document build), every `docKind` Swift `switch` arm gets coupled in the same PR so no build ships with a dangling case. | **done, merged** (#197 Stage 1, #198 Stage 2) |
+| 14 | **comprehensive notes** — Isaac's coordination-artifact ask (sac's #199 thread): `write_summary` grown into `write_notes`, one forced call now returns narrative summary + `notes[]` across a **four-bucket contract** (`scope_of_work` / `constraints` / `conditions_and_issues`, unknown bucket strings dropped at the FFI boundary, not coerced — R6); persisted as a `kind="notes"` artifact. Depth came from growing the existing summarize pass (option b) rather than a new LLM call (R9) or loading detail onto the latency-sensitive live-extraction pass. Evals invariance is a gated fact, not a hope: `cargo test -p evals` is **Δ=0** against pre-14 (grader never reads artifacts). | **done, merged (#203)** |
+| infra | **TestFlight-honesty saga, builds #24–#34** — five silently-rejected publishes (Apple's "missing 120x120 icon" was never surfacing because the upload step's exit-code check was too loose) fixed across a chain: app icon (Walked Wave glyph, #194) + the loose-grep false-green fixed to match failure signatures only — a bare `error` grep had red-flagged build #24's *successful* upload (#195); export-compliance key + STT default reverted to base.en (#196); version bumped to 2.0.0; then the real bug — every TF walk (demo included) 401'd because the shipped key is Anthropic-direct, not PPQ-issued, and #193 had wired a `ppq.ai` base-URL override on the wrong assumption; **root-cause fixed by removing the override (#205)** — build #33 is the first TF build where real walks actually work. #206 closes the loop: `Failed` sessions (including the ones stranded by #24-32's dead key) now retry on next app-open, capped at 5 oldest-first, and zombie-Recording recovery falls out of the ordering for free. | **done, merged** (#194, #195, #196, #205, #206) |
+| brand | **Jefe** — Isaac's pick off the #188 rename shortlist (sac's research: "Sitewalk" collides with ≥7 products incl. a direct competitor); sac shipped the hard-hat icon + amber theme (#200), dam co-signed in CANON (#202), superseding the 2026-07-06 Sitewalk brand decision. Repo name (`damsac/sitewalk`) stays as-is; ASC/TestFlight listing rename is a standing follow-up. | **done, merged** (#200, #202) |
 
-## Where we are (2026-07-08)
+## Where we are (2026-07-13)
 
-**Main is at 948702f.** TestFlight is LIVE and armed: #184 landed the reconciled pipeline and merging it fired the first publish — build #18 is on internal TestFlight running the demo engine (no key baked in, that's the standing decision, not an oversight). #185 followed immediately behind and published as build #19 (zombie-Recording sweep — crash-orphaned sessions no longer sit in `Recording` forever; they resolve to `Failed` on next app open via a pinned ordering invariant that closes the race). **Merge cadence is now release cadence** — every push to main that touches shippable code publishes a new internal build automatically.
+**Main is at 17d6b24.** TestFlight builds are **working in the field** — dam confirmed real walks completing end-to-end on build #34 (2026-07-13), after the #205 key/host root-cause fix and #206's retry-on-app-open closed the loop on everything stranded by builds #24-32's dead key. Notes-first (Plan 13) and comprehensive notes (Plan 14) are both merged; the core side of the notes-first pivot is done.
 
-Two things still open: the ASC listing rename to **Sitewalk** is pending in App Store Connect (dam/sac shared access); and the real-engine-beta decision — how a release build gets its API key/base-url (bake vs. runtime config) — is still undecided, so #18/#19 both ship on the demo engine on purpose.
+Four of sac's PRs are open and form the next review queue: **#204** (render Plan 14's comprehensive-notes buckets on the notes screen — completes the loop Plan 14 opened), **#207** (design: customizable paperwork — style/structure/upload), **#208** (back-arrow from review to notes), **#209** (Letterhead Studio — branded exported paperwork, Style v1).
 
-**Device build state**: xcframework + `small.en` model are cached locally; the signed-build command is known. Blocked on dam's Xcode account sign-in + phone trust (bundle `com.damsac.sitewalk.gallery`, team `J4R462XD94`) — once that clears, the device session list is: real-mic `live=1` walk (now the default per #182), voiceproc A/B + `sttvad≈0.01` sweep, Plan 09 Task 7 sweep rerun, small.en RTF validation (T5 tier), and a vocabulary-biasing spot check.
+**Device build state**: unchanged from prior freshen — xcframework + model cached locally; device session backlog (voiceproc A/B sweep, Plan 09 Task 7 rerun, small.en RTF validation) still pending a dedicated device session.
 
 ## What sac should know
 
+- **The retry fix (#206) recovers `Failed` walks on app-open** — including anything stranded by the #24-32 dead-key window. Your app-open refresh hook is the trigger point; flagged here since it's the kind of thing that changes what a tester sees on next launch without any UI change on your side.
+- **Your #204 completes the Plan 14 loop** — the core's four-bucket `notes[]` payload has been sitting inert behind your existing kind-grouped rendering since #203; #204 is the one that makes it visible. Review incoming from dam.
+- **Jefe is CANON** — #202 is merged, your #200 branding is the co-signed brand. Nothing further needed from you there.
 - **Builds #18 and #19 are on your TestFlight now** — #18 is the first-ever rebuild publish (demo engine, no key baked); #19 is the zombie-Recording sweep on top. Update and take a look.
-- **Your `pr/sac/testflight-bug-fixes` branch is expected as a PR** — thinking-first review awaits per RECONCILIATION.md once it's up.
 - **Plan 12's seam is ready for your per-item photo grouping pass** — `ReviewView` has a functional client-side join (`model.photos` grouped by the row whose `itemId` matches, session-level catch-all for the rest); `DocRowFixture.itemId` mirrors it in the demo engine. Styling/visuals are yours, `// sac:` markers throughout.
-- **Vocabulary-seeding design doc (#181) is up for your reactions** — discussion draft, not a build; top 3 open questions include 2 that are joint (need your input before either of us starts implementing).
-- **Plan 12 grouping seam + vocab design doc are both still awaiting your reactions** — flagging again since TestFlight landing shouldn't bury these.
-- **Re-run `apps/ios/build-ffi.sh` after your next pull** — Plan 12 changed `DocLine` (added `item_id`), so the generated bindings moved again.
-- **New CI job will catch stale bindings on your PRs now** — #180 diffs the committed `ffi.swift` against a fresh regen on every PR; if it fails, run `build-ffi.sh` and commit the result.
+- **Re-run `apps/ios/build-ffi.sh` after your next pull** — the FFI surface has moved several times since (Plan 13's `build_document(kind)`, Plan 14's `NotesPayload.notes`, #206's `retry_failed_sessions`); `check-bindings.sh` will flag drift.
 - **PR #1 is merged** (main); review conditions carried as **issue #2** — four state-transition bugs + three seam-hygiene items.
 - **STT is Rust-side — decided.** The spike GO'd whisper-rs (iOS 26's SpeechAnalyzer dropped custom vocabulary, and our biasing loop needs it). `crates/stt` is built; mic wiring (stage 2) is the next plan. Your `append(transcript:)` path works today.
-- **The real bridge is ACTIVE**: `MurmurEngine.swift` compiles against `MurmurCoreFFI`. Run `apps/ios/build-ffi.sh` once on your machine to produce the gitignored xcframework, then `xcodegen generate` — demo engine still runs by default; a configured key switches to the real core.
-- **finish() edge behavior**: silent walk returns a truthful empty document (queued=false, doc_number=0); double-finish returns the cached document — both no-panic by contract.
-- **HANDOFF answers**: events batched per live pass; core mints document numbers; template keys `landscape | property | inspection` proposed as canonical — needs your ack (CANON).
-- **Bridge realities**: `finish()` = `end_and_record_session` + `process()` — two-phase, budgeted <8s; live items get tombstoned and re-extracted at process time (the board "swaps" — UI should anticipate); `LiveExtractor.maybe_extract` is `&mut self`, the FFI wrapper serializes it.
+- **finish() now returns `NotesPayload`** (Plan 13/14) — items + narrative summary + four-bucket `notes[]`; document build is a separate, explicit on-demand call per action button, not automatic at DONE.
 - **`BoardItem.photo_count` is live** — counts are batched per-snapshot (one query per tick), so treat it as stale-until-next-tick, not real-time; that's an accepted posture, not a bug.
-- **Your `sacmeng` GitHub account needs an org add + Actions approval** for CI to auto-fire on your PRs — flag this if checks aren't appearing on your next PR.
 
 ## What I need from sac
 
-- Reactions to the vocabulary-seeding design doc (#181) — including the 2 joint open questions.
-- The two Plan 12 product questions: should the review document feed manual (non-core) items into the row/photo grouping? should a single core item ever span multiple rows? Both block how far sac's grouping pass can go before it needs another core seam.
-- `sacmeng` org access — still pending, blocks CI auto-fire on his PRs.
-- Work through issue #2 (or push back per item — it's a conversation).
-- The two harness patches on your machine (PPQ Bearer auth + `ANTHROPIC_BASE_URL`) as a proper PR with tests.
-- Formal review of the vision spec (`damsac/Murmur` → `pr/dam/rebuild-vision` → `docs/superpowers/specs/`).
+- Your two Plan 14 answers (subtitle truncation, taxonomy freeze) if they aren't already folded into #204.
+- Formal review of the vision spec (`damsac/Murmur` → `pr/dam/rebuild-vision` → `docs/superpowers/specs/`) — still outstanding, carried forward.
 
-## Open questions
+## Standing items (dam)
 
-- STT engine: whisper-rs Rust-side vs staged hybrid — the 06-spike benchmark decides (dam's preference: Rust-side if the numbers hold).
-- Who runs the 06-spike: builder agent or dam's hands.
+- ASC listing rename — Sitewalk to **Jefe** — still pending in App Store Connect (dam/sac shared access).
+- PPQ-vs-Anthropic-direct billing decision: TestFlight now bills **Anthropic directly** since #205's fix (the baked key was Anthropic-issued all along); needs a deliberate call on whether that's the intended long-term billing path or a PPQ re-route is still wanted.
+- Factory 4 values + Isaac's 2 ASC clicks — carried forward, not yet done.
