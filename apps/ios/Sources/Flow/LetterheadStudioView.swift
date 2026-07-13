@@ -31,6 +31,14 @@ struct LetterheadStudioView: View {
     // faces. "Bring your own font" and more presets are follow-ups.
     private let accents: [UInt32] = [0x9A6A00, 0x3E6B35, 0x2E5A78, 0xA63A2E, 0x141412]
     private let fonts: [(key: String, label: String)] = [("serif", "SOURCE SERIF"), ("sans", "BARLOW")]
+    // Trade type labels mirror onboarding (no display name on TradeFixture).
+    private let trades: [(key: String, label: String)] = [
+        ("landscape", "LANDSCAPE"), ("property", "PROPERTY MGMT"), ("inspection", "INSPECTION"),
+    ]
+
+    // The trade the preview renders — follows the draft, so switching it re-keys
+    // the doc-kind + sample rows live.
+    private var previewTrade: TradeFixture { draftProfile.trade }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,6 +47,7 @@ struct LetterheadStudioView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     preview
                     businessSection
+                    tradeSection
                     logoSection
                     accentSection
                     fontSection
@@ -112,15 +121,15 @@ struct LetterheadStudioView: View {
     private var preview: some View {
         VStack(alignment: .leading, spacing: 0) {
             Letterhead(
-                biz: draftProfile.businessName.isEmpty ? model.trade.biz : draftProfile.businessName,
+                biz: draftProfile.businessName.isEmpty ? previewTrade.biz : draftProfile.businessName,
                 bizSub: draftProfile.letterheadSub,
-                docKind: model.trade.docKind,
-                docNo: model.trade.docNo,
+                docKind: previewTrade.docKind,
+                docNo: previewTrade.docNo,
                 docDate: model.letterheadDate,
                 branding: draft
             )
-            ForEach(model.trade.rows.prefix(2)) { DocRowView(row: $0) }
-            TotalRow(key: model.trade.totalKey, value: model.trade.totalValue, gaps: 0)
+            ForEach(previewTrade.rows.prefix(2)) { DocRowView(row: $0) }
+            TotalRow(key: previewTrade.totalKey, value: previewTrade.totalValue, gaps: 0)
                 .padding(.top, 2)
             if let footer = draft.footerText {
                 Text(footer)
@@ -173,6 +182,32 @@ struct LetterheadStudioView: View {
         }
         .padding(.horizontal, 11).padding(.vertical, 10)
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.C.hairline, lineWidth: 1.5))
+    }
+
+    // Trade — changes the document types (estimate vs inspection) and the board,
+    // not just letterhead text; the preview's doc-kind follows it. Saved via the
+    // profile (reloadProfile re-keys model.trade + jobs).
+    private var tradeSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("TRADE")
+            Menu {
+                ForEach(trades, id: \.key) { trade in
+                    Button(trade.label) { draftProfile.tradeKey = trade.key }
+                }
+            } label: {
+                HStack {
+                    Text(trades.first { $0.key == draftProfile.tradeKey }?.label
+                         ?? draftProfile.tradeKey.uppercased())
+                        .font(Theme.F.cond(13, .semibold))
+                        .foregroundStyle(Theme.C.ink)
+                    Spacer()
+                    Text("⌄").font(Theme.F.mono(12)).foregroundStyle(Theme.C.ink60)
+                }
+                .padding(.horizontal, 11).padding(.vertical, 11)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.C.hairline, lineWidth: 1.5))
+            }
+        }
+        .padding(.horizontal, Theme.S.screenPad).padding(.top, 18)
     }
 
     private var logoSection: some View {
