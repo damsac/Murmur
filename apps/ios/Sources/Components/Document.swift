@@ -15,10 +15,13 @@ struct Letterhead: View {
     /// The operator's branding — logo, accent, biz font, contact. `.default`
     /// reproduces the stock look, so the demo/gallery path renders unchanged.
     var branding: Branding = .default
+    /// In-memory logo for pre-commit preview (Letterhead Studio) — wins over
+    /// the branding's committed file when set.
+    var logoOverride: UIImage?
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            if let logo = branding.logoImage {
+            if let logo = logoOverride ?? branding.logoImage {
                 Image(uiImage: logo)
                     .resizable()
                     .scaledToFit()

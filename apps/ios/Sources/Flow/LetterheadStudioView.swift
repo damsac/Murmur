@@ -14,6 +14,9 @@ struct LetterheadStudioView: View {
     @State private var draft: Branding
     @State private var draftProfile: BusinessProfile
     @State private var logoItem: PhotosPickerItem?
+    /// A freshly picked logo, held in memory until Save — bytes only hit disk
+    /// on commit, so pick-then-cancel leaves no orphan file behind.
+    @State private var pickedLogoData: Data?
 
     init(model: AppModel) {
         self.model = model
@@ -63,14 +66,19 @@ struct LetterheadStudioView: View {
         .onChange(of: logoItem) { _, item in
             guard let item else { return }
             Task {
-                if let data = try? await item.loadTransferable(type: Data.self),
-                   let name = Branding.saveLogo(data) {
-                    draft.logoFilename = name
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    pickedLogoData = data
                 }
                 logoItem = nil
             }
         }
     }
+
+    // The logo the preview (and the buttons) should reflect: a fresh in-memory
+    // pick wins over the draft's committed filename.
+    private var pickedLogoImage: UIImage? { pickedLogoData.flatMap { UIImage(data: $0) } }
+    private var hasLogo: Bool { pickedLogoData != nil || draft.logoFilename != nil }
+    private var previewLogo: UIImage? { pickedLogoImage ?? draft.logoImage }
 
     // MARK: Header / Save
 
@@ -95,13 +103,7 @@ struct LetterheadStudioView: View {
 
     private var saveBar: some View {
         Button {
-            model.saveBranding(draft)
-            // Only persist the profile when there's a name to carry — avoids
-            // minting an empty profile from the no-profile demo path.
-            if !draftProfile.businessName.trimmingCharacters(in: .whitespaces).isEmpty {
-                model.saveProfile(draftProfile)
-            }
-            dismiss()
+            commitAndDismiss()
         } label: {
             Text("SAVE LETTERHEAD")
                 .font(Theme.F.ui(15, .bold)).tracking(1.0)
@@ -116,6 +118,31 @@ struct LetterheadStudioView: View {
         .overlay(alignment: .top) { Theme.C.hairline.frame(height: 1) }
     }
 
+    /// The commit path: logo bytes hit disk only here (pick-then-cancel never
+    /// writes), and a replaced/removed logo's old file is deleted so orphans
+    /// don't accumulate. File I/O runs off the main actor (Branding helpers).
+    private func commitAndDismiss() {
+        var branding = draft
+        let picked = pickedLogoData
+        let previous = model.branding.logoFilename
+        let profile = draftProfile
+        Task {
+            if let picked, let name = await Branding.saveLogo(picked) {
+                branding.logoFilename = name
+            }
+            if let previous, previous != branding.logoFilename {
+                await Branding.deleteLogo(previous)
+            }
+            model.saveBranding(branding)
+            // Only persist the profile when there's a name to carry — avoids
+            // minting an empty profile from the no-profile demo path.
+            if !profile.businessName.trimmingCharacters(in: .whitespaces).isEmpty {
+                model.saveProfile(profile)
+            }
+            dismiss()
+        }
+    }
+
     // MARK: Live preview — a real branded document head, re-rendered on edit
 
     private var preview: some View {
@@ -126,7 +153,8 @@ struct LetterheadStudioView: View {
                 docKind: previewTrade.docKind,
                 docNo: previewTrade.docNo,
                 docDate: model.letterheadDate,
-                branding: draft
+                branding: draft,
+                logoOverride: pickedLogoImage
             )
             ForEach(previewTrade.rows.prefix(2)) { DocRowView(row: $0) }
             TotalRow(key: previewTrade.totalKey, value: previewTrade.totalValue, gaps: 0)
@@ -216,7 +244,7 @@ struct LetterheadStudioView: View {
             HStack(spacing: 11) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 4).stroke(Theme.C.hairline, lineWidth: 1.5)
-                    if let logo = draft.logoImage {
+                    if let logo = previewLogo {
                         Image(uiImage: logo).resizable().scaledToFit().padding(6)
                     } else {
                         Text("NONE").font(Theme.F.mono(8)).foregroundStyle(Theme.C.ink35)
@@ -224,15 +252,18 @@ struct LetterheadStudioView: View {
                 }
                 .frame(width: 54, height: 54)
                 PhotosPicker(selection: $logoItem, matching: .images) {
-                    Text(draft.logoFilename == nil ? "ADD LOGO" : "REPLACE")
+                    Text(hasLogo ? "REPLACE" : "ADD LOGO")
                         .font(Theme.F.mono(9, .semibold)).tracking(1.0)
                         .foregroundStyle(Theme.C.paper)
                         .padding(.horizontal, 14).frame(height: 40)
                         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.C.ink))
                 }
                 .buttonStyle(.plain)
-                if draft.logoFilename != nil {
-                    Button { draft.logoFilename = nil } label: {
+                if hasLogo {
+                    Button {
+                        draft.logoFilename = nil
+                        pickedLogoData = nil
+                    } label: {
                         Text("REMOVE")
                             .font(Theme.F.mono(9, .semibold)).tracking(1.0)
                             .foregroundStyle(Theme.C.ink60)

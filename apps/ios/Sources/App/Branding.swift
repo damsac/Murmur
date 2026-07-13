@@ -59,17 +59,29 @@ struct Branding: Codable, Equatable {
 
     /// Persist new logo bytes; returns the filename to store on `logoFilename`.
     /// A fresh UUID name means the SwiftUI `Image` cache never serves a stale
-    /// logo after a replace (same path would).
-    static func saveLogo(_ data: Data) -> String? {
+    /// logo after a replace (same path would). Off-main disk write, same as
+    /// `capturePhoto` (AppModel+Photos).
+    static func saveLogo(_ data: Data) async -> String? {
         let name = "letterhead-logo-\(UUID().uuidString).png"
         let dir = logoDir
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        do {
-            try data.write(to: dir.appendingPathComponent(name))
-            return name
-        } catch {
-            return nil
-        }
+        return await Task.detached(priority: .userInitiated) { () -> String? in
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            do {
+                try data.write(to: dir.appendingPathComponent(name))
+                return name
+            } catch {
+                return nil
+            }
+        }.value
+    }
+
+    /// Delete a previously committed logo file (replace/remove) so old bytes
+    /// don't accumulate as orphans. Off-main, best-effort.
+    static func deleteLogo(_ filename: String) async {
+        let url = logoURL(filename)
+        await Task.detached(priority: .utility) {
+            try? FileManager.default.removeItem(at: url)
+        }.value
     }
 
     static func logoURL(_ filename: String) -> URL { logoDir.appendingPathComponent(filename) }

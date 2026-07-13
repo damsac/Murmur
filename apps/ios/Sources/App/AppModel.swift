@@ -3,8 +3,8 @@ import Observation
 import os
 
 // One observable model drives the whole flow:
-//   board → walking (pause/resume, photos) → building → notes → review (edit, fill gaps) → sent
-// (Plan 13: `building` computes NOTES, not a document — `notes` is the
+//   board → walking (pause/resume, photos) → notes → review (edit, fill gaps) → sent
+// (Plan 13: DONE computes NOTES, not a document — `notes` is the
 // primary result; `review` is reached deliberately via a build-document
 // button from the notes screen, not automatically at DONE.)
 // The engine behind it is injected; today that's DemoWalkEngine, tomorrow the
@@ -17,7 +17,6 @@ final class AppModel {
     enum Phase: Equatable {
         case board
         case walking
-        case building
         case notes
         case review
     }
@@ -432,6 +431,7 @@ final class AppModel {
     func dismissNotes() {
         notes = nil
         documentBuildError = nil
+        reviewKind = nil
         currentSessionId = nil
         phase = .board
         path = []
@@ -484,6 +484,7 @@ final class AppModel {
     /// build overwrites it. Pops just the review frame (board → notes).
     func backToNotes() {
         documentBuildError = nil
+        reviewKind = nil
         phase = .notes
         path = [.notes]
     }

@@ -116,8 +116,6 @@ struct AppRoot: View {
                     switch phase {
                     case .walking:
                         WalkView(model: model)
-                    case .building:
-                        BuildView(model: model)
                     case .notes:
                         NotesView(model: model)
                     case .review:

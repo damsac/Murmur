@@ -80,7 +80,9 @@ enum NotesBucket {
 /// your follow-up (NotesView.swift's kind-grouped rendering already covers
 /// the terse board — bucket rendering is additive on top).
 struct NotesEntryFixture: Identifiable {
-    var id: String { label + detail }
+    /// Stable unique identity — two identical LLM entries must not collide
+    /// as ForEach IDs (label+detail did).
+    let id = UUID()
     var bucket: NotesBucket
     var label: String
     var detail: String
