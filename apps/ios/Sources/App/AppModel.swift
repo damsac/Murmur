@@ -431,6 +431,7 @@ final class AppModel {
     func dismissNotes() {
         notes = nil
         documentBuildError = nil
+        reviewKind = nil
         currentSessionId = nil
         phase = .board
         path = []
@@ -483,6 +484,7 @@ final class AppModel {
     /// build overwrites it. Pops just the review frame (board → notes).
     func backToNotes() {
         documentBuildError = nil
+        reviewKind = nil
         phase = .notes
         path = [.notes]
     }
