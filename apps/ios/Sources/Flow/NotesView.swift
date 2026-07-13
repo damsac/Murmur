@@ -27,7 +27,7 @@ struct NotesView: View {
             // stays a stable skeleton, so nothing shifts when the notes land
             // (dam's UX note: navigate once, fill in place).
             if model.notesLoading {
-                ProgressView().progressViewStyle(.linear).tint(Theme.C.orange).frame(height: 2)
+                ProgressView().progressViewStyle(.linear).tint(Theme.C.orangeDeep).frame(height: 2)
             } else {
                 Theme.C.paper.frame(height: 2)
             }
@@ -39,13 +39,19 @@ struct NotesView: View {
                         skeleton
                     } else {
                         summaryCard
-                        if isEmpty {
+                        // Plan 14: the comprehensive coordination buckets sit
+                        // ABOVE the terse tag-grouped board (additive — the board
+                        // still carries the priced line items).
+                        bucketSections
+                        if notes.items.isEmpty && notes.notes.isEmpty {
                             emptyState
                         } else {
-                            ForEach(grouped, id: \.0) { kind, items in
-                                SectionHead(left: sectionTitle(kind), right: "\(items.count)", heavyRule: false)
-                                    .padding(.top, 4)
-                                ForEach(items) { CapturedRow(item: $0) }
+                            if !notes.items.isEmpty {
+                                ForEach(grouped, id: \.0) { kind, items in
+                                    SectionHead(left: sectionTitle(kind), right: "\(items.count)", heavyRule: false)
+                                        .padding(.top, 4)
+                                    ForEach(items) { CapturedRow(item: $0) }
+                                }
                             }
                             transcriptRow
                         }
@@ -107,7 +113,7 @@ struct NotesView: View {
     private var summaryCard: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 0) {
-                Rectangle().fill(Theme.C.orange).frame(width: 3)
+                Rectangle().fill(Theme.C.orangeDeep).frame(width: 3)
                 VStack(alignment: .leading, spacing: 6) {
                     Text("SUMMARY")
                         .font(Theme.F.mono(8, .semibold)).tracking(2.0)
@@ -267,6 +273,61 @@ struct NotesView: View {
         .opacity(disabled ? 0.4 : 1)
     }
 
+    // MARK: Comprehensive notes — Plan 14 coordination buckets
+
+    // The rich client↔team detail behind the terse board: each entry is a
+    // label + the spoken context. Buckets render in a fixed scope→constraints→
+    // conditions order; empty ones are omitted. Rendered additively above the
+    // tag-grouped board (dam's plumbing note: the board stays the priced items).
+    private let bucketOrder: [NotesBucket] = [.scopeOfWork, .constraints, .conditionsAndIssues]
+
+    private func bucketTitle(_ b: NotesBucket) -> String {
+        switch b {
+        case .scopeOfWork:         return "SCOPE OF WORK"
+        case .constraints:         return "CONSTRAINTS"
+        case .conditionsAndIssues: return "CONDITIONS & ISSUES"
+        }
+    }
+
+    private var bucketed: [(NotesBucket, [NotesEntryFixture])] {
+        bucketOrder.compactMap { b in
+            let entries = notes.notes.filter { $0.bucket == b }
+            return entries.isEmpty ? nil : (b, entries)
+        }
+    }
+
+    // Empty `bucketed` emits nothing — no guard needed at the call site.
+    @ViewBuilder private var bucketSections: some View {
+        ForEach(bucketed, id: \.0) { bucket, entries in
+            SectionHead(left: bucketTitle(bucket), right: "\(entries.count)", heavyRule: false)
+                .padding(.top, 4)
+            ForEach(entries) { notesEntryRow($0) }
+        }
+    }
+
+    private func notesEntryRow(_ entry: NotesEntryFixture) -> some View {
+        HStack(alignment: .top, spacing: 9) {
+            Rectangle().fill(Theme.C.ink35).frame(width: 5, height: 5).padding(.top, 5)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(entry.label)
+                    .font(Theme.F.cond(13.5, .semibold))
+                    .foregroundStyle(Theme.C.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !entry.detail.isEmpty {
+                    Text(entry.detail)
+                        .font(Theme.F.cond(11.5, .medium))
+                        .foregroundStyle(Theme.C.ink60)
+                        .lineSpacing(1.5)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Theme.S.screenPad)
+        .padding(.vertical, 8)
+        .overlay(alignment: .bottom) { Theme.C.hairlineSoft.frame(height: 1) }
+    }
+
     // MARK: Grouping (trade-aware headers, attention-first)
 
     private let order: [TagKind] = [.red, .yellow, .plain, .green]
@@ -305,6 +366,14 @@ struct NotesView: View {
         lines.append("Walk notes — \(Date().formatted(.dateTime.month().day().year()))")
         lines.append("")
         if !notes.summary.isEmpty { lines.append(notes.summary); lines.append("") }
+        for (bucket, entries) in bucketed {
+            lines.append(bucketTitle(bucket))
+            for e in entries {
+                lines.append("  • \(e.label)")
+                if !e.detail.isEmpty { lines.append("      \(e.detail)") }
+            }
+            lines.append("")
+        }
         for (kind, items) in grouped {
             lines.append(sectionTitle(kind))
             for it in items {
