@@ -43,7 +43,7 @@ fn req_nonempty_str<'a>(
     Ok(value)
 }
 
-const VALID_KINDS: [&str; 6] = ["todo", "decision", "note", "safety", "part", "price"];
+use crate::domain::VALID_ITEM_KINDS;
 
 pub struct AddItemTool {
     store: Arc<Mutex<Store>>,
@@ -114,7 +114,9 @@ impl Tool for AddItemTool {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "kind": { "type": "string", "enum": ["todo", "decision", "note", "safety", "part", "price"], "minLength": 1 },
+                // Built from the shared const (Plan 16 Task 2) — the advertised
+                // enum can never drift from the `execute` validation below.
+                "kind": { "type": "string", "enum": VALID_ITEM_KINDS, "minLength": 1 },
                 "text": { "type": "string", "minLength": 1, "description": "one short item, in the speaker's own terms" }
             },
             "required": ["kind", "text"]
@@ -123,10 +125,10 @@ impl Tool for AddItemTool {
 
     async fn execute(&self, input: serde_json::Value) -> Result<String, HarnessError> {
         let kind = req_str(&input, "kind", "add_item")?;
-        if !VALID_KINDS.contains(&kind) {
+        if !VALID_ITEM_KINDS.contains(&kind) {
             return Err(tool_err(
                 "add_item",
-                format!("invalid kind '{kind}'; must be one of: {}", VALID_KINDS.join(", ")),
+                format!("invalid kind '{kind}'; must be one of: {}", VALID_ITEM_KINDS.join(", ")),
             ));
         }
         let text = req_nonempty_str(&input, "text", "add_item")?;
@@ -518,6 +520,28 @@ mod tests {
             "error should name the valid kinds, got: {err}"
         );
         assert!(store.lock().unwrap().list_items_for_session(&sid).unwrap().is_empty());
+    }
+
+    /// Plan 16 Task 2 (Rev 2): the advertised JSON-schema `kind.enum` is
+    /// BUILT FROM the shared `VALID_ITEM_KINDS` const — the third hard-coded
+    /// copy is gone, so the schema can't silently drift from the validation
+    /// boundary the `execute` path enforces.
+    #[test]
+    fn input_schema_kind_enum_matches_the_shared_const() {
+        let (store, sid) = shared_store_with_session();
+        let tool = super::AddItemTool::new(store, &sid);
+        let schema = tool.input_schema();
+        let advertised: Vec<&str> = schema["properties"]["kind"]["enum"]
+            .as_array()
+            .expect("kind.enum is an array")
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(
+            advertised,
+            crate::domain::VALID_ITEM_KINDS.to_vec(),
+            "the advertised enum must equal the one shared allowlist"
+        );
     }
 
     #[tokio::test]

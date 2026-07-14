@@ -535,6 +535,14 @@ fileprivate struct FfiConverterString: FfiConverter {
 public protocol MurmurEngineProtocol : AnyObject {
     
     /**
+     * Adds a manual line at review time. `source = Manual` (survives any
+     * future reprocess) and a fresh UUIDv7 id, which sorts AFTER every
+     * existing item — the new line is last in every list and every rebuilt
+     * document (D4-16/WE-D). `right` may be `""` ("no quantity").
+     */
+    func addItem(sessionId: String, kind: String, text: String, right: String) throws  -> BoardItem
+    
+    /**
      * Attaches a photo to a session, optionally to a specific captured item.
      * The shell writes the bytes FIRST (Plan 11 D4 write order), then calls
      * this with the resulting filename. `captured_at` is `None` → core
@@ -579,6 +587,16 @@ public protocol MurmurEngineProtocol : AnyObject {
      * across FFI beyond the clone.
      */
     func listVocabulary() throws  -> [String]
+    
+    /**
+     * Retraction, distinct from `done` (keeper D-#4): tombstones the item
+     * (photos demoted to session-level, Plan 11 D3), dropping it from
+     * `list_items_for_session`, `list_open_todos`, AND every rebuilt
+     * document — where a `done` item stays in the document and only leaves
+     * the open-todos glance (WE-C pins the contrast). A second remove of
+     * the same id errors (the store's tombstone `NotFound`).
+     */
+    func removeItem(sessionId: String, itemId: String) throws 
     
     /**
      * Tombstones a photo's metadata row. The bytes are reclaimed by the
@@ -643,6 +661,18 @@ public protocol MurmurEngineProtocol : AnyObject {
      * the number of sessions swept, `0` on a clean relaunch.
      */
     func sweepZombieSessions() throws  -> UInt64
+    
+    /**
+     * Partial update of an item's editable fields (text / kind / right —
+     * keeper D-#1). A `None` field is left unchanged; an all-`None` call is
+     * a harmless no-op that still bumps the row's `updated_at`. `right` is
+     * the free-form quantity/unit string ("3 CU YD") — NOT price — and any
+     * value including `""` is accepted (D5-16). Returns the fresh
+     * `BoardItem` echo (with its honest `photo_count`) — an OPTIMISTIC
+     * display aid only: the notes/edit screen must re-read from the engine
+     * after any mutation (keeper D-#7), never rebuild state from this echo.
+     */
+    func updateItem(sessionId: String, itemId: String, text: String?, kind: String?, right: String?) throws  -> BoardItem
     
 }
 
@@ -712,6 +742,23 @@ public convenience init(config: EngineConfig)throws  {
 
     
 
+    
+    /**
+     * Adds a manual line at review time. `source = Manual` (survives any
+     * future reprocess) and a fresh UUIDv7 id, which sorts AFTER every
+     * existing item — the new line is last in every list and every rebuilt
+     * document (D4-16/WE-D). `right` may be `""` ("no quantity").
+     */
+open func addItem(sessionId: String, kind: String, text: String, right: String)throws  -> BoardItem {
+    return try  FfiConverterTypeBoardItem.lift(try rustCallWithError(FfiConverterTypeEngineError.lift) {
+    uniffi_ffi_fn_method_murmurengine_add_item(self.uniffiClonePointer(),
+        FfiConverterString.lower(sessionId),
+        FfiConverterString.lower(kind),
+        FfiConverterString.lower(text),
+        FfiConverterString.lower(right),$0
+    )
+})
+}
     
     /**
      * Attaches a photo to a session, optionally to a specific captured item.
@@ -813,6 +860,22 @@ open func listVocabulary()throws  -> [String] {
 }
     
     /**
+     * Retraction, distinct from `done` (keeper D-#4): tombstones the item
+     * (photos demoted to session-level, Plan 11 D3), dropping it from
+     * `list_items_for_session`, `list_open_todos`, AND every rebuilt
+     * document — where a `done` item stays in the document and only leaves
+     * the open-todos glance (WE-C pins the contrast). A second remove of
+     * the same id errors (the store's tombstone `NotFound`).
+     */
+open func removeItem(sessionId: String, itemId: String)throws  {try rustCallWithError(FfiConverterTypeEngineError.lift) {
+    uniffi_ffi_fn_method_murmurengine_remove_item(self.uniffiClonePointer(),
+        FfiConverterString.lower(sessionId),
+        FfiConverterString.lower(itemId),$0
+    )
+}
+}
+    
+    /**
      * Tombstones a photo's metadata row. The bytes are reclaimed by the
      * shell's reconciling sweep (Plan 11 D4), not deleted here.
      */
@@ -911,6 +974,28 @@ open func seedVocabulary(trade: String, version: UInt32, terms: [String])throws 
 open func sweepZombieSessions()throws  -> UInt64 {
     return try  FfiConverterUInt64.lift(try rustCallWithError(FfiConverterTypeEngineError.lift) {
     uniffi_ffi_fn_method_murmurengine_sweep_zombie_sessions(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Partial update of an item's editable fields (text / kind / right —
+     * keeper D-#1). A `None` field is left unchanged; an all-`None` call is
+     * a harmless no-op that still bumps the row's `updated_at`. `right` is
+     * the free-form quantity/unit string ("3 CU YD") — NOT price — and any
+     * value including `""` is accepted (D5-16). Returns the fresh
+     * `BoardItem` echo (with its honest `photo_count`) — an OPTIMISTIC
+     * display aid only: the notes/edit screen must re-read from the engine
+     * after any mutation (keeper D-#7), never rebuild state from this echo.
+     */
+open func updateItem(sessionId: String, itemId: String, text: String?, kind: String?, right: String?)throws  -> BoardItem {
+    return try  FfiConverterTypeBoardItem.lift(try rustCallWithError(FfiConverterTypeEngineError.lift) {
+    uniffi_ffi_fn_method_murmurengine_update_item(self.uniffiClonePointer(),
+        FfiConverterString.lower(sessionId),
+        FfiConverterString.lower(itemId),
+        FfiConverterOptionString.lower(text),
+        FfiConverterOptionString.lower(kind),
+        FfiConverterOptionString.lower(right),$0
     )
 })
 }
@@ -2498,6 +2583,15 @@ public enum EngineError {
      */
     case Document(message: String)
     
+    /**
+     * An item CRUD call (`update_item`/`add_item`/`remove_item`, Plan 16)
+     * failed: a missing/tombstoned item, an unknown `kind`, empty text, a
+     * non-`Processed` session (D3-16 — edits are review-surface only), a
+     * poisoned lock, or a store error. Recoverable — surface, don't crash.
+     * Contains store/validation strings only (never an api key).
+     */
+    case Item(message: String)
+    
 }
 
 
@@ -2542,6 +2636,10 @@ public struct FfiConverterTypeEngineError: FfiConverterRustBuffer {
             message: try FfiConverterString.read(from: &buf)
         )
         
+        case 8: return .Item(
+            message: try FfiConverterString.read(from: &buf)
+        )
+        
 
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -2567,6 +2665,8 @@ public struct FfiConverterTypeEngineError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(6))
         case .Document(_ /* message is ignored*/):
             writeInt(&buf, Int32(7))
+        case .Item(_ /* message is ignored*/):
+            writeInt(&buf, Int32(8))
 
         
         }
@@ -3034,6 +3134,9 @@ private var initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
+    if (uniffi_ffi_checksum_method_murmurengine_add_item() != 26329) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ffi_checksum_method_murmurengine_add_photo() != 53149) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3055,6 +3158,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_ffi_checksum_method_murmurengine_list_vocabulary() != 10809) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ffi_checksum_method_murmurengine_remove_item() != 65496) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ffi_checksum_method_murmurengine_remove_photo() != 8364) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3068,6 +3174,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ffi_checksum_method_murmurengine_sweep_zombie_sessions() != 29924) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ffi_checksum_method_murmurengine_update_item() != 53674) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ffi_checksum_method_walkeventlistener_on_event() != 10314) {

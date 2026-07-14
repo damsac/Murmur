@@ -287,6 +287,29 @@ final class MurmurEngine: WalkEngine {
         try engine.listLivePhotoFilenames()
     }
 
+    // MARK: - Item CRUD (Plan 16): engine-keyed, Processed-gated in Rust
+    // (D3-16). The returned CapturedFixture is an optimistic echo only —
+    // after any mutation the screen must re-read from the engine (the
+    // // sac: contract's clause (b) in WalkEngine.swift).
+
+    func updateItem(
+        sessionId: String, itemId: String, text: String?, kind: String?, right: String?
+    ) throws -> CapturedFixture {
+        Self.board(try engine.updateItem(
+            sessionId: sessionId, itemId: itemId, text: text, kind: kind, right: right
+        ))
+    }
+
+    func addItem(
+        sessionId: String, kind: String, text: String, right: String
+    ) throws -> CapturedFixture {
+        Self.board(try engine.addItem(sessionId: sessionId, kind: kind, text: text, right: right))
+    }
+
+    func removeItem(sessionId: String, itemId: String) throws {
+        try engine.removeItem(sessionId: sessionId, itemId: itemId)
+    }
+
     func sweepZombieSessions() throws -> UInt64 {
         try engine.sweepZombieSessions()
     }

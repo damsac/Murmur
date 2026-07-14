@@ -148,6 +148,15 @@ impl ItemSource {
     }
 }
 
+/// The item-kind allowlist (Plan 16 Task 2, the Plan 15 SEED_MAX
+/// "don't fork the constant" discipline). Item `kind` stays a free `String`
+/// at the domain/DB layer by design (new kinds must not require a
+/// migration) — this const is the VALIDATION boundary, shared by the agent
+/// `AddItemTool` (both its `execute` check and its advertised JSON-schema
+/// enum) and the FFI edit seam (`update_item`/`add_item`), so the two can't
+/// drift (R6: reject unknown kinds, never store them).
+pub const VALID_ITEM_KINDS: [&str; 6] = ["todo", "decision", "note", "safety", "part", "price"];
+
 /// A typed item extracted from (or manually added to) a session.
 /// `kind` is a free string by design — conventions: "todo", "decision",
 /// "note", "safety", "part", "price". New kinds must not require a migration.
@@ -157,6 +166,12 @@ pub struct CapturedItem {
     pub session_id: String,
     pub kind: String,
     pub text: String,
+    /// Quantity/unit display string ("3 CU YD", "× 4") — NOT price (pricing
+    /// stays a document-build concern, keeper D-#2). Free-form by design
+    /// (R6: coercing it would fabricate). Defaults `""` = "no quantity".
+    /// Backed by the `items.right_text` column (Plan 16; `RIGHT` is a SQL
+    /// keyword, hence the column rename — the field matches `BoardItem.right`).
+    pub right: String,
     pub source: ItemSource,
     pub done: bool,
     pub created_at: u64,

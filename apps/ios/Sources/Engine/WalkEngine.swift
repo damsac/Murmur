@@ -242,4 +242,60 @@ protocol WalkEngine: AnyObject {
     /// `attachPhoto(sessionId:...)` mid-walk (Plan 11 D7). `nil` when there is
     /// no live session (not walking, or the real engine has none yet).
     var currentSessionId: String? { get }
+
+    // Item CRUD (Plan 16) — the edit-at-review seam. Engine-keyed (the walk
+    // is over at review; finish() already dropped its session handle) and
+    // Processed-gated in core (D3-16, build_document's exact rule): a session
+    // you can build a document for is precisely a session you can edit.
+    // Throwing: the real FFI methods are fallible (non-Processed session,
+    // unknown kind, empty text, missing/tombstoned item) — the caller
+    // surfaces the error and leaves the screen unchanged, never crashes.
+    //
+    // // sac: the edit UI — tap-to-edit inline field editors for text/qty, a
+    // // sac: kind re-file control, an "＋ add line" affordance, swipe/✕ to
+    // // sac: remove — is YOURS; this seam only guarantees the data path.
+    // // sac: Three binding clauses (Plan 16 Rev 2):
+    // // sac:
+    // // sac: (a) Edit affordances render only when `!notes.queued`. The notes
+    // // sac:     screen CAN host a Failed/queued session (finish() returns a
+    // // sac:     NotesPayload WITH items even on a process() failure, and
+    // // sac:     NotesView renders them with the build buttons disabled via
+    // // sac:     `if notes.queued`). Edits on a queued session error by
+    // // sac:     design (the core gate is Processed-only; a retry sweep
+    // // sac:     re-runs process()). Gate the edit affordances on the exact
+    // // sac:     same `!notes.queued` predicate the build buttons already
+    // // sac:     follow — don't offer an edit control that will only throw.
+    // // sac:
+    // // sac: (b) After an edit, re-read from the engine — the fresh read is
+    // // sac:     the ONLY sanctioned post-edit path. Never reconstruct screen
+    // // sac:     state from the returned item, and never patch local state in
+    // // sac:     place: the returned record is an echo for optimistic
+    // // sac:     feedback, not a source of truth (it deliberately omits
+    // // sac:     sibling items and any list-membership cascade like
+    // // sac:     list_open_todos). This is keeper D-#7, the one-source-of-
+    // // sac:     truth rule that motivates the whole design.
+    // // sac:
+    // // sac: (c) Core `right` is quantity, NOT price — narrower than the demo
+    // // sac:     fixtures' free-chrome usage. Fixtures.swift puts prices
+    // // sac:     ("$1,200"), verbs ("REPLACE", "CLEAN"), and locations
+    // // sac:     ("S SLOPE") in `right`; core `right` is the quantity/unit
+    // // sac:     string only ("3 CU YD", "× 4"). The fixtures stay as-is —
+    // // sac:     do NOT "fix" them to quantity-only; they are demo chrome,
+    // // sac:     not core data. Just don't assume a round-trip through
+    // // sac:     updateItem(right:) preserves a price the way the fixture
+    // // sac:     displays it.
+    //
+    // A nil field on updateItem = leave unchanged. `right` accepts any string
+    // including "" ("no quantity"). addItem appends — the new line is LAST in
+    // every list and every rebuilt document (fresh UUIDv7, Manual source,
+    // survives reprocess). removeItem is retraction (tombstone), distinct
+    // from marking done: done keeps the line in the document and only drops
+    // it from open todos; remove deletes the line everywhere.
+    func updateItem(
+        sessionId: String, itemId: String, text: String?, kind: String?, right: String?
+    ) throws -> CapturedFixture
+    func addItem(
+        sessionId: String, kind: String, text: String, right: String
+    ) throws -> CapturedFixture
+    func removeItem(sessionId: String, itemId: String) throws
 }

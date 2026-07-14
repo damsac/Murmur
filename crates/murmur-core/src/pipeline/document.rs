@@ -49,7 +49,8 @@ pub(crate) enum GapPolicy {
 /// notes-first left it caller-less): calling this
 /// with `GapPolicy::AllGap` produces lines with IDENTICAL
 /// title/detail/qty/amount_cents/section/item_id/is_gap semantics — title =
-/// item.text, detail = "", qty = "", amount_cents = None, section = None,
+/// item.text, detail = "", qty = item.right (which for the removed offline
+/// fallback's un-`right` items was ""), amount_cents = None, section = None,
 /// is_gap = true, item_id = Some(item.id) — waiving only the `id` field (the
 /// offline fallback legacy-sets `line.id = item.id`; this render uses a
 /// fresh id). The two implementations are kept in lockstep by this
@@ -72,7 +73,7 @@ pub(crate) fn render_structure_document(
                 "id": crate::ids::new_id(),
                 "title": item.text,
                 "detail": "",
-                "qty": "",
+                "qty": item.right,
                 "amount_cents": null,
                 "section": null,
                 "is_gap": is_gap,
@@ -474,6 +475,22 @@ mod tests {
         assert_eq!(line["item_id"], item.id);
         // id is deliberately NOT compared — the offline fallback sets
         // line.id = item.id; this render always mints a fresh id.
+    }
+
+    /// Plan 16 Task 2 (D2-16): a quantity edit reaches every rebuilt
+    /// document — `qty = item.right` — while un-edited items (right == "")
+    /// keep today's `qty == ""` exactly (behavior-preserving).
+    #[test]
+    fn qty_renders_from_item_right() {
+        let store = Store::open_in_memory("device-a").unwrap();
+        let session = store.start_session(None).unwrap();
+        let its = items(&store, &session.id, &[("part", "bark mulch"), ("todo", "order lumber")]);
+        store.update_item(&its[0].id, None, None, Some("3 CU YD")).unwrap();
+        let its = store.list_items_for_session(&session.id).unwrap();
+
+        let lines = render_structure_document("estimate", &its, GapPolicy::PerPricingKind);
+        assert_eq!(lines[0]["qty"], "3 CU YD", "the right edit propagates as qty");
+        assert_eq!(lines[1]["qty"], "", "an un-edited item keeps today's empty qty");
     }
 
     // ---- Task 3: price_items echo-validate ------------------------------
