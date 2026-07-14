@@ -40,12 +40,32 @@ final class DemoWalkEngine: WalkEngine {
         "inspection": ["shingles", "attic", "gfci", "furnace", "grading"]
     ]
 
+    // MARK: Item CRUD (Plan 16) — in-memory demo conformance.
+    // The Processed-only gate (D3-16) is NEW demo state: the demo had no
+    // session-status concept before this seam, so it introduces the minimum
+    // status enum needed to make the gate exercisable — begin() -> .recording,
+    // finish() -> .processed. This is NOT the real-core status machine (no
+    // AwaitingProcessing/Failed): just enough that an edit control wired
+    // before DONE fails here the same way it fails on the real engine.
+    enum DemoSessionStatus { case recording, processed }
+    private var sessionStatus: [String: DemoSessionStatus] = [:]
+    /// Demo-side kind bookkeeping (CapturedFixture carries a display tag,
+    /// not a core kind) so update/add can validate and re-tag.
+    private var itemKinds: [UUID: String] = [:]
+    /// // sac: keep in sync with murmur-core VALID_ITEM_KINDS
+    /// (crates/murmur-core/src/domain.rs) — the one shared allowlist.
+    private static let validItemKinds = ["todo", "decision", "note", "safety", "part", "price"]
+
+    enum DemoEditError: Error { case rejected(String) }
+
     func begin(trade: TradeFixture) -> AsyncStream<WalkEvent> {
         continuation?.finish()
         self.trade = trade
         seenText = ""
         firedItems = []
         board = []
+        itemKinds = [:]
+        sessionStatus[demoSessionId] = .recording
         var cont: AsyncStream<WalkEvent>.Continuation!
         let stream = AsyncStream<WalkEvent> { cont = $0 }
         continuation = cont
@@ -185,6 +205,9 @@ final class DemoWalkEngine: WalkEngine {
     func finish() async -> NotesModel {
         continuation?.finish()
         continuation = nil
+        // Plan 16: the demo session reaches its terminal state — edits are
+        // allowed from here on (the D3-16 gate mirror).
+        sessionStatus[demoSessionId] = .processed
         // Simulate the notes-compute beat (the real engine targets < 8 s).
         try? await Task.sleep(for: .seconds(0.8))
         let itemWord = board.count == 1 ? "item" : "items"
@@ -217,6 +240,86 @@ final class DemoWalkEngine: WalkEngine {
             detail: "Replace — parts + labor."
         )
     ]
+
+    // MARK: Item CRUD (Plan 16) — mirrors the Rust semantics loosely:
+    // partial-apply update, kind validated against the shared six-kind
+    // allowlist, empty text rejected, Processed-only, add appends, remove
+    // drops. Enough to exercise the edit UI with no backend; the REAL
+    // semantics (and the WE-A..WE-D worked examples) live in
+    // crates/ffi/src/items.rs.
+
+    private func requireEditable(_ sessionId: String) throws {
+        guard sessionId == demoSessionId, sessionStatus[sessionId] == .processed else {
+            throw DemoEditError.rejected("cannot edit items on a non-processed session")
+        }
+    }
+
+    /// Demo copy of MurmurEngineFormatting.tag(for:) — that one is behind
+    /// the canImport(MurmurCoreFFI) gate, inert on the demo build.
+    private static func tag(for kind: String) -> TagFixture {
+        switch kind {
+        case "safety": return TagFixture(kind: .red, label: "SAFETY")
+        case "price": return TagFixture(kind: .green, label: "PRICE")
+        case "part": return TagFixture(kind: .yellow, label: "PART")
+        case "decision": return TagFixture(kind: .plain, label: "DECISION")
+        default: return TagFixture(kind: .plain, label: "ITEM")
+        }
+    }
+
+    func updateItem(
+        sessionId: String, itemId: String, text: String?, kind: String?, right: String?
+    ) throws -> CapturedFixture {
+        try requireEditable(sessionId)
+        guard let uuid = UUID(uuidString: itemId),
+              let index = board.firstIndex(where: { $0.id == uuid }) else {
+            throw DemoEditError.rejected("no such item: \(itemId)")
+        }
+        if let text, text.trimmingCharacters(in: .whitespaces).isEmpty {
+            throw DemoEditError.rejected("item text is empty")
+        }
+        if let kind {
+            guard Self.validItemKinds.contains(kind) else {
+                throw DemoEditError.rejected("invalid kind '\(kind)'")
+            }
+            itemKinds[uuid] = kind
+        }
+        let old = board[index]
+        let updated = CapturedFixture(
+            id: uuid,
+            tag: kind.map(Self.tag(for:)) ?? old.tag,
+            text: text ?? old.text,
+            right: right ?? old.right,
+            photos: old.photos
+        )
+        board[index] = updated
+        return updated
+    }
+
+    func addItem(
+        sessionId: String, kind: String, text: String, right: String
+    ) throws -> CapturedFixture {
+        try requireEditable(sessionId)
+        guard Self.validItemKinds.contains(kind) else {
+            throw DemoEditError.rejected("invalid kind '\(kind)'")
+        }
+        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw DemoEditError.rejected("item text is empty")
+        }
+        let fixture = CapturedFixture(tag: Self.tag(for: kind), text: text, right: right)
+        itemKinds[fixture.id] = kind
+        board.append(fixture)   // append — mirrors the UUIDv7 ordering rule
+        return fixture
+    }
+
+    func removeItem(sessionId: String, itemId: String) throws {
+        try requireEditable(sessionId)
+        guard let uuid = UUID(uuidString: itemId),
+              let index = board.firstIndex(where: { $0.id == uuid }) else {
+            throw DemoEditError.rejected("no such item: \(itemId)")
+        }
+        itemKinds.removeValue(forKey: uuid)
+        board.remove(at: index)
+    }
 
     // Plan 13 D1: the on-demand build, engine-keyed. The demo has no real
     // per-kind rendering — it returns the trade's canned document rows
