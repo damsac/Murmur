@@ -59,13 +59,22 @@ struct AppRoot: View {
         }
         // QA hooks for the Letterhead Studio (parallel to autoprofile): stamp a
         // sample branding so headless screenshots exercise a customized letterhead.
-        if args.contains("resetbrand=1") { Branding.save(.default) }
+        if args.contains("resetbrand=1") { Branding.save(.default); DocumentLayout.save(.default) }
         if args.contains("autobrand=1") {
             Branding.save(Branding(
                 presetKey: "field", accentHex: 0x3E6B35, fontKey: "sans",
                 phone: "(303) 555-0147", email: "quotes@aldercourt.co",
                 website: "aldercourt.co", showWatermark: true
             ))
+            DocumentLayout.save(DocumentLayout(
+                termsText: "50% deposit due to schedule · balance on completion · quote valid 30 days.",
+                showSignature: true
+            ))
+            // Plan 15's vocab-seed card pops on the first notes screen and traps
+            // the headless autoflow (needs a SKIP/DONE tap) — mark it shown so
+            // screenshots reach review. (autoflow itself arguably should suppress
+            // it — flagged to dam.)
+            UserDefaults.standard.set(true, forKey: NotesView.vocabCardShownKey)
         }
         // autoflow (screenshot/CI automation) must never be trapped behind
         // onboarding — dam review #190: fresh sim + autoflow=1 has to reach
