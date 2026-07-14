@@ -425,4 +425,128 @@ mod tests {
              never an empty counts map"
         );
     }
+
+    // ---- Task 4: propagation pinned end-to-end (WE-A..WE-D) ---------------
+
+    #[tokio::test]
+    async fn we_a_we_b_update_propagates_to_the_rebuilt_document() {
+        // F1: [A1 todo "Power edger", A2 safety "loose railing", A3 part "bark mulch"]
+        let (engine, sid) = processed_session_with_items(&[
+            ("todo", "Power edger"),
+            ("safety", "loose railing"),
+            ("part", "bark mulch"),
+        ])
+        .await;
+        let ids = item_ids(&engine, &sid);
+        assert_eq!(ids.len(), 3);
+        assert_eq!(open_todo_ids(&engine), vec![ids[0].clone()], "A1 is the one open todo");
+
+        // WE-A: text + kind on one item.
+        engine
+            .update_item(sid.clone(), ids[0].clone(), Some("Mower".into()), Some("part".into()), None)
+            .unwrap();
+        assert_eq!(
+            open_todo_ids(&engine),
+            Vec::<String>::new(),
+            "the todo -> part re-tag drops A1 from the morning glance"
+        );
+        // work_order: non-pricing, deterministic, zero LLM calls.
+        let doc = engine.build_document(sid.clone(), "work_order".into()).await.unwrap();
+        assert_eq!(doc.lines.len(), 3, "the re-tag does NOT change the document structure");
+        let titles: Vec<&str> = doc.lines.iter().map(|l| l.title.as_str()).collect();
+        assert_eq!(titles, vec!["Mower", "loose railing", "bark mulch"],
+            "order [A1, A2, A3]; only L1's title changed — the corrected text reached the document");
+        let line_item_ids: Vec<Option<&str>> =
+            doc.lines.iter().map(|l| l.item_id.as_deref()).collect();
+        assert_eq!(
+            line_item_ids,
+            ids.iter().map(|i| Some(i.as_str())).collect::<Vec<_>>()
+        );
+        assert!(doc.lines.iter().all(|l| l.qty.is_empty()), "no right set yet — every qty empty");
+
+        // WE-B: the right edit propagates as qty.
+        engine
+            .update_item(sid.clone(), ids[2].clone(), None, None, Some("3 CU YD".into()))
+            .unwrap();
+        let doc = engine.build_document(sid, "work_order".into()).await.unwrap();
+        assert_eq!(doc.lines[2].qty, "3 CU YD", "the quantity edit reached the qty column");
+        assert_eq!(doc.lines[0].qty, "");
+        assert_eq!(doc.lines[1].qty, "");
+    }
+
+    #[tokio::test]
+    async fn we_c_remove_cascades_and_we_d_add_appends() {
+        // F2: [B1 todo "call supplier", B2 todo "order sod", B3 part "bark mulch"]
+        let (engine, sid) = processed_session_with_items(&[
+            ("todo", "call supplier"),
+            ("todo", "order sod"),
+            ("part", "bark mulch"),
+        ])
+        .await;
+        let ids = item_ids(&engine, &sid);
+        let (b1, b2, b3) = (ids[0].clone(), ids[1].clone(), ids[2].clone());
+        assert_eq!(open_todo_ids(&engine), vec![b1.clone(), b2.clone()]);
+
+        // WE-C: remove tombstones and cascades to the glance.
+        engine.remove_item(sid.clone(), b2.clone()).unwrap();
+        assert_eq!(item_ids(&engine, &sid), vec![b1.clone(), b3.clone()]);
+        assert_eq!(open_todo_ids(&engine), vec![b1.clone()],
+            "the tombstoned todo drops out of the morning glance");
+        let doc = engine.build_document(sid.clone(), "work_order".into()).await.unwrap();
+        assert_eq!(doc.lines.len(), 2, "B2's line is gone from the rebuilt document");
+        let titles: Vec<&str> = doc.lines.iter().map(|l| l.title.as_str()).collect();
+        assert_eq!(titles, vec!["call supplier", "bark mulch"]);
+        assert!(matches!(
+            engine.remove_item(sid.clone(), b2),
+            Err(EngineError::Item(_))
+        ));
+
+        // WE-D: add appends — the last line of the rebuilt document.
+        let added = engine
+            .add_item(sid.clone(), "safety".into(), "cracked walkway".into(), "".into())
+            .unwrap();
+        assert_eq!(item_ids(&engine, &sid), vec![b1, b3, added.id.clone()]);
+        let doc = engine.build_document(sid, "work_order".into()).await.unwrap();
+        assert_eq!(doc.lines.len(), 3);
+        assert_eq!(doc.lines[2].title, "cracked walkway", "appended last");
+        assert_eq!(doc.lines[2].item_id.as_deref(), Some(added.id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn we_c_contrast_done_keeps_the_line_where_remove_deletes_it() {
+        let (engine, sid) = processed_session_with_items(&[
+            ("todo", "call supplier"),
+            ("todo", "order sod"),
+            ("part", "bark mulch"),
+        ])
+        .await;
+        let ids = item_ids(&engine, &sid);
+        // done instead of remove: B2 stays everywhere except the glance.
+        engine.store.lock().unwrap().set_item_done(&ids[1], true).unwrap();
+        assert_eq!(item_ids(&engine, &sid), ids, "done keeps the item in the session");
+        assert_eq!(open_todo_ids(&engine), vec![ids[0].clone()], "but drops it from the glance");
+        let doc = engine.build_document(sid, "work_order".into()).await.unwrap();
+        assert_eq!(doc.lines.len(), 3, "done keeps the line in the document; remove deletes it");
+    }
+
+    #[tokio::test]
+    async fn we_c_kind_retag_cascades_to_open_todos_both_directions() {
+        let (engine, sid) = processed_session_with_items(&[
+            ("todo", "call supplier"),
+            ("todo", "order sod"),
+        ])
+        .await;
+        let ids = item_ids(&engine, &sid);
+        let (b1, b2) = (ids[0].clone(), ids[1].clone());
+        assert_eq!(open_todo_ids(&engine), vec![b1.clone(), b2.clone()]);
+
+        engine.update_item(sid.clone(), b1.clone(), None, Some("part".into()), None).unwrap();
+        assert_eq!(open_todo_ids(&engine), vec![b2.clone()], "todo -> part drops B1 from the glance");
+        assert_eq!(item_ids(&engine, &sid).len(), 2, "re-filed, not removed");
+        let doc = engine.build_document(sid.clone(), "work_order".into()).await.unwrap();
+        assert_eq!(doc.lines.len(), 2, "B1 still renders in the document");
+
+        engine.update_item(sid, b1.clone(), None, Some("todo".into()), None).unwrap();
+        assert_eq!(open_todo_ids(&engine), vec![b1, b2], "part -> todo re-adds B1");
+    }
 }
