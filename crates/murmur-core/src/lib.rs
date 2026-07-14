@@ -9,7 +9,7 @@ pub mod store;
 pub use coordinator::ReflectionCoordinator;
 pub use domain::{
     Artifact, CapturedItem, Contact, Job, JobStatus, ItemSource, LlmUsageRow, NewJob, Photo,
-    Session, SessionStatus, SessionSummary,
+    Session, SessionStatus, SessionSummary, VALID_ITEM_KINDS,
 };
 pub use error::CoreError;
 pub use ids::new_id;
