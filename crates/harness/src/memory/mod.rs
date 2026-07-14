@@ -19,6 +19,21 @@ pub const VOCABULARY_SECTION: &str = "vocabulary";
 /// / whisper `initial_prompt` budget (spec Rev 2 amendment F: ≤100 curated terms).
 pub const MAX_VOCABULARY_TERMS: usize = 100;
 
+/// The internal section holding applied seed-pack markers (`"{trade}:{version}"`,
+/// Plan 15 D4-15). Internal (`_`-prefixed, see [`is_internal_section`]): never
+/// rendered, never counted, never evicted, never pruned, carried forward
+/// verbatim through reflection.
+pub(crate) const SEED_MARKER_SECTION: &str = "_seeds";
+
+/// A section whose name starts with `_` is internal bookkeeping (Plan 15
+/// D5-15): excluded from `render`/`to_prompt`, `word_count`, `clamp_to_cap`
+/// candidates, and `prune_stale`; carried forward through
+/// `ReflectionEngine::reflect` (the fifth site); rejected by `UpdateMemoryTool`.
+/// No pre-existing section is `_`-prefixed, so this is behavior-preserving.
+pub(crate) fn is_internal_section(name: &str) -> bool {
+    name.starts_with('_')
+}
+
 /// Max words in a single vocabulary term. Vocabulary is jargon/hotwords, not
 /// sentences; this bounds the word budget (Plan 10 D3) and keeps the whisper
 /// `initial_prompt` a clean glossary. A longer input is a paste error.
@@ -134,11 +149,14 @@ impl Memory {
         removed
     }
 
-    /// Total whitespace-separated words across all entry texts.
+    /// Total whitespace-separated words across all entry texts. Internal
+    /// (`_`-prefixed) sections are bookkeeping, not memory content — excluded
+    /// (Plan 15 D5-15), so a marker never pressures the word cap.
     pub fn word_count(&self) -> usize {
         self.sections
-            .values()
-            .flatten()
+            .iter()
+            .filter(|(name, _)| !is_internal_section(name))
+            .flat_map(|(_, entries)| entries)
             .map(|e| e.text.split_whitespace().count())
             .sum()
     }
@@ -166,7 +184,8 @@ impl Memory {
     pub(crate) fn render(&self, annotate_corrected: bool) -> String {
         let mut out = String::new();
         for (name, entries) in &self.sections {
-            if entries.is_empty() {
+            // Internal sections never reach a prompt (Plan 15 D5-15).
+            if is_internal_section(name) || entries.is_empty() {
                 continue;
             }
             if !out.is_empty() {
@@ -193,7 +212,11 @@ impl Memory {
     pub fn prune_stale(&mut self, now: u64, max_age_secs: u64) -> usize {
         let cutoff = now.saturating_sub(max_age_secs);
         let mut removed = 0;
-        self.sections.retain(|_, entries| {
+        self.sections.retain(|name, entries| {
+            // Internal sections are never aged out (Plan 15 D5-15).
+            if is_internal_section(name) {
+                return true;
+            }
             let before = entries.len();
             entries.retain(|e| e.source == FactSource::Corrected || e.last_touched >= cutoff);
             removed += before - entries.len();
@@ -213,6 +236,8 @@ impl Memory {
             let next = self
                 .sections
                 .iter()
+                // Internal sections are never eviction candidates (Plan 15 D5-15).
+                .filter(|(name, _)| !is_internal_section(name))
                 .flat_map(|(name, entries)| {
                     entries
                         .iter()
@@ -267,6 +292,18 @@ impl Memory {
         }
         self.remember_from(VOCABULARY_SECTION, &normalized, now, source, None);
         VocabAdd::Added
+    }
+
+    /// Record that seed pack `key` (`"{trade}:{version}"`) has been applied
+    /// (Plan 15 D4-15). Idempotent — marking twice keeps one entry. `now = 0`
+    /// is fine: markers ride an internal section and are never aged or evicted.
+    pub fn mark_pack_seeded(&mut self, key: &str) {
+        self.remember_from(SEED_MARKER_SECTION, key, 0, FactSource::Stated, None);
+    }
+
+    /// Whether seed pack `key` has already been applied (Plan 15 D4-15).
+    pub fn is_pack_seeded(&self, key: &str) -> bool {
+        self.section_texts(SEED_MARKER_SECTION).contains(&key)
     }
 
     /// Remove one vocabulary term (case-insensitive; normalizes BOTH sides so a
@@ -478,6 +515,75 @@ mod tests {
         assert!(m.remove_vocabulary_term("french drain"), "case-insensitive match");
         assert!(m.vocabulary_terms().is_empty());
         assert!(!m.remove_vocabulary_term("french drain"), "already gone");
+    }
+
+    // ---- Plan 15 D5-15: internal `_`-prefixed sections ----
+
+    #[test]
+    fn internal_sections_are_excluded_from_prompt_rendering() {
+        let mut m = mem_with("vocabulary", &[("french drain", 1)]);
+        m.remember_from("_seeds", "landscape:1", 0, FactSource::Stated, None);
+        let p = m.to_prompt();
+        assert!(!p.contains("_seeds"), "internal section leaked into the prompt");
+        assert!(!p.contains("landscape:1"), "marker text leaked into the prompt");
+        assert!(p.contains("## vocabulary") && p.contains("- french drain"));
+    }
+
+    #[test]
+    fn internal_sections_are_excluded_from_word_count() {
+        let mut m = mem_with("vocabulary", &[("bark mulch", 1)]);
+        assert_eq!(m.word_count(), 2);
+        m.remember_from("_seeds", "landscape:1", 0, FactSource::Stated, None);
+        assert_eq!(m.word_count(), 2, "marker words must not count toward the cap");
+    }
+
+    #[test]
+    fn clamp_to_cap_never_evicts_internal_sections() {
+        let mut m = Memory::default();
+        m.remember_from("_seeds", "landscape:1", 0, FactSource::Stated, None);
+        m.add_vocabulary_term("bark mulch", 100, FactSource::Stated);
+        m.add_vocabulary_term("french drain", 200, FactSource::Stated);
+        // Clamp to ZERO budget: every vocabulary entry must go, marker survives.
+        let removed = m.clamp_to_cap(0);
+        assert_eq!(removed, 2, "both vocabulary entries evicted");
+        assert!(m.vocabulary_terms().is_empty());
+        assert!(m.is_pack_seeded("landscape:1"), "marker survives to zero remaining budget");
+    }
+
+    #[test]
+    fn prune_stale_keeps_internal_sections() {
+        let mut m = Memory::default();
+        m.remember_from("_seeds", "landscape:1", 0, FactSource::Stated, None); // ancient
+        m.remember("people", "old contact", 0);
+        let removed = m.prune_stale(1_000_000, 10);
+        assert_eq!(removed, 1, "only the real stale entry prunes");
+        assert!(m.is_pack_seeded("landscape:1"), "marker is never aged out");
+        assert!(!m.sections.contains_key("people"));
+    }
+
+    #[test]
+    fn mark_and_query_pack_seeded() {
+        let mut m = Memory::default();
+        assert!(!m.is_pack_seeded("landscape:1"));
+        m.mark_pack_seeded("landscape:1");
+        assert!(m.is_pack_seeded("landscape:1"));
+        assert!(!m.is_pack_seeded("property:1"));
+        m.mark_pack_seeded("landscape:1"); // marking twice is idempotent
+        assert_eq!(m.sections[SEED_MARKER_SECTION].len(), 1);
+    }
+
+    #[test]
+    fn normal_sections_still_render_count_and_evict() {
+        // Regression pin: the `_` exclusion must not change non-`_` behavior.
+        let mut m = mem_with("vocabulary", &[("skid steer", 100)]);
+        m.remember("people", "Dev \u{2014} framer", 600);
+        assert!(m.to_prompt().contains("## vocabulary"));
+        assert!(m.to_prompt().contains("## people"));
+        assert_eq!(m.word_count(), 5);
+        assert_eq!(m.clamp_to_cap(3), 1, "normal sections still evictable");
+        assert!(!m.sections.contains_key("vocabulary"), "oldest normal entry evicted");
+        assert_eq!(m.prune_stale(1000, 500), 0);
+        assert_eq!(m.prune_stale(1000, 100), 1, "normal sections still prune");
     }
 
     #[test]

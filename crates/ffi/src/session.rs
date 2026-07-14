@@ -97,7 +97,7 @@ impl Drop for WalkSession {
 /// at `SttConfig::max_bias_terms`. Reads an existing memory section — no new
 /// memory plumbing. `template` is reserved for a future per-template seed list;
 /// v1 seeds nothing template-specific.
-fn collect_bias_terms(memory: &Memory, _template: Option<&str>) -> Vec<String> {
+pub(crate) fn collect_bias_terms(memory: &Memory, _template: Option<&str>) -> Vec<String> {
     let max = stt::SttConfig::default().max_bias_terms;
     memory
         .section_texts(harness::VOCABULARY_SECTION)
