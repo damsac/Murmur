@@ -8,14 +8,18 @@
 # on App Store Connect. A fresh workflow file would restart run_number at 1 and
 # collide with existing (MARKETING_VERSION, build) pairs in TestFlight.
 #
-# WHAT'S IDENTICAL to Era-I (the proven signing blueprint):
-#   - archive with AUTOMATIC signing (CODE_SIGN_STYLE=Automatic +
-#     -allowProvisioningUpdates + ASC API key -> Apple cloud-generates the
-#     Distribution cert & profile)
-#   - export with MANUAL signing (ExportOptions signingStyle=manual, explicit
-#     provisioningProfiles dict, cert imported via import-codesign-certs, profile
-#     via download-provisioning-profiles, NO -allowProvisioningUpdates on export —
-#     cloud signing fails there under an App Manager key)
+# SIGNING: MANUAL at BOTH archive and export (changed 2026-07-14).
+#   The Era-I blueprint archived with AUTOMATIC signing (-allowProvisioningUpdates
+#   + ASC API key -> cloud signing). That minted a fresh 'Created via API'
+#   Development cert on team 98GXNZ6NKZ EVERY run; with three apps' CI on the
+#   shared team, the team hit Apple's dev-cert cap on 2026-07-14 (athanor-app's
+#   archive died with 'choose a certificate to revoke'). The archive now signs
+#   MANUALLY with the same imported Distribution cert + downloaded 'Murmur App
+#   Store' profile the export step always used — both are already on the runner
+#   before archive. No cloud signing anywhere; CI mints zero certs.
+#   - export was ALWAYS manual (ExportOptions signingStyle=manual, explicit
+#     provisioningProfiles dict, NO -allowProvisioningUpdates — cloud signing
+#     fails there under an App Manager key)
 #   - bundle id com.isaacwm.murmur + "Murmur App Store" profile (reused)
 #   - build number = github.run_number; tag v* overrides MARKETING_VERSION
 #   - the brew install||true / brew link --overwrite pattern; XcodeGen #691 guard
@@ -172,10 +176,8 @@ jobs:
             echo "::error::ASC_API_KEY_P8 secret not set"
             exit 1
           fi
-          # For xcodebuild -authenticationKeyPath (archive step).
-          mkdir -p "$RUNNER_TEMP/private_keys"
-          printf '%s' "$ASC_API_KEY_P8" > "$RUNNER_TEMP/private_keys/AuthKey.p8"
-          chmod 600 "$RUNNER_TEMP/private_keys/AuthKey.p8"
+          # (The archive no longer takes -authenticationKey* — manual signing,
+          # 2026-07-14 cert-cap fix. The key below serves altool only.)
           # For `xcrun altool --upload-app`, which auto-discovers the key by ID
           # from ~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8.
           mkdir -p "$HOME/.appstoreconnect/private_keys"
@@ -244,8 +246,6 @@ jobs:
 
       - name: Archive
         env:
-          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           PPQ_API_KEY: ${{ secrets.PPQ_API_KEY }}
           MARKETING_VERSION_OVERRIDE: ${{ steps.version.outputs.marketing_version }}
@@ -255,7 +255,15 @@ jobs:
             exit 1
           fi
           BUILD_SETTINGS=(
-            "CODE_SIGN_STYLE=Automatic"
+            # Manual signing (2026-07-14, shared-team cert-cap fix): the
+            # Distribution cert is already in the keychain (import-codesign-certs)
+            # and the profile already downloaded (download-provisioning-profiles)
+            # — the export step has always signed from exactly these. Automatic
+            # + -allowProvisioningUpdates cloud-minted a throwaway dev cert per
+            # run and capped team 98GXNZ6NKZ with three apps' CI running.
+            "CODE_SIGN_STYLE=Manual"
+            "CODE_SIGN_IDENTITY=Apple Distribution"
+            "PROVISIONING_PROFILE_SPECIFIER=Murmur App Store"
             "DEVELOPMENT_TEAM=$APPLE_TEAM_ID"
             "CURRENT_PROJECT_VERSION=${{ github.run_number }}"
             "PPQ_API_KEY=$PPQ_API_KEY"
@@ -276,10 +284,6 @@ jobs:
             -scheme SitewalkGallery \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/Murmur.xcarchive" \
-            -allowProvisioningUpdates \
-            -authenticationKeyID "$ASC_API_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_API_ISSUER_ID" \
-            -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey.p8" \
             "${BUILD_SETTINGS[@]}" \
             | xcbeautify
 
