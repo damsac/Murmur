@@ -20,8 +20,9 @@ struct WalkView: View {
 
             MetaStrip(
                 left: model.trade.site,
-                right: model.walkMode == .demo ? "DEMO WALK — SCRIPTED" : "REC — ON-DEVICE STT",
-                warn: model.walkMode == .demo
+                right: model.isPracticeWalk ? "PRACTICE — SCRIPTED, NOT SAVED"
+                     : model.walkMode == .demo ? "DEMO WALK — SCRIPTED" : "REC — ON-DEVICE STT",
+                warn: model.isPracticeWalk || model.walkMode == .demo
             )
 
             ScrollView {

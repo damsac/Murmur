@@ -62,6 +62,15 @@ struct AppRoot: View {
                 tradeKey: "landscape"
             ))
         }
+        // practice=1: land straight on a practice board — stamps a profile (so
+        // onboarding is skipped) and arms the scripted, unsaved practice run.
+        let practiceArg = args.contains("practice=1")
+        if practiceArg {
+            BusinessProfile.save(BusinessProfile(
+                businessName: "Testflight Lawn Co", cityState: "Denver CO",
+                licenseNumber: "44-1234", tradeKey: "landscape"
+            ))
+        }
         // QA hooks for the Letterhead Studio (parallel to autoprofile): stamp a
         // sample branding so headless screenshots exercise a customized letterhead.
         if args.contains("resetbrand=1") { Branding.save(.default); DocumentLayout.save(.default) }
@@ -107,7 +116,8 @@ struct AppRoot: View {
                 engine: resolveEngine(demo: demo),
                 forcedMode: forcedMode,
                 wavFixture: wavwalk,
-                voiceProcessing: voiceProcessing
+                voiceProcessing: voiceProcessing,
+                practiceArmed: practiceArg
             )
         )
     }
@@ -116,9 +126,12 @@ struct AppRoot: View {
         if needsOnboarding {
             // First run: no business profile yet — the paperwork can't carry
             // the operator's name until this arc completes.
-            OnboardingFlow {
+            OnboardingFlow { startPractice in
                 model.reloadProfile()
                 withAnimation(.easeOut(duration: 0.3)) { needsOnboarding = false }
+                // Land on the board armed for a scripted, unsaved practice run;
+                // the START coach mark + demo content carry them through it.
+                if startPractice { model.armPracticeWalk() }
             }
             .transition(.opacity)
         } else {
@@ -274,7 +287,7 @@ struct GalleryRoot: View {
             .navigationDestination(for: Dest.self) { dest in
                 switch dest {
                 case .components: ComponentsPage()
-                case .onboarding: OnboardingFlow(onComplete: {})
+                case .onboarding: OnboardingFlow(onComplete: { _ in })
                 case .jobs: JobsBoardScreen(trade: Fixtures.landscape)
                 case .capture: CaptureScreen(trade: Fixtures.landscape)
                 case .document: DocumentReviewScreen(trade: Fixtures.landscape)

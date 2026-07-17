@@ -28,21 +28,22 @@ struct BoardView: View {
                     // walk — graduates into onboarding). Tap to toggle;
                     // launch-arg-forced modes lock it.
                     Button { model.toggleMode() } label: {
-                        Text(model.walkMode == .voice ? "MIC · VOICE" : "DEMO WALK")
+                        Text(model.isPracticeWalk ? "PRACTICE" : (model.walkMode == .voice ? "MIC · VOICE" : "DEMO WALK"))
                             .font(Theme.F.mono(8, .semibold))
                             .tracking(1.0)
-                            .foregroundStyle(model.walkMode == .voice ? Theme.C.greenTag : Theme.C.yellowTag)
+                            .foregroundStyle(model.isPracticeWalk || model.walkMode == .demo ? Theme.C.yellowTag : Theme.C.greenTag)
                             .padding(.horizontal, 6)
                             .padding(.top, 3)
                             .padding(.bottom, 2)
-                            .background(model.walkMode == .voice ? Theme.C.greenTint : Theme.C.yellowTint)
+                            .background(model.isPracticeWalk || model.walkMode == .demo ? Theme.C.yellowTint : Theme.C.greenTint)
                             .padding(6)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .padding(-6)
+                    // Practice run locks the chip too — mode is fixed for the dry run.
                     .opacity(model.modeLocked ? 0.5 : 1)
-                    .disabled(model.modeLocked)
+                    .disabled(model.modeLocked || model.isPracticeWalk)
                     // Vocabulary entry: a stamped chip in the tag grammar —
                     // this is a field tool, not settings, so no gear. Padding
                     // widens the tap target without growing the stamp.
@@ -188,8 +189,10 @@ struct BoardView: View {
             // First-run coach mark: point a brand-new operator at the one thing
             // to do. Only on a fresh board (profile set, no walks yet); the
             // START button below stays fully tappable (non-blocking hint).
-            if !coachStartShown && model.profile != nil && model.sessionWalks.isEmpty {
-                CoachCallout(text: "Ready? Tap START WALK and just talk — walk the job like you're telling a helper.") {
+            if (!coachStartShown || model.isPracticeWalk) && model.profile != nil && model.sessionWalks.isEmpty {
+                CoachCallout(text: model.isPracticeWalk
+                    ? "This is a practice run — nothing gets saved. Tap START WALK and try talking through a job."
+                    : "Ready? Tap START WALK and just talk — walk the job like you're telling a helper.") {
                     coachStartShown = true
                 }
                 .padding(.horizontal, Theme.S.screenPad)
