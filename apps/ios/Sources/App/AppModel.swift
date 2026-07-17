@@ -123,6 +123,9 @@ final class AppModel {
     /// session) — surfaced by the notes screen; the button stays available
     /// to retry. // sac: error chrome is yours; this is the plumbing.
     var documentBuildError: String?
+    /// Set when an item edit/add/remove (Plan 16 CRUD) throws — surfaced on the
+    /// notes screen; the edit sheet stays so the operator can retry.
+    var notesEditError: String?
     /// True while a build-document tap is in flight — the notes screen
     /// disables the button so a double-tap can't burn two document numbers
     /// (D7: numbers mint per generate).
@@ -483,6 +486,61 @@ final class AppModel {
     }
 
     func buildPrimaryDocument() { buildDocument(kind: DocKinds.primaryKind(for: trade.key)) }
+
+    // MARK: Item edits (Plan 16 CRUD) — the walk is a first draft; the operator
+    // fixes it here. These go through the CORE (not app-side pixels), so a
+    // correction reaches every rebuilt document. The core stores lowercase
+    // UUIDv7 ids and does a case-sensitive lookup, but Swift's `uuidString` is
+    // uppercase — so the id is lowercased on the way out.
+
+    /// Fix a captured line's text and/or quantity (`right`).
+    func editItem(_ item: CapturedFixture, text: String, right: String) {
+        guard let sessionId = currentSessionId else { return }
+        notesEditError = nil
+        do {
+            let updated = try engine.updateItem(
+                sessionId: sessionId, itemId: item.id.uuidString.lowercased(),
+                text: text, kind: nil, right: right
+            )
+            guard var n = notes, let idx = n.items.firstIndex(where: { $0.id == item.id }) else { return }
+            n.items[idx] = updated
+            notes = n
+        } catch {
+            itemEditFailed("save", error)
+        }
+    }
+
+    /// Add a manual line. Appends last (Plan 16 UUIDv7 ordering); `kind:"note"`
+    /// → the plain/ITEM tag.
+    func addNoteItem(text: String, right: String) {
+        guard let sessionId = currentSessionId else { return }
+        notesEditError = nil
+        do {
+            let added = try engine.addItem(sessionId: sessionId, kind: "note", text: text, right: right)
+            if var n = notes { n.items.append(added); notes = n }
+        } catch {
+            itemEditFailed("add", error)
+        }
+    }
+
+    /// Remove a line — a tombstone retraction (drops from every rebuilt document,
+    /// distinct from `done`).
+    func removeNoteItem(_ item: CapturedFixture) {
+        guard let sessionId = currentSessionId else { return }
+        notesEditError = nil
+        do {
+            try engine.removeItem(sessionId: sessionId, itemId: item.id.uuidString.lowercased())
+            if var n = notes { n.items.removeAll { $0.id == item.id }; notes = n }
+        } catch {
+            itemEditFailed("remove", error)
+        }
+    }
+
+    private func itemEditFailed(_ what: String, _ error: Error) {
+        notesEditError = "Couldn’t \(what) that line — try again."
+        Logger(subsystem: Bundle.main.bundleIdentifier ?? "sitewalk", category: "items")
+            .error("item \(what, privacy: .public) failed: \(error, privacy: .public)")
+    }
 
     /// Review → back to notes (the review screen's back arrow). Keeps the
     /// session and the built notes intact so the operator can build a different
