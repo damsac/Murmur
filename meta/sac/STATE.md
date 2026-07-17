@@ -6,30 +6,37 @@ What sac is working on right now. Updated with every PR.
 
 ## Headline for dam (what needs you)
 
-Notes-first landed (your Plan 13, #197/#198) and I built the Notes screen on top
-(#199). The name is settled — **Jefe** — and the branding is up (#200). Three
-things need you, ordered by unblock:
+*(freshened 2026-07-16 — the whole paperwork + editable-notes arc is merged.)*
 
-1. **Comprehensive-notes CORE change — the big one.** Isaac's direction sharpened:
-   the notes aren't terse extracted items, they're a **client↔team coordination
-   artifact** — a Copilot-style structured writeup capturing what the client
-   wants + the restrictions (budget/permits/deadline/access) + conditions, so the
-   crew can execute and the paperwork has real meat to draw from. The live board
-   stays terse; only **`finish()`'s notes payload** gets rich. What I need from
-   the core (payload shape, then I wire the rendering — the UI shell already
-   groups + shows per-item detail):
-   - a **narrative summary** (not just a one-liner),
-   - a **`detail` string per item** (the "why/context" behind each captured line),
-   - **client-preference + logistics + budget capture** as first-class fields,
-   - a richer extraction prompt behind it.
-   v1 can stay ESSENTIAL — 4 buckets: **Summary · Scope of Work** (w/ client
-   prefs) **· Constraints** (budget/permits/deadline/access) **· Conditions &
-   Issues**. Expand later. I specced this on #199; waiting on the payload shape
-   before I build the richer rendering.
-2. **Review + merge #199 (notes screen) and #200 (Jefe branding).** Merging #200
-   auto-fires the internal TestFlight lane (release.yml on push→main).
-3. **CANON co-sign the name: Jefe.** #200 ships the icon + theme under it; this
-   retires the #188 rename hunt. Want your sign-off in CANON so it's official.
+1. **Tap-to-fix edit UI is SHIPPED (#232, on main).** The roadmap "next up" is
+   done: notes-screen board rows are tappable → edit sheet (text/quantity/remove)
+   + `＋ ADD LINE`, all through your Plan 16 CRUD so corrections reach the
+   document. This **unblocks Plan 17** (corrections → vocab suggestion +
+   `record_correction`) — real field corrections can now inform the suggest-card
+   UX, as you sequenced. One catch I hit + handled, flag in case it bites
+   elsewhere: core ids are **lowercase** UUIDv7 with a case-sensitive lookup, but
+   Swift's `uuidString` is **uppercase** — I lowercase on the way out.
+
+2. **#232 needs a TestFlight build — it can only come from you.** Confirmed the
+   sacmeng account Actions gate is still live: my merge of #232 fired *no* run.
+   So editable notes reaches TestFlight on **your** next push to `main` (it's
+   already there — your next release carries it) or a `workflow_dispatch` if we
+   want it sooner. No action needed unless Isaac wants it before your next merge.
+
+3. **Two-week runway before you're away a month — let's front-load core.** Isaac
+   wants Jefe *testable by real people* and *close to App Store*. Since I can't
+   touch the core while you're gone, the launch-critical **core** items to land
+   before you go (my read, your call): **real-mic device tuning** (the
+   voice→transcript reliability is the whole experience), **walk-reopen seam
+   (#223)** (reopening past walks is table-stakes for a shippable app), **whisper
+   warm-up (#228)** (fresh WhisperContext per walk is a bad first impression).
+   App Store submission prep (metadata/screenshots/privacy) is app-side — I'll
+   own it, no dependency on you. Plan 17 is great but lower launch-priority than
+   those three if time is tight.
+
+**My next (app-side, parallel):** beta-feedback fixes (#220 dark-mode text /
+#221 row labels / #224 gallery), vocab-pack curation (the placeholders), and
+App Store readiness.
 
 ## In-flight PRs (pushed, thinking-first)
 
