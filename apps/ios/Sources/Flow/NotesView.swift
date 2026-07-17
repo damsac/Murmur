@@ -15,6 +15,8 @@ struct NotesView: View {
     @Bindable var model: AppModel
     @State private var showTranscript = false
     @State private var exportURL: URL?
+    // Plan 16: tap a line to fix it, or add one. The walk is a first draft.
+    @State private var itemEdit: NoteItemEdit?
 
     // Plan 15 D9-15: the vocab seed card shows ONCE, on the FIRST notes-screen
     // appearance — i.e. right after the user's first real walk, when they have
@@ -55,15 +57,24 @@ struct NotesView: View {
                         bucketSections
                         if notes.items.isEmpty && notes.notes.isEmpty {
                             emptyState
+                            addLineButton
                         } else {
                             if !notes.items.isEmpty {
                                 ForEach(grouped, id: \.0) { kind, items in
                                     SectionHead(left: sectionTitle(kind), right: "\(items.count)", heavyRule: false)
                                         .padding(.top, 4)
-                                    ForEach(items) { CapturedRow(item: $0) }
+                                    ForEach(items) { item in
+                                        CapturedRow(item: item)
+                                            .contentShape(Rectangle())
+                                            .onTapGesture { itemEdit = .edit(item) }
+                                    }
                                 }
                             }
+                            addLineButton
                             transcriptRow
+                        }
+                        if let message = model.notesEditError {
+                            errorBar(message)
                         }
                         if let error = model.documentBuildError {
                             errorBar(error)
@@ -94,6 +105,30 @@ struct NotesView: View {
                 VocabSeedCard(model: model, pack: pack) { vocabPack = nil }
             }
         }
+        .sheet(item: $itemEdit) { target in
+            NoteItemEditSheet(target: target, model: model)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(Theme.C.paper)
+        }
+    }
+
+    // Add a manual line — dashed, in the tag grammar, distinct from a captured row.
+    private var addLineButton: some View {
+        Button { itemEdit = .add } label: {
+            Text("＋ ADD LINE")
+                .font(Theme.F.mono(9, .semibold)).tracking(1.0)
+                .foregroundStyle(Theme.C.orangeDeep)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 11)
+                .overlay(RoundedRectangle(cornerRadius: 4)
+                    .stroke(style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    .foregroundStyle(Theme.C.orangeDeep.opacity(0.6)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, Theme.S.screenPad)
+        .padding(.top, 12)
     }
 
     // MARK: Header
@@ -408,5 +443,124 @@ struct NotesView: View {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("walk-notes.txt")
         try? text.data(using: .utf8)?.write(to: url)
         exportURL = url
+    }
+}
+
+// MARK: - Item edit / add sheet (Plan 16)
+
+/// What the tap-to-edit sheet is doing: fixing an existing line, or adding one.
+private enum NoteItemEdit: Identifiable {
+    case edit(CapturedFixture)
+    case add
+    var id: String { if case .edit(let item) = self { return item.id.uuidString } else { return "add" } }
+}
+
+/// Fix a captured line's text / quantity, remove it, or add a new one. Commits
+/// through the core (AppModel → Plan 16 CRUD), so the correction reaches every
+/// rebuilt document — not just this screen.
+private struct NoteItemEditSheet: View {
+    let target: NoteItemEdit
+    let model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var text: String
+    @State private var right: String
+
+    init(target: NoteItemEdit, model: AppModel) {
+        self.target = target
+        self.model = model
+        switch target {
+        case .edit(let item):
+            _text = State(initialValue: item.text)
+            _right = State(initialValue: item.right)
+        case .add:
+            _text = State(initialValue: "")
+            _right = State(initialValue: "")
+        }
+    }
+
+    private var isEdit: Bool { if case .edit = target { return true } else { return false } }
+    private var canSave: Bool { !text.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Button { dismiss() } label: {
+                    Text("CANCEL")
+                        .font(Theme.F.mono(9, .semibold)).tracking(1.0)
+                        .foregroundStyle(Theme.C.ink60)
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                Text(isEdit ? "EDIT LINE" : "ADD LINE")
+                    .font(Theme.F.mono(9, .semibold)).tracking(2.0)
+                    .foregroundStyle(Theme.C.orangeDeep)
+            }
+            .padding(.horizontal, Theme.S.screenPad).padding(.top, 18).padding(.bottom, 14)
+            .overlay(alignment: .bottom) { Theme.C.ink.frame(height: 2) }
+
+            VStack(alignment: .leading, spacing: 16) {
+                field("DESCRIPTION", text: $text, placeholder: "Mower — front lawn")
+                field("QUANTITY", text: $right, placeholder: "× 1 · 3 cu yd · optional")
+            }
+            .padding(.horizontal, Theme.S.screenPad).padding(.top, 20)
+
+            Spacer(minLength: 12)
+
+            HStack(spacing: 10) {
+                if isEdit {
+                    Button { commitRemove() } label: {
+                        Text("REMOVE")
+                            .font(Theme.F.ui(14, .bold)).tracking(1.1)
+                            .foregroundStyle(Theme.C.redTag)
+                            .frame(width: 118).frame(height: 54)
+                            .overlay(RoundedRectangle(cornerRadius: Theme.S.radius)
+                                .stroke(Theme.C.redTag, lineWidth: 2))
+                    }
+                    .buttonStyle(.plain)
+                }
+                Button { commitSave() } label: {
+                    Text(isEdit ? "SAVE" : "ADD")
+                        .font(Theme.F.ui(15, .bold)).tracking(1.4)
+                        .foregroundStyle(Theme.C.onOrange)
+                        .frame(maxWidth: .infinity).frame(height: 54)
+                        .background(RoundedRectangle(cornerRadius: Theme.S.radius).fill(Theme.C.orange))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSave)
+                .opacity(canSave ? 1 : 0.4)
+            }
+            .padding(.horizontal, Theme.S.screenPad).padding(.top, 12).padding(.bottom, 14)
+            .overlay(alignment: .top) { Theme.C.hairline.frame(height: 1) }
+        }
+        .background(Theme.C.paper.ignoresSafeArea())
+    }
+
+    private func field(_ label: String, text: Binding<String>, placeholder: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label)
+                .font(Theme.F.mono(8, .semibold)).tracking(1.4)
+                .foregroundStyle(Theme.C.ink35)
+            TextField(placeholder, text: text)
+                .font(Theme.F.cond(15, .semibold))
+                .autocorrectionDisabled()
+                .padding(.bottom, 6)
+                .overlay(alignment: .bottom) { Theme.C.orangeDeep.frame(height: 2) }
+        }
+    }
+
+    private func commitSave() {
+        let t = text.trimmingCharacters(in: .whitespaces)
+        let r = right.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return }
+        switch target {
+        case .edit(let item): model.editItem(item, text: t, right: r)
+        case .add:            model.addNoteItem(text: t, right: r)
+        }
+        dismiss()
+    }
+
+    private func commitRemove() {
+        if case .edit(let item) = target { model.removeNoteItem(item) }
+        dismiss()
     }
 }
