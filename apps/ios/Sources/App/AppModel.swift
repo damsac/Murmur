@@ -542,6 +542,61 @@ final class AppModel {
             .error("item \(what, privacy: .public) failed: \(error, privacy: .public)")
     }
 
+    // MARK: Notes-entry edits (Plan 18) — the coordination BUCKETS (the notes
+    // screen's first three sections) are editable too, through the CORE artifact
+    // (parse → mutate → serialize → update_artifact_body), so a fix reaches the
+    // exported notes, not just this screen. Mirrors the item CRUD above; the
+    // returned entry is an optimistic echo (engine is the source of truth).
+
+    /// Fix a coordination note's label / detail / bucket.
+    func editNotesEntry(_ entry: NotesEntryFixture, label: String, detail: String, bucket: NotesBucket) {
+        guard let sessionId = currentSessionId else { return }
+        notesEditError = nil
+        do {
+            let updated = try engine.updateNotesEntry(
+                sessionId: sessionId, entryId: entry.id,
+                label: label, detail: detail, bucket: bucket.wire
+            )
+            guard var n = notes, let idx = n.notes.firstIndex(where: { $0.id == entry.id }) else { return }
+            n.notes[idx] = updated
+            notes = n
+        } catch {
+            notesEntryEditFailed("save", error)
+        }
+    }
+
+    /// Add a coordination note to a bucket. Appends last (artifact order).
+    func addNotesEntry(bucket: NotesBucket, label: String, detail: String) {
+        guard let sessionId = currentSessionId else { return }
+        notesEditError = nil
+        do {
+            let added = try engine.addNotesEntry(
+                sessionId: sessionId, bucket: bucket.wire, label: label, detail: detail
+            )
+            if var n = notes { n.notes.append(added); notes = n }
+        } catch {
+            notesEntryEditFailed("add", error)
+        }
+    }
+
+    /// Remove a coordination note — drops it from the rewritten notes artifact.
+    func removeNotesEntry(_ entry: NotesEntryFixture) {
+        guard let sessionId = currentSessionId else { return }
+        notesEditError = nil
+        do {
+            try engine.removeNotesEntry(sessionId: sessionId, entryId: entry.id)
+            if var n = notes { n.notes.removeAll { $0.id == entry.id }; notes = n }
+        } catch {
+            notesEntryEditFailed("remove", error)
+        }
+    }
+
+    private func notesEntryEditFailed(_ what: String, _ error: Error) {
+        notesEditError = "Couldn’t \(what) that note — try again."
+        Logger(subsystem: Bundle.main.bundleIdentifier ?? "sitewalk", category: "notes")
+            .error("notes-entry \(what, privacy: .public) failed: \(error, privacy: .public)")
+    }
+
     /// Review → back to notes (the review screen's back arrow). Keeps the
     /// session and the built notes intact so the operator can build a different
     /// document or re-read; the last document stays in memory until the next
