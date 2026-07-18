@@ -6,99 +6,90 @@ What sac is working on right now. Updated with every PR.
 
 ## Headline for dam (what needs you)
 
-*(freshened 2026-07-16 — the whole paperwork + editable-notes arc is merged.)*
+*(freshened 2026-07-17 — onboarding + rename + the beta site landed this session.)*
 
-1. **Tap-to-fix edit UI is SHIPPED (#232, on main).** The roadmap "next up" is
-   done: notes-screen board rows are tappable → edit sheet (text/quantity/remove)
-   + `＋ ADD LINE`, all through your Plan 16 CRUD so corrections reach the
-   document. This **unblocks Plan 17** (corrections → vocab suggestion +
-   `record_correction`) — real field corrections can now inform the suggest-card
-   UX, as you sequenced. One catch I hit + handled, flag in case it bites
-   elsewhere: core ids are **lowercase** UUIDv7 with a case-sensitive lookup, but
-   Swift's `uuidString` is **uppercase** — I lowercase on the way out.
+### 1. Review + merge the launch-readiness stack, then cut a TestFlight build
 
-2. **#232 needs a TestFlight build — it can only come from you.** Confirmed the
-   sacmeng account Actions gate is still live: my merge of #232 fired *no* run.
-   So editable notes reaches TestFlight on **your** next push to `main` (it's
-   already there — your next release carries it) or a `workflow_dispatch` if we
-   want it sooner. No action needed unless Isaac wants it before your next merge.
+This is the critical path to putting Jefe in front of real testers. All are
+**app-side, no FFI surface, MERGEABLE, build-verified** on the iPhone 17 sim
+(each rendered on-sim where there's UI):
 
-3. **Two-week runway before you're away a month — let's front-load core.** Isaac
-   wants Jefe *testable by real people* and *close to App Store*. Since I can't
-   touch the core while you're gone, the launch-critical **core** items to land
-   before you go (my read, your call): **real-mic device tuning** (the
-   voice→transcript reliability is the whole experience), **walk-reopen seam
-   (#223)** (reopening past walks is table-stakes for a shippable app), **whisper
-   warm-up (#228)** (fresh WhisperContext per walk is a bad first impression).
-   App Store submission prep (metadata/screenshots/privacy) is app-side — I'll
-   own it, no dependency on you. Plan 17 is great but lower launch-priority than
-   those three if time is tight.
+- **Onboarding set** — teach a historically non-technical crew by *showing*, in
+  plain words (no "AI/transcript/extraction" anywhere):
+  - **#236 intro** — payoff-first welcome ("Say it out loud. Get the paperwork.")
+    + 3 "how it works" beats (Walk & talk / Fix anything / One tap → paperwork),
+    each with a mini phone visual.
+  - **#237 coach marks** — one-shot amber callouts on START WALK (board) + DONE
+    (walk); non-blocking (target stays tappable), `@AppStorage`-gated
+    (`resetcoach=1` re-arms; autoflow marks them shown).
+  - **#238 optional practice walk** — a scripted, **never-saved** dry run offered
+    at the end of onboarding ("Try a practice walk first"). Plays demo content
+    regardless of the persisted mode WITHOUT touching `walkMode`, and exits
+    without a board log / job flip (`exitPracticeIfActive()`). PRACTICE chip +
+    "not saved" markers. **Stacks on #236+#237 → merge order #236 → #237 → #238.**
+- **#239 rename → Jefe** — the build still shipped as "Sitewalk" on the home
+  screen + mic-permission prompt. `project.yml` + committed `Info.plist` only
+  (`CFBundleDisplayName`/`CFBundleName`/mic string); bundle id + Xcode target
+  (`SitewalkGallery`) unchanged. Takes effect next build.
+- **#235 dark-mode light-lock** — dark mode whited out ink text; locks the app to
+  light appearance (`UIUserInterfaceStyle: Light`).
 
-**My next (app-side, parallel):** beta-feedback fixes (#220 dark-mode text /
-#221 row labels / #224 gallery), vocab-pack curation (the placeholders), and
-App Store readiness.
+**None of these reach TestFlight until you merge + the release lane fires** (the
+sacmeng Actions gate, item 4). We're opening external/public TestFlight, so a
+fresh build carrying the rename + onboarding is exactly what needs to go out.
+(ASC-side: the App Store Connect **listing name** → Jefe is Isaac's to change.)
 
-## In-flight PRs (pushed, thinking-first)
+### 2. React to the V2 paperwork STRUCTURE plan (#234)
 
-- **#199 notes screen UI** (`pr/sac/notes-screen`) — post-walk Notes destination:
-  summary card, trade-aware kind-grouped sections, collapsed transcript, EXPORT,
-  and the full per-trade action-button row wired to `buildDocument(kind:)` via
-  DocKinds (Estimate/Invoice/Work Order | Inspection/Summary). Also folds the
-  onboarding mic-granted fix (green banner → inline ON stamps + START WALKING).
-  UI shell already handles grouping + per-item detail — it's ready for the richer
-  payload from decision #1.
-- **#200 Jefe branding — hard-hat icon + amber theme** (`pr/sac/brand-icon-theme`,
-  off `main`). New app icon (foreman/hard-hat mark, black field, marigold hat) +
-  palette moved off safety-orange (two App-Store competitors use it) to
-  black+amber. `Theme.C.orange*` token **names kept** (call-site stability),
-  **values** swapped to the hard-hat gold; ink-on-gold for contrast; thin marks →
-  darker amber so they don't vanish on paper. Pure Swift tokens + one asset, no
-  FFI surface. **Build-verified in isolation off main** (BUILD SUCCEEDED,
-  real-core, codesigned for device) + MERGEABLE. NOTE: two NotesView thin-mark
-  retints were intentionally left off #200 (they style #199's new UI, which
-  isn't on main) — one-line follow-up when #199 lands.
+`docs/design/2026-07-16-paperwork-structure-v2-plan.md`. Needs your §7 answers on
+the **DocumentSchema core seam**: `list/save/remove_document_schema` FFI,
+`buildDocument` resolving kind→schema→fill, doc-number minting. The plan: you land
+the seam in the ~2 weeks before you're away, sac builds the Document Builder UI
+during your absence, v1 ships on seeded built-in schemas (launch-safe). This is
+the one big feature that needs your seam before you go.
 
-## Recently landed (yours + mine)
+### 3. #240 — Plan 18 notes-bucket-edit UI (blocked on your core seam)
 
-- **Your Plan 13 notes-first** (#197 on-demand `build_document`, #198 the atomic
-  `finish()`→`NotesPayload` flip), decisions doc #192 (you took all my recs),
-  TestFlight→real-engine (#193), **STT→base.en (#196 — fixes my device lag)**,
-  app icon plumbing (#194).
-- **Mine:** #187 voice-first mode, #189 notes-first design, #190 onboarding +
-  business profile + DONE fix, #191 STATE freshen — all merged with your
-  reactions in.
+Editable notes *buckets* UI is up (`pr/sac/notes-bucket-edit`); waiting on the
+core side of Plan 18.
 
-## Device-test findings
+### 4. FYI — sacmeng account is flagged by GitHub → Actions disabled account-wide
 
-- **Real-core builds, signs, and runs on device.** Full walk → whisper →
-  extraction → document verified on hardware earlier; the base.en switch (#196)
-  addressed the speech→transcript lag I hit on small.en.
-- **Phone install currently pending a USB retry.** A direct-to-device install
-  dropped mid-transfer (`IXRemoteErrorDomain code 6`, wireless) — a transfer
-  flake, not code. Cable install is the fix; nothing blocking on your side.
+"Actions is disabled for your account." Confirmed via a stuck `queued` Pages
+deploy (actor=sacmeng) on a *public* repo with Actions enabled. Effects: (a) sac's
+merges fire **no** workflows → **your** merges are the only thing that cuts a
+TestFlight build; (b) it blocked GitHub Pages for the beta site (→ Netlify
+instead). Isaac is on the GitHub appeal (verify email + payment method +
+support/account-review). Nothing for you to do — it's just why the release lane
+only fires on your actor.
 
-## What I'm doing next (no blockers)
+## Also shipped this session (context, no action needed)
 
-- Wire the richer notes rendering the moment the payload shape from decision #1
-  lands (UI shell is ready).
-- Per-trade action-button taxonomy is drafted and wired in #199.
-- Photo-grouping styling on the review document (Plan 12 seam ready).
+- **Beta landing/install site is LIVE → https://getjefe.netlify.app** (repo
+  `damsac/jefe-beta`). Explains Jefe + a 4-step TestFlight install walkthrough +
+  a Formspree waitlist, in the Field Instrument look. On Netlify because Pages was
+  blocked by the account hold. Two placeholders remain: the public TestFlight join
+  link + the Formspree form id.
+- **Public-TestFlight path** written up for Isaac (External group → enable public
+  link → Beta App Review, ~1 day). Needs a build already uploaded = your lane.
 
-## Notes for dam
+## Front-load core before your month away (my read, your call)
 
-- **FFI gotcha that bit me today (your domain, worth knowing):**
-  `build-ffi.sh --device-only` leaves the **simulator** slice stale, and bindgen
-  regenerates `ffi.swift` **and the C header** from that sim lib — so it silently
-  drops types/checksums (I lost `NotesPayload` and the `build_document` checksum
-  → "cannot find in scope" / "No type named NotesPayload"). A full
-  `./build-ffi.sh` (both slices) fixes it; restoring the committed `ffi.swift`
-  alone does **not** (the gitignored xcframework header stays stale). Your #180
-  bindings-staleness CI is the right instinct — this is a sibling failure mode
-  (stale **binary/header** vs stale **bindings**); might be worth a guard.
+Since I can't touch core while you're gone, the launch-critical **core** items to
+land first: **real-mic device tuning**, **walk-reopen seam (#223)**, **whisper
+warm-up (#228)**, and the **#234 DocumentSchema seam**. App Store readiness is
+app-side — I own it, no dependency on you.
+
+## Notes for dam (evergreen)
+
+- **FFI gotcha:** `build-ffi.sh --device-only` leaves the **sim** slice stale;
+  bindgen regenerates `ffi.swift` + the C header from that sim lib → silently
+  drops types/checksums ("cannot find in scope"). A full `./build-ffi.sh` (both
+  slices) fixes it; restoring the committed `ffi.swift` alone does **not** (the
+  gitignored xcframework header stays stale).
 - **Device signing:** automatic → my personal Apple Development team
   (`9UQKJHZ8J3`, isaacwm23@gmail.com), bundle `com.isaacwm.sitewalk`. Separate
   from the ASC distribution identity `release.yml` uses for TestFlight.
-- **CI auto-fire on my PRs** — still gated at the **sacmeng account level**
-  ("Actions is disabled for your account"; ticket filed) unless it's cleared
-  since. Until then your push to one of my branches triggers the run (you're the
-  actor).
+- **id case:** core ids are lowercase UUIDv7 with a case-sensitive lookup; Swift's
+  `uuidString` is uppercase → `.lowercased()` when passing item ids to the CRUD
+  seam.
