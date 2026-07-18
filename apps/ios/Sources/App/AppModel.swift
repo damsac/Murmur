@@ -397,6 +397,7 @@ final class AppModel {
         photos = []
         notes = nil
         documentBuildError = nil
+        notesEditError = nil
         phase = .board
         path = []
     }
@@ -440,6 +441,7 @@ final class AppModel {
     func dismissNotes() {
         notes = nil
         documentBuildError = nil
+        notesEditError = nil
         reviewKind = nil
         currentSessionId = nil
         phase = .board
@@ -463,6 +465,7 @@ final class AppModel {
     func buildDocument(kind: String) {
         guard let sessionId = currentSessionId, !isBuildingDocument else { return }
         documentBuildError = nil
+        notesEditError = nil
         isBuildingDocument = true
         buildingKind = kind
         Task {
@@ -548,6 +551,7 @@ final class AppModel {
     /// build overwrites it. Pops just the review frame (board → notes).
     func backToNotes() {
         documentBuildError = nil
+        notesEditError = nil
         reviewKind = nil
         phase = .notes
         path = [.notes]

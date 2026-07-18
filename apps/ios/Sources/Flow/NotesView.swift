@@ -57,20 +57,26 @@ struct NotesView: View {
                         bucketSections
                         if notes.items.isEmpty && notes.notes.isEmpty {
                             emptyState
-                            addLineButton
+                            if !notes.queued { addLineButton }
                         } else {
                             if !notes.items.isEmpty {
                                 ForEach(grouped, id: \.0) { kind, items in
                                     SectionHead(left: sectionTitle(kind), right: "\(items.count)", heavyRule: false)
                                         .padding(.top, 4)
                                     ForEach(items) { item in
+                                        // Edit gates on !queued (Plan 16 contract clause a):
+                                        // a queued/Failed session's items are swept by the
+                                        // retry reprocess — the engine refuses edits by
+                                        // design, so the affordance must not render.
                                         CapturedRow(item: item)
                                             .contentShape(Rectangle())
-                                            .onTapGesture { itemEdit = .edit(item) }
+                                            .onTapGesture {
+                                                if !notes.queued { itemEdit = .edit(item) }
+                                            }
                                     }
                                 }
                             }
-                            addLineButton
+                            if !notes.queued { addLineButton }
                             transcriptRow
                         }
                         if let message = model.notesEditError {
