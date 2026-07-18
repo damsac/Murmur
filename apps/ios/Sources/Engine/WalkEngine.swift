@@ -71,6 +71,26 @@ enum NotesBucket {
     case scopeOfWork
     case constraints
     case conditionsAndIssues
+
+    /// Wire string crossing the FFI seam (mirrors `NotesBucket::from_wire`,
+    /// `crates/ffi/src/notes.rs`). A bucket re-file passes this to
+    /// `updateNotesEntry`; `add`/`remove` use it too (Plan 18).
+    var wire: String {
+        switch self {
+        case .scopeOfWork: return "scope_of_work"
+        case .constraints: return "constraints"
+        case .conditionsAndIssues: return "conditions_and_issues"
+        }
+    }
+
+    init?(wire: String) {
+        switch wire {
+        case "scope_of_work": self = .scopeOfWork
+        case "constraints": self = .constraints
+        case "conditions_and_issues": self = .conditionsAndIssues
+        default: return nil
+        }
+    }
 }
 
 /// Plan 14 D2-14: one comprehensive-notes coordination entry — the detail
@@ -80,9 +100,10 @@ enum NotesBucket {
 /// your follow-up (NotesView.swift's kind-grouped rendering already covers
 /// the terse board — bucket rendering is additive on top).
 struct NotesEntryFixture: Identifiable {
-    /// Stable unique identity — two identical LLM entries must not collide
-    /// as ForEach IDs (label+detail did).
-    let id = UUID()
+    /// Core artifact-entry id (Plan 18), stable post-`finish()` — both the
+    /// `ForEach` identity (two identical LLM entries must not collide, as
+    /// label+detail did) AND the edit key the notes-entry CRUD seam addresses.
+    var id: String
     var bucket: NotesBucket
     var label: String
     var detail: String
@@ -298,4 +319,34 @@ protocol WalkEngine: AnyObject {
         sessionId: String, kind: String, text: String, right: String
     ) throws -> CapturedFixture
     func removeItem(sessionId: String, itemId: String) throws
+
+    // Notes-entry CRUD (Plan 18) — the edit seam for the coordination BUCKETS
+    // (Scope / Constraints / Conditions), i.e. the notes screen's first three
+    // sections. Like item CRUD it is engine-keyed and Processed-gated in core
+    // (D3-18), but it operates by ARTIFACT REWRITE (parse_notes_artifact →
+    // mutate → serialize_buckets → update_artifact_body) because the buckets
+    // are a derived `kind=="notes"` artifact, not item rows. `bucket` crosses
+    // as a wire string (`NotesBucket.wire`).
+    //
+    // // sac: mirrors the Plan 16 item contract —
+    // // sac: (a) edit affordances render only when `!notes.queued` (the exact
+    // // sac:     gate the build buttons already follow; a queued session fails
+    // // sac:     the Processed-only core gate by design).
+    // // sac: (b) the returned NotesEntryFixture is an optimistic ECHO — patch
+    // // sac:     it in place; the engine is the source of truth (a full
+    // // sac:     `loadNotes` bucket re-read rides in with #223).
+    // // sac: (c) `bucket` is one of the three known wire strings — an unknown
+    // // sac:     one is rejected (R6), never coerced. `detail` may be "";
+    // // sac:     `label` may not (an empty entry is noise).
+    //
+    // A nil field on updateNotesEntry = leave unchanged. addNotesEntry appends
+    // (last in its bucket) and CREATES the notes artifact if the walk had none.
+    // removeNotesEntry drops the entry from the rewritten body.
+    func updateNotesEntry(
+        sessionId: String, entryId: String, label: String?, detail: String?, bucket: String?
+    ) throws -> NotesEntryFixture
+    func addNotesEntry(
+        sessionId: String, bucket: String, label: String, detail: String
+    ) throws -> NotesEntryFixture
+    func removeNotesEntry(sessionId: String, entryId: String) throws
 }

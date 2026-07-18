@@ -162,7 +162,11 @@ extension MurmurEngine {
         case .constraints: bucket = .constraints
         case .conditionsAndIssues: bucket = .conditionsAndIssues
         }
-        return NotesEntryFixture(bucket: bucket, label: entry.label, detail: entry.detail)
+        // TODO(dam, Plan 18): use `entry.id` once crates/ffi's `NotesEntry`
+        // carries it (Task 1/2). Synthesized for now so the ForEach key is
+        // unique; real-core bucket editing is a pending stub in MurmurEngine
+        // until the id + CRUD bindings land.
+        return NotesEntryFixture(id: UUID().uuidString, bucket: bucket, label: entry.label, detail: entry.detail)
     }
 
     static func emptyNotes() -> NotesModel {

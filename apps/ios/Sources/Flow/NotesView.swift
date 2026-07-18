@@ -17,6 +17,9 @@ struct NotesView: View {
     @State private var exportURL: URL?
     // Plan 16: tap a line to fix it, or add one. The walk is a first draft.
     @State private var itemEdit: NoteItemEdit?
+    // Plan 18: tap a coordination-bucket line to fix it, or add one — the same
+    // "input is just the first draft" rule, now for the first three sections.
+    @State private var noteEntryEdit: NotesEntryEdit?
 
     // Plan 15 D9-15: the vocab seed card shows ONCE, on the FIRST notes-screen
     // appearance — i.e. right after the user's first real walk, when they have
@@ -55,6 +58,12 @@ struct NotesView: View {
                         // ABOVE the terse tag-grouped board (additive — the board
                         // still carries the priced line items).
                         bucketSections
+                        // Plan 18: add a coordination note (the sheet picks the
+                        // bucket, so this covers an empty bucket too). Same
+                        // `!notes.queued` gate the edit taps + build buttons use.
+                        if !notes.queued && !(notes.items.isEmpty && notes.notes.isEmpty) {
+                            addNoteButton
+                        }
                         if notes.items.isEmpty && notes.notes.isEmpty {
                             emptyState
                             if !notes.queued { addLineButton }
@@ -117,6 +126,31 @@ struct NotesView: View {
                 .presentationDragIndicator(.visible)
                 .presentationBackground(Theme.C.paper)
         }
+        .sheet(item: $noteEntryEdit) { target in
+            NotesEntryEditSheet(target: target, model: model)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(Theme.C.paper)
+        }
+    }
+
+    // Plan 18: add a coordination note — same dashed affordance as ＋ ADD LINE,
+    // but it opens the bucket editor (which picks Scope/Constraints/Conditions).
+    private var addNoteButton: some View {
+        Button { noteEntryEdit = .add } label: {
+            Text("＋ ADD NOTE")
+                .font(Theme.F.mono(9, .semibold)).tracking(1.0)
+                .foregroundStyle(Theme.C.orangeDeep)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 11)
+                .overlay(RoundedRectangle(cornerRadius: 4)
+                    .stroke(style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    .foregroundStyle(Theme.C.orangeDeep.opacity(0.6)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, Theme.S.screenPad)
+        .padding(.top, 12)
     }
 
     // Add a manual line — dashed, in the tag grammar, distinct from a captured row.
@@ -388,6 +422,8 @@ struct NotesView: View {
         .padding(.horizontal, Theme.S.screenPad)
         .padding(.vertical, 8)
         .overlay(alignment: .bottom) { Theme.C.hairlineSoft.frame(height: 1) }
+        .contentShape(Rectangle())
+        .onTapGesture { if !notes.queued { noteEntryEdit = .edit(entry) } }
     }
 
     // MARK: Grouping (trade-aware headers, attention-first)
@@ -567,6 +603,169 @@ private struct NoteItemEditSheet: View {
 
     private func commitRemove() {
         if case .edit(let item) = target { model.removeNoteItem(item) }
+        dismiss()
+    }
+}
+
+// MARK: - Notes-entry edit / add sheet (Plan 18)
+
+/// Fixing a coordination bucket line, or adding one.
+private enum NotesEntryEdit: Identifiable {
+    case edit(NotesEntryFixture)
+    case add
+    var id: String { if case .edit(let e) = self { return e.id } else { return "add-note" } }
+}
+
+/// Fix a bucket entry's label / detail, re-file its section, remove it, or add
+/// a new one. Commits through the core (AppModel → Plan 18 artifact rewrite),
+/// so the correction reaches the exported notes — not just this screen.
+private struct NotesEntryEditSheet: View {
+    let target: NotesEntryEdit
+    let model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var bucket: NotesBucket
+    @State private var label: String
+    @State private var detail: String
+
+    init(target: NotesEntryEdit, model: AppModel) {
+        self.target = target
+        self.model = model
+        switch target {
+        case .edit(let e):
+            _bucket = State(initialValue: e.bucket)
+            _label = State(initialValue: e.label)
+            _detail = State(initialValue: e.detail)
+        case .add:
+            _bucket = State(initialValue: .scopeOfWork)
+            _label = State(initialValue: "")
+            _detail = State(initialValue: "")
+        }
+    }
+
+    private var isEdit: Bool { if case .edit = target { return true } else { return false } }
+    private var canSave: Bool { !label.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            VStack(alignment: .leading, spacing: 16) {
+                bucketPicker
+                field("LABEL", text: $label, placeholder: "Budget")
+                field("DETAIL", text: $detail, placeholder: "Keep the whole job under $1,200 · optional")
+            }
+            .padding(.horizontal, Theme.S.screenPad).padding(.top, 20)
+            Spacer(minLength: 12)
+            actions
+        }
+        .background(Theme.C.paper.ignoresSafeArea())
+    }
+
+    private var header: some View {
+        HStack {
+            Button { dismiss() } label: {
+                Text("CANCEL")
+                    .font(Theme.F.mono(9, .semibold)).tracking(1.0)
+                    .foregroundStyle(Theme.C.ink60)
+            }
+            .buttonStyle(.plain)
+            Spacer()
+            Text(isEdit ? "EDIT NOTE" : "ADD NOTE")
+                .font(Theme.F.mono(9, .semibold)).tracking(2.0)
+                .foregroundStyle(Theme.C.orangeDeep)
+        }
+        .padding(.horizontal, Theme.S.screenPad).padding(.top, 18).padding(.bottom, 14)
+        .overlay(alignment: .bottom) { Theme.C.ink.frame(height: 2) }
+    }
+
+    private var bucketPicker: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("SECTION")
+                .font(Theme.F.mono(8, .semibold)).tracking(1.4)
+                .foregroundStyle(Theme.C.ink35)
+            HStack(spacing: 7) {
+                ForEach([NotesBucket.scopeOfWork, .constraints, .conditionsAndIssues], id: \.self) { b in
+                    bucketChip(b)
+                }
+            }
+        }
+    }
+
+    private func bucketChip(_ b: NotesBucket) -> some View {
+        let on = bucket == b
+        return Button { bucket = b } label: {
+            Text(shortTitle(b))
+                .font(Theme.F.mono(8.5, .semibold)).tracking(0.4)
+                .foregroundStyle(on ? Theme.C.onOrange : Theme.C.ink60)
+                .frame(maxWidth: .infinity).padding(.vertical, 9)
+                .background(RoundedRectangle(cornerRadius: 6).fill(on ? Theme.C.orange : Theme.C.sheet))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? Theme.C.orange : Theme.C.hairline, lineWidth: 1.5))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func shortTitle(_ b: NotesBucket) -> String {
+        switch b {
+        case .scopeOfWork: return "SCOPE"
+        case .constraints: return "CONSTRAINTS"
+        case .conditionsAndIssues: return "CONDITIONS"
+        }
+    }
+
+    private var actions: some View {
+        HStack(spacing: 10) {
+            if isEdit {
+                Button { commitRemove() } label: {
+                    Text("REMOVE")
+                        .font(Theme.F.ui(14, .bold)).tracking(1.1)
+                        .foregroundStyle(Theme.C.redTag)
+                        .frame(width: 118).frame(height: 54)
+                        .overlay(RoundedRectangle(cornerRadius: Theme.S.radius)
+                            .stroke(Theme.C.redTag, lineWidth: 2))
+                }
+                .buttonStyle(.plain)
+            }
+            Button { commitSave() } label: {
+                Text(isEdit ? "SAVE" : "ADD")
+                    .font(Theme.F.ui(15, .bold)).tracking(1.4)
+                    .foregroundStyle(Theme.C.onOrange)
+                    .frame(maxWidth: .infinity).frame(height: 54)
+                    .background(RoundedRectangle(cornerRadius: Theme.S.radius).fill(Theme.C.orange))
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSave)
+            .opacity(canSave ? 1 : 0.4)
+        }
+        .padding(.horizontal, Theme.S.screenPad).padding(.top, 12).padding(.bottom, 14)
+        .overlay(alignment: .top) { Theme.C.hairline.frame(height: 1) }
+    }
+
+    private func field(_ label: String, text: Binding<String>, placeholder: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label)
+                .font(Theme.F.mono(8, .semibold)).tracking(1.4)
+                .foregroundStyle(Theme.C.ink35)
+            TextField(placeholder, text: text, axis: .vertical)
+                .font(Theme.F.cond(15, .semibold))
+                .lineLimit(1...4)
+                .autocorrectionDisabled()
+                .padding(.bottom, 6)
+                .overlay(alignment: .bottom) { Theme.C.orangeDeep.frame(height: 2) }
+        }
+    }
+
+    private func commitSave() {
+        let l = label.trimmingCharacters(in: .whitespaces)
+        let d = detail.trimmingCharacters(in: .whitespaces)
+        guard !l.isEmpty else { return }
+        switch target {
+        case .edit(let e): model.editNotesEntry(e, label: l, detail: d, bucket: bucket)
+        case .add:         model.addNotesEntry(bucket: bucket, label: l, detail: d)
+        }
+        dismiss()
+    }
+
+    private func commitRemove() {
+        if case .edit(let e) = target { model.removeNotesEntry(e) }
         dismiss()
     }
 }

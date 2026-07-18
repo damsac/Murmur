@@ -19,6 +19,12 @@ final class DemoWalkEngine: WalkEngine {
     /// per event (Task 10).
     private var board: [CapturedFixture] = []
 
+    /// Per-session coordination buckets (Plan 18) — the demo mirror of the
+    /// `kind=="notes"` artifact. Seeded from `sampleNotes` at `finish()`;
+    /// the notes-entry CRUD below mutates THIS (stable ids), so an edit
+    /// survives a re-read the same way the real artifact rewrite does.
+    private var notesEntries: [NotesEntryFixture] = []
+
     /// In-memory vocabulary so the editor is usable with no backend (Plan 10
     /// D8). Seeded with a couple of demo terms. Mirrors the Rust semantics
     /// loosely — normalize + case-insensitive dedup + a 100-term cap — enough
@@ -65,6 +71,7 @@ final class DemoWalkEngine: WalkEngine {
         firedItems = []
         board = []
         itemKinds = [:]
+        notesEntries = []
         sessionStatus[demoSessionId] = .recording
         var cont: AsyncStream<WalkEvent>.Continuation!
         let stream = AsyncStream<WalkEvent> { cont = $0 }
@@ -208,6 +215,8 @@ final class DemoWalkEngine: WalkEngine {
         // Plan 16: the demo session reaches its terminal state — edits are
         // allowed from here on (the D3-16 gate mirror).
         sessionStatus[demoSessionId] = .processed
+        // Plan 18: seed the editable coordination buckets for this walk.
+        notesEntries = Self.sampleNotes
         // Simulate the notes-compute beat (the real engine targets < 8 s).
         try? await Task.sleep(for: .seconds(0.8))
         let itemWord = board.count == 1 ? "item" : "items"
@@ -216,7 +225,7 @@ final class DemoWalkEngine: WalkEngine {
             items: board,
             docKind: DocKinds.primaryKind(for: trade.key),
             queued: false,
-            notes: Self.sampleNotes
+            notes: notesEntries
         )
     }
 
@@ -225,16 +234,19 @@ final class DemoWalkEngine: WalkEngine {
     // rendering is your follow-up — this data is inert until then.
     private static let sampleNotes: [NotesEntryFixture] = [
         NotesEntryFixture(
+            id: "demo-note-scope",
             bucket: .scopeOfWork,
             label: "Mulch — front beds",
             detail: "Darker mulch than last year; the old mulch faded."
         ),
         NotesEntryFixture(
+            id: "demo-note-budget",
             bucket: .constraints,
             label: "Budget",
             detail: "Keep the whole job under $1,200."
         ),
         NotesEntryFixture(
+            id: "demo-note-zone2",
             bucket: .conditionsAndIssues,
             label: "Zone-2 irrigation head broken",
             detail: "Replace — parts + labor."
@@ -319,6 +331,58 @@ final class DemoWalkEngine: WalkEngine {
         }
         itemKinds.removeValue(forKey: uuid)
         board.remove(at: index)
+    }
+
+    // MARK: Notes-entry CRUD (Plan 18) — in-memory demo parity, mirroring the
+    // Rust artifact-rewrite: partial-apply update, bucket validated against the
+    // three wire strings, empty label rejected, Processed-only, add appends,
+    // remove drops. The REAL semantics (WE-A..WE-E) live in
+    // crates/ffi/src/notes_crud.rs.
+
+    func updateNotesEntry(
+        sessionId: String, entryId: String, label: String?, detail: String?, bucket: String?
+    ) throws -> NotesEntryFixture {
+        try requireEditable(sessionId)
+        guard let index = notesEntries.firstIndex(where: { $0.id == entryId }) else {
+            throw DemoEditError.rejected("no such note: \(entryId)")
+        }
+        if let label, label.trimmingCharacters(in: .whitespaces).isEmpty {
+            throw DemoEditError.rejected("note label is empty")
+        }
+        var entry = notesEntries[index]
+        if let label { entry.label = label }
+        if let detail { entry.detail = detail }
+        if let bucket {
+            guard let mapped = NotesBucket(wire: bucket) else {
+                throw DemoEditError.rejected("invalid bucket '\(bucket)'")
+            }
+            entry.bucket = mapped
+        }
+        notesEntries[index] = entry
+        return entry
+    }
+
+    func addNotesEntry(
+        sessionId: String, bucket: String, label: String, detail: String
+    ) throws -> NotesEntryFixture {
+        try requireEditable(sessionId)
+        guard let mapped = NotesBucket(wire: bucket) else {
+            throw DemoEditError.rejected("invalid bucket '\(bucket)'")
+        }
+        guard !label.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw DemoEditError.rejected("note label is empty")
+        }
+        let entry = NotesEntryFixture(id: UUID().uuidString, bucket: mapped, label: label, detail: detail)
+        notesEntries.append(entry)   // append — mirrors the artifact-order rule
+        return entry
+    }
+
+    func removeNotesEntry(sessionId: String, entryId: String) throws {
+        try requireEditable(sessionId)
+        guard notesEntries.contains(where: { $0.id == entryId }) else {
+            throw DemoEditError.rejected("no such note: \(entryId)")
+        }
+        notesEntries.removeAll { $0.id == entryId }
     }
 
     // Plan 13 D1: the on-demand build, engine-keyed. The demo has no real

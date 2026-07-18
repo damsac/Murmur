@@ -87,6 +87,13 @@ private final class BoardListener: FFIWalkEventListener {
     }
 }
 
+/// Plan 18: the notes-entry CRUD FFI methods are not generated yet (dam's
+/// Task 2/5). `MurmurEngine` conforms with throwing stubs so the real-core
+/// archive keeps compiling; dam swaps the throws for the real forwards
+/// (`engine.updateNotesEntry(...)` etc.) when the bindings land. The demo
+/// engine carries the working in-memory parity that drives sac's edit UI.
+private enum NotesEntrySeamPending: Error { case pending }
+
 @MainActor
 final class MurmurEngine: WalkEngine {
     private let engine: FFIMurmurEngine
@@ -308,6 +315,27 @@ final class MurmurEngine: WalkEngine {
 
     func removeItem(sessionId: String, itemId: String) throws {
         try engine.removeItem(sessionId: sessionId, itemId: itemId)
+    }
+
+    // MARK: - Notes-entry CRUD (Plan 18): PENDING dam's FFI seam (Task 2/5).
+    // TODO(dam, Plan 18): forward to `engine.updateNotesEntry(...)` /
+    // `addNotesEntry(...)` / `removeNotesEntry(...)` (mapping via
+    // `Self.notesEntry`) once crates/ffi's notes-entry CRUD + `NotesEntry.id`
+    // land; drop the `pending` throws.
+    func updateNotesEntry(
+        sessionId: String, entryId: String, label: String?, detail: String?, bucket: String?
+    ) throws -> NotesEntryFixture {
+        throw NotesEntrySeamPending.pending
+    }
+
+    func addNotesEntry(
+        sessionId: String, bucket: String, label: String, detail: String
+    ) throws -> NotesEntryFixture {
+        throw NotesEntrySeamPending.pending
+    }
+
+    func removeNotesEntry(sessionId: String, entryId: String) throws {
+        throw NotesEntrySeamPending.pending
     }
 
     func sweepZombieSessions() throws -> UInt64 {
