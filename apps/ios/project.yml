@@ -32,7 +32,8 @@ targets:
         # Provider base URL (e.g. https://api.ppq.ai). Same injection flow as
         # the key; empty => provider default (api.anthropic.com).
         ANTHROPIC_BASE_URL: "$(ANTHROPIC_BASE_URL)"
-        CFBundleDisplayName: Sitewalk
+        CFBundleDisplayName: Jefe
+        CFBundleName: Jefe
         # Fixed paper-and-ink theme: lock light appearance so system dark mode
         # never falls un-styled Text back to the white system label color on the
         # always-light paper (issue #220 — invisible board title / vocab / rows).
@@ -42,7 +43,7 @@ targets:
         # answer in ASC before testers can install it.
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
-        NSMicrophoneUsageDescription: "Sitewalk records your walk-and-talk so it can turn it into paperwork."
+        NSMicrophoneUsageDescription: "Jefe records your walk-and-talk so it can turn it into paperwork."
         NSCameraUsageDescription: "Photos you take during a walk pin to the item you're describing and land in the finished document."
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
