@@ -14,7 +14,7 @@ use harness::{
 
 use crate::domain::{Artifact, CapturedItem, SessionStatus};
 use crate::error::CoreError;
-use crate::pipeline::{doc_kinds_for_template, is_pricing_kind};
+use crate::pipeline::{doc_kinds_for_template, is_pricing_kind, total_shape};
 use crate::store::Store;
 
 /// C1: whether a rendered line defaults to `is_gap: true`. `PerPricingKind`
@@ -226,15 +226,6 @@ fn apply_prices(map: &HashMap<String, i64>, lines: &mut [serde_json::Value]) {
             line["is_gap"] = serde_json::json!(false);
             claimed.insert(item_id);
         }
-    }
-}
-
-/// Total-shape per `doc_kind`: an inspection has no summable dollar total;
-/// everything else sums its lines.
-fn total_shape(doc_kind: &str) -> (&'static str, &'static str) {
-    match doc_kind {
-        "inspection" => ("static", "findings"),
-        _ => ("sum", "total"),
     }
 }
 
