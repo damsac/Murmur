@@ -64,8 +64,15 @@ fn schema_from_row(row: &Row) -> Result<DocumentSchema, CoreError> {
 /// sentinel `device_id` ("builtin") and fixed timestamps (0) so they are
 /// byte-identical on every device (the stable sync merge key).
 pub(crate) fn seed_builtin_schemas(conn: &Connection) -> Result<(), CoreError> {
-    for schema in builtin_schemas() {
-        let sections = envelope_json(&schema)?;
+    seed_schemas(conn, &builtin_schemas())
+}
+
+/// The seeding mechanism itself, factored so tests can drive it with an
+/// EXTENDED built-in list (the WE-A "app-update adds punch_list" trace)
+/// through the exact code path production uses.
+pub(crate) fn seed_schemas(conn: &Connection, schemas: &[DocumentSchema]) -> Result<(), CoreError> {
+    for schema in schemas {
+        let sections = envelope_json(schema)?;
         conn.execute(
             "INSERT INTO document_schemas
                  (id, kind, label, number_prefix, trade_key, sections, schema_version,
@@ -102,14 +109,172 @@ impl Store {
             None => Err(CoreError::NotFound { entity: "document_schema", id: id.to_string() }),
         }
     }
+
+    /// Live schemas, ordered by id (fixed built-in ids sort FIRST, then
+    /// UUIDv7 customs in creation order). `Some(t)` filters to
+    /// `trade_key = t OR trade_key IS NULL` (template-agnostic schemas like
+    /// `report` show for every trade); `None` returns all live schemas.
+    pub fn list_document_schemas(
+        &self,
+        trade_key: Option<&str>,
+    ) -> Result<Vec<DocumentSchema>, CoreError> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {SCHEMA_COLS} FROM document_schemas
+             WHERE (?1 IS NULL OR trade_key = ?1 OR trade_key IS NULL)
+               AND deleted_at IS NULL
+             ORDER BY id ASC"
+        ))?;
+        let mut rows = stmt.query(rusqlite::params![trade_key])?;
+        let mut schemas = Vec::new();
+        while let Some(row) = rows.next()? {
+            schemas.push(schema_from_row(row)?);
+        }
+        Ok(schemas)
+    }
+
+    /// Upsert by id (Plan 19 Stage 2): an existing LIVE row is updated in
+    /// place (editable fields + `updated_at` bump, `created_at`/`device_id`
+    /// preserved); otherwise a fresh row is inserted with this store's
+    /// device_id and clock. An empty `id` mints a fresh UUIDv7 (the FFI
+    /// convenience for "create"). A tombstoned id is NOT silently
+    /// resurrected — the update targets live rows only, so saving over a
+    /// tombstone surfaces the PK conflict as an error (truthful, R7).
+    /// Validation (Stage 3) runs BEFORE any write.
+    pub fn save_document_schema(
+        &self,
+        schema: &DocumentSchema,
+    ) -> Result<DocumentSchema, CoreError> {
+        let id = if schema.id.trim().is_empty() {
+            crate::ids::new_id()
+        } else {
+            schema.id.clone()
+        };
+        let sections = envelope_json(schema)?;
+        let now = self.now();
+        let changed = self.conn.execute(
+            "UPDATE document_schemas
+             SET kind = ?1, label = ?2, number_prefix = ?3, trade_key = ?4,
+                 sections = ?5, schema_version = ?6, updated_at = ?7
+             WHERE id = ?8 AND deleted_at IS NULL",
+            rusqlite::params![
+                schema.kind,
+                schema.label,
+                schema.number_prefix,
+                schema.trade_key,
+                sections,
+                schema.schema_version as i64,
+                now as i64,
+                id,
+            ],
+        )?;
+        if changed == 0 {
+            self.conn.execute(
+                "INSERT INTO document_schemas
+                     (id, kind, label, number_prefix, trade_key, sections, schema_version,
+                      created_at, updated_at, device_id, deleted_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9, NULL)",
+                rusqlite::params![
+                    id,
+                    schema.kind,
+                    schema.label,
+                    schema.number_prefix,
+                    schema.trade_key,
+                    sections,
+                    schema.schema_version as i64,
+                    now as i64,
+                    self.device_id,
+                ],
+            )?;
+        }
+        self.get_document_schema(&id)
+    }
+
+    /// Tombstone (the `delete_item` discipline): `NotFound` on a second
+    /// remove. A removed BUILT-IN stays removed forever — the seed's
+    /// `WHERE NOT EXISTS` sees this tombstone on every subsequent open.
+    pub fn remove_document_schema(&self, id: &str) -> Result<(), CoreError> {
+        let now = self.now() as i64;
+        let changed = self.conn.execute(
+            "UPDATE document_schemas SET deleted_at = ?1, updated_at = ?1
+             WHERE id = ?2 AND deleted_at IS NULL",
+            rusqlite::params![now, id],
+        )?;
+        if changed == 0 {
+            return Err(CoreError::NotFound { entity: "document_schema", id: id.to_string() });
+        }
+        Ok(())
+    }
+
+    /// The active schema for `(kind, template)` (Plan 19 §4): trade must
+    /// match exactly — a NULL-trade schema (e.g. `report`) resolves ONLY for
+    /// a None-template session, so it stays illegal on a landscape session,
+    /// matching today. Newest `updated_at` wins (a custom save shadows the
+    /// fixed-timestamp built-in). `None` when nothing resolves (e.g. an
+    /// operator tombstoned a built-in) — the caller fails truthfully, never
+    /// falls back to a hardcoded shape (that would resurrect a deleted
+    /// built-in).
+    pub fn resolve_active_schema(
+        &self,
+        kind: &str,
+        template: Option<&str>,
+    ) -> Result<Option<DocumentSchema>, CoreError> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {SCHEMA_COLS} FROM document_schemas
+             WHERE kind = ?1
+               AND (trade_key = ?2 OR (trade_key IS NULL AND ?2 IS NULL))
+               AND deleted_at IS NULL
+             ORDER BY updated_at DESC LIMIT 1"
+        ))?;
+        let mut rows = stmt.query(rusqlite::params![kind, template])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(schema_from_row(row)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// The legality gate's second clause (Plan 19 §4): whether ANY live
+    /// schema resolves for `(kind, template)`.
+    pub fn has_active_schema(&self, kind: &str, template: Option<&str>) -> Result<bool, CoreError> {
+        Ok(self.resolve_active_schema(kind, template)?.is_some())
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
-    use crate::domain::BUILTIN_SCHEMA_ID_ESTIMATE;
+    use crate::domain::{
+        BUILTIN_SCHEMA_ID_ESTIMATE, BUILTIN_SCHEMA_ID_INVOICE, BUILTIN_SCHEMA_ID_REPORT,
+        BUILTIN_SCHEMA_ID_WORK_ORDER,
+    };
+    use crate::error::CoreError;
     use crate::pipeline::{is_pricing_kind, total_shape};
     use crate::store::Store;
+
+    /// A minimal valid custom schema (one line_items section) for CRUD tests.
+    pub(super) fn custom_schema(id: &str, kind: &str, trade: Option<&str>) -> DocumentSchema {
+        DocumentSchema {
+            id: id.to_string(),
+            kind: kind.to_string(),
+            label: kind.to_string(),
+            number_prefix: "HOA".to_string(),
+            trade_key: trade.map(str::to_string),
+            total_kind: "sum".to_string(),
+            total_label_key: "total".to_string(),
+            sections: vec![SchemaSection {
+                key: "line_items".into(),
+                kind: "line_items".into(),
+                label: "Items".into(),
+                priced: false,
+                fields: vec![],
+            }],
+            schema_version: 1,
+            created_at: 0,
+            updated_at: 0,
+            device_id: String::new(),
+        }
+    }
 
     #[test]
     fn fresh_store_is_at_schema_v7() {
@@ -211,5 +376,176 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM document_schemas", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 7, "no duplicate row was inserted either");
+    }
+
+    // ---- Stage 2: CRUD + resolution -------------------------------------
+
+    #[test]
+    fn list_filters_by_trade_and_includes_null_trade_and_hides_tombstones() {
+        let s = Store::open_in_memory("device-a").unwrap().with_clock(Arc::new(|| 1000));
+        s.save_document_schema(&custom_schema("custom-hoa", "hoa_addendum", Some("landscape")))
+            .unwrap();
+        s.save_document_schema(&custom_schema("custom-prop", "unit_turn", Some("property")))
+            .unwrap();
+        s.remove_document_schema(BUILTIN_SCHEMA_ID_WORK_ORDER).unwrap();
+
+        let landscape: Vec<String> = s
+            .list_document_schemas(Some("landscape"))
+            .unwrap()
+            .into_iter()
+            .map(|d| d.kind)
+            .collect();
+        assert_eq!(
+            landscape,
+            vec!["estimate", "invoice", "report", "hoa_addendum"],
+            "trade ∈ {{landscape, NULL}}, live only (work_order tombstoned), id order \
+             (built-ins first)"
+        );
+
+        let all = s.list_document_schemas(None).unwrap();
+        assert_eq!(all.len(), 8, "None → every live schema (6 built-ins + 2 customs)");
+    }
+
+    #[test]
+    fn save_upserts_by_id_and_bumps_updated_at_preserving_created_at() {
+        let s = Store::open_in_memory("device-a").unwrap().with_clock(Arc::new(|| 1000));
+        let saved =
+            s.save_document_schema(&custom_schema("custom-1", "hoa_addendum", Some("landscape")))
+                .unwrap();
+        assert_eq!(saved.created_at, 1000);
+        assert_eq!(saved.updated_at, 1000);
+        assert_eq!(saved.device_id, "device-a", "insert stamps this store's device_id");
+
+        let s = s.with_clock(Arc::new(|| 2000));
+        let mut edited = saved.clone();
+        edited.label = "HOA Addendum".to_string();
+        let resaved = s.save_document_schema(&edited).unwrap();
+        assert_eq!(resaved.label, "HOA Addendum");
+        assert_eq!(resaved.created_at, 1000, "created_at preserved on upsert");
+        assert_eq!(resaved.updated_at, 2000, "updated_at bumped");
+        assert_eq!(s.list_document_schemas(None).unwrap().len(), 8, "upsert, not a second row");
+
+        // An empty id mints a fresh UUIDv7 (the FFI "create" convenience).
+        let minted = s.save_document_schema(&custom_schema("", "punch_list", Some("landscape")))
+            .unwrap();
+        assert!(!minted.id.is_empty());
+        assert_ne!(minted.id, "custom-1");
+    }
+
+    #[test]
+    fn remove_tombstones_then_second_remove_is_not_found() {
+        let s = Store::open_in_memory("device-a").unwrap().with_clock(Arc::new(|| 1000));
+        s.save_document_schema(&custom_schema("custom-1", "hoa_addendum", Some("landscape")))
+            .unwrap();
+        s.remove_document_schema("custom-1").unwrap();
+        assert!(matches!(
+            s.get_document_schema("custom-1"),
+            Err(CoreError::NotFound { entity: "document_schema", .. })
+        ));
+        assert!(matches!(
+            s.remove_document_schema("custom-1"),
+            Err(CoreError::NotFound { entity: "document_schema", .. })
+        ));
+    }
+
+    #[test]
+    fn resolve_prefers_newest_and_matches_kind_plus_trade() {
+        let s = Store::open_in_memory("device-a").unwrap().with_clock(Arc::new(|| 1000));
+        // The built-in resolves before any custom exists.
+        let resolved = s.resolve_active_schema("estimate", Some("landscape")).unwrap().unwrap();
+        assert_eq!(resolved.id, BUILTIN_SCHEMA_ID_ESTIMATE);
+
+        // A custom estimate (newer updated_at than the built-in's fixed 0) wins.
+        s.save_document_schema(&custom_schema("custom-est", "estimate", Some("landscape")))
+            .unwrap();
+        let resolved = s.resolve_active_schema("estimate", Some("landscape")).unwrap().unwrap();
+        assert_eq!(resolved.id, "custom-est", "newest updated_at wins");
+
+        // Trade must match: the landscape custom does not resolve for property.
+        assert!(s.resolve_active_schema("estimate", Some("property")).unwrap().is_none());
+        // Kind must match.
+        assert!(s.resolve_active_schema("hoa_addendum", Some("landscape")).unwrap().is_none());
+        assert!(!s.has_active_schema("hoa_addendum", Some("landscape")).unwrap());
+        assert!(s.has_active_schema("estimate", Some("landscape")).unwrap());
+    }
+
+    /// Parity guard: `report` (trade NULL) resolves ONLY for a None-template
+    /// session — it stays illegal on a landscape session, matching today.
+    #[test]
+    fn resolve_report_only_for_none_template_not_for_landscape() {
+        let s = Store::open_in_memory("device-a").unwrap();
+        let resolved = s.resolve_active_schema("report", None).unwrap().unwrap();
+        assert_eq!(resolved.id, BUILTIN_SCHEMA_ID_REPORT);
+        assert!(s.resolve_active_schema("report", Some("landscape")).unwrap().is_none());
+    }
+
+    /// The resurrection consequence: a tombstoned built-in does not resolve —
+    /// the build fails truthfully instead of falling back to a hardcoded shape.
+    #[test]
+    fn resolve_returns_none_for_a_tombstoned_builtin() {
+        let s = Store::open_in_memory("device-a").unwrap().with_clock(Arc::new(|| 1000));
+        s.remove_document_schema(BUILTIN_SCHEMA_ID_ESTIMATE).unwrap();
+        assert!(s.resolve_active_schema("estimate", Some("landscape")).unwrap().is_none());
+        assert!(!s.has_active_schema("estimate", Some("landscape")).unwrap());
+    }
+
+    /// WE-A end-to-end (§6, hand-recomputed): tombstone a built-in, REOPEN
+    /// the store (re-running the seed), simulate the app-update that adds
+    /// built-in …0008 punch_list through the very same seed mechanism, and
+    /// assert the exact surviving live set.
+    #[test]
+    fn we_a_reopen_over_a_tombstoned_builtin_yields_the_pinned_surviving_set() {
+        let dir = std::env::temp_dir().join(format!("murmur-core-we-a-{}", crate::ids::new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("murmur.db");
+
+        // 1. First open seeds {0001..0007} live.
+        {
+            let s = Store::open(&path, "device-a").unwrap().with_clock(Arc::new(|| 1000));
+            let landscape: Vec<String> = s
+                .list_document_schemas(Some("landscape"))
+                .unwrap()
+                .into_iter()
+                .map(|d| d.kind)
+                .collect();
+            assert_eq!(landscape, vec!["estimate", "invoice", "work_order", "report"]);
+            // 2. The operator deletes the estimate built-in.
+            s.remove_document_schema(BUILTIN_SCHEMA_ID_ESTIMATE).unwrap();
+        }
+
+        // 3. Next open re-runs the seed; the app-update also ships built-in
+        //    0008 punch_list (landscape, prefix PUN) — same mechanism.
+        let s = Store::open(&path, "device-a").unwrap();
+        let mut punch = custom_schema(
+            "00000000-0000-7000-8000-000000000008",
+            "punch_list",
+            Some("landscape"),
+        );
+        punch.number_prefix = "PUN".to_string();
+        punch.device_id = crate::domain::BUILTIN_SCHEMA_DEVICE_ID.to_string();
+        seed_schemas(&s.conn, &[punch]).unwrap();
+
+        // 4. The pinned surviving set: estimate ABSENT, punch_list present.
+        let landscape: Vec<(String, String)> = s
+            .list_document_schemas(Some("landscape"))
+            .unwrap()
+            .into_iter()
+            .map(|d| (d.id, d.kind))
+            .collect();
+        assert_eq!(
+            landscape,
+            vec![
+                (BUILTIN_SCHEMA_ID_INVOICE.to_string(), "invoice".to_string()),
+                (BUILTIN_SCHEMA_ID_WORK_ORDER.to_string(), "work_order".to_string()),
+                (BUILTIN_SCHEMA_ID_REPORT.to_string(), "report".to_string()),
+                ("00000000-0000-7000-8000-000000000008".to_string(), "punch_list".to_string()),
+            ],
+            "WE-A: [0002 invoice, 0003 work_order, 0007 report, 0008 punch_list], estimate ABSENT"
+        );
+        let all_live: Vec<String> =
+            s.list_document_schemas(None).unwrap().into_iter().map(|d| d.id).collect();
+        assert_eq!(all_live.len(), 7, "live set {{0002..0008}}; 0001 remains tombstoned");
+        assert!(!all_live.iter().any(|id| id == BUILTIN_SCHEMA_ID_ESTIMATE));
+        std::fs::remove_dir_all(dir).ok();
     }
 }
