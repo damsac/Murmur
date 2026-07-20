@@ -18,7 +18,7 @@ pub mod session_retry;
 pub mod vocabulary;
 
 pub use convert::document_payload;
-pub use document::{DocLine, DocumentPayload};
+pub use document::{DocField, DocLine, DocumentPayload};
 pub use engine::{EngineConfig, EngineError, MurmurEngine, Providers};
 pub use events::{BoardItem, WalkEvent, WalkEventListener};
 pub use notes::{NotesBucket, NotesEntry, NotesPayload};
