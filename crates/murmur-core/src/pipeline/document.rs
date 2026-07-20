@@ -14,7 +14,7 @@ use harness::{
 
 use crate::domain::{Artifact, CapturedItem, SessionStatus};
 use crate::error::CoreError;
-use crate::pipeline::{doc_kinds_for_template, is_pricing_kind, total_shape};
+use crate::pipeline::{doc_kinds_for_template, is_pricing_kind};
 use crate::store::Store;
 
 /// C1: whether a rendered line defaults to `is_gap: true`. `PerPricingKind`
@@ -57,17 +57,34 @@ pub(crate) enum GapPolicy {
 /// documented contract (pinned by the cross-check test below), not by
 /// sharing code across the crate boundary — `ffi` depends on `murmur-core`,
 /// never the reverse, so this function can't call (or be called by) it.
+// Since Plan 19 the production build path renders through `render_lines`
+// with the resolved schema's `priced` flag; this kind-keyed wrapper stays as
+// the pinned N2/GapPolicy parity surface (its tests below are part of the
+// launch-safety Δ=0 net), hence the explicit allow rather than deleting it.
+#[allow(dead_code)]
 pub(crate) fn render_structure_document(
     doc_kind: &str,
     items: &[CapturedItem],
     gap: GapPolicy,
+) -> Vec<serde_json::Value> {
+    render_lines(items, gap, is_pricing_kind(doc_kind))
+}
+
+/// The schema-driven render (Plan 19 §4 step 3): identical line shape, with
+/// `is_gap` driven by the resolved schema's `line_items.priced` instead of
+/// `is_pricing_kind(doc_kind)` — for every built-in the two agree exactly
+/// (pinned by `builtin_schemas_reproduce_todays_pricing_and_total_shape`).
+pub(crate) fn render_lines(
+    items: &[CapturedItem],
+    gap: GapPolicy,
+    priced: bool,
 ) -> Vec<serde_json::Value> {
     items
         .iter()
         .map(|item| {
             let is_gap = match gap {
                 GapPolicy::AllGap => true,
-                GapPolicy::PerPricingKind => is_pricing_kind(doc_kind),
+                GapPolicy::PerPricingKind => priced,
             };
             serde_json::json!({
                 "id": crate::ids::new_id(),
@@ -281,7 +298,7 @@ impl DocumentBuilder {
         session_id: &str,
         doc_kind: &str,
     ) -> Result<BuildDocumentOutcome, CoreError> {
-        let (session, items) = {
+        let (session, items, schema) = {
             let store = self.locked()?;
             let session = store.get_session(session_id)?;
             if session.status != SessionStatus::Processed {
@@ -290,22 +307,45 @@ impl DocumentBuilder {
                     session.status.as_str()
                 )));
             }
-            let legal = doc_kinds_for_template(session.template.as_deref());
-            if !legal.contains(&doc_kind) {
+            // Plan 19 §4 step 1 — the legality UNION: the built-in vocabulary
+            // (unchanged for built-ins, so every existing "illegal kind" test
+            // is preserved verbatim) OR a custom trade-matched schema.
+            let template = session.template.as_deref();
+            let legal = doc_kinds_for_template(template).contains(&doc_kind)
+                || store.has_active_schema(doc_kind, template)?;
+            if !legal {
                 return Err(CoreError::InvalidState(format!(
                     "'{doc_kind}' is not a legal document kind for template {:?}",
                     session.template
                 )));
             }
+            // §4 step 2 — resolve the active schema. A legal kind with no
+            // resolvable schema (an operator tombstoned a built-in) fails
+            // truthfully (R7) — NEVER a silent hardcoded fallback, which
+            // would resurrect a deleted built-in.
+            let schema = store.resolve_active_schema(doc_kind, template)?.ok_or_else(|| {
+                CoreError::InvalidState(format!(
+                    "no active schema for '{doc_kind}' (template {:?}) — it was removed",
+                    session.template
+                ))
+            })?;
             let items = store.list_items_for_session(session_id)?;
-            (session, items)
+            (session, items, schema)
         };
 
-        let mut lines = render_structure_document(doc_kind, &items, GapPolicy::PerPricingKind);
+        // §4 step 3 — deterministic render from the schema's line_items
+        // section (save-time validation guarantees exactly one; a corrupt row
+        // degrades to unpriced rather than panicking across the boundary).
+        let priced = schema
+            .sections
+            .iter()
+            .find(|s| s.kind == "line_items")
+            .is_some_and(|s| s.priced);
+        let mut lines = render_lines(&items, GapPolicy::PerPricingKind, priced);
         let mut usage = Usage::default();
         let mut queued = false;
 
-        if is_pricing_kind(doc_kind) && !items.is_empty() {
+        if priced && !items.is_empty() {
             let hint = self.session_spoken_total(session_id)?;
             let memory_prompt = self
                 .memory
@@ -329,12 +369,13 @@ impl DocumentBuilder {
             }
         }
 
-        let (total_kind, total_label_key) = total_shape(doc_kind);
+        // §4 step 6 — the total shape comes from the schema envelope (for
+        // every built-in this equals the old total_shape(doc_kind) exactly).
         let payload = serde_json::json!({
             "doc_kind": doc_kind,
             "job_date_unix": session.started_at,
-            "total_kind": total_kind,
-            "total_label_key": total_label_key,
+            "total_kind": schema.total_kind,
+            "total_label_key": schema.total_label_key,
             "static_total_cents": serde_json::Value::Null,
             "lines": lines,
             "queued": queued,
@@ -728,5 +769,168 @@ mod tests {
             panic!("expected text content");
         };
         assert!(!text2.contains("stated target total"), "no hint line without a meta artifact: {text2}");
+    }
+
+    // ---- Plan 19 Stage 4: schema-driven build (launch-safety) -----------
+
+    /// Template-generic sibling of `processed_session_with_items` (which
+    /// stays untouched — Δ=0 discipline): `None` template supported.
+    fn processed_session_with_template(
+        template: Option<&str>,
+        texts: &[(&str, &str)],
+    ) -> (Store, String) {
+        let store = Store::open_in_memory("device-a").unwrap();
+        let session = match template {
+            Some(t) => store.start_session_with_template(None, t).unwrap(),
+            None => store.start_session(None).unwrap(),
+        };
+        let mut run_item_ids = Vec::new();
+        for (kind, text) in texts {
+            let item = store
+                .add_item_with_source(&session.id, kind, text, ItemSource::Authoritative)
+                .unwrap();
+            run_item_ids.push(item.id);
+        }
+        store.append_transcript(&session.id, "site walk").unwrap();
+        store.end_and_record_session(&session.id).unwrap();
+        store
+            .finish_session_processed(&session.id, "Walked the site.", &Usage::default(), &run_item_ids)
+            .unwrap();
+        (store, session.id)
+    }
+
+    #[tokio::test]
+    async fn build_resolves_the_seeded_schema_for_every_trade_kind() {
+        let cases: &[(Option<&str>, &[&str])] = &[
+            (Some("landscape"), &["estimate", "invoice", "work_order"]),
+            (Some("property"), &["condition", "move_out"]),
+            (Some("inspection"), &["inspection"]),
+            (None, &["report"]),
+        ];
+        for (template, kinds) in cases {
+            for kind in *kinds {
+                let (store, sid) =
+                    processed_session_with_template(*template, &[("todo", "order lumber")]);
+                let store = Arc::new(Mutex::new(store));
+                // Empty mock: pricing kinds degrade to queued (a document
+                // still lands), non-pricing kinds make zero calls.
+                let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::new(vec![]));
+                let b = builder(store.clone(), provider);
+                let outcome = b.build(&sid, kind).await.unwrap_or_else(|e| {
+                    panic!("{kind} must build for template {template:?}: {e}")
+                });
+                let store = store.lock().unwrap();
+                let art = store.get_artifact(&outcome.document_artifact_id).unwrap();
+                let v: serde_json::Value = serde_json::from_str(&art.body).unwrap();
+                assert_eq!(v["doc_kind"], *kind, "the seeded schema resolved and built");
+                assert_eq!(v["doc_number"], 1);
+            }
+        }
+    }
+
+    /// The Stage 4 golden: for each of the 7 built-ins, the decoded payload's
+    /// today-existing fields equal the pre-refactor values (computed here
+    /// from the OLD hardcoded functions `is_pricing_kind`/`total_shape`,
+    /// which stay in `pipeline/mod.rs` as the parity reference). `id`/
+    /// `doc_number` excluded — non-deterministic pre-refactor too.
+    #[tokio::test]
+    async fn builtin_output_is_byte_identical_per_trade_kind() {
+        use crate::pipeline::total_shape;
+        let builtins: &[(Option<&str>, &str)] = &[
+            (Some("landscape"), "estimate"),
+            (Some("landscape"), "invoice"),
+            (Some("landscape"), "work_order"),
+            (Some("property"), "condition"),
+            (Some("property"), "move_out"),
+            (Some("inspection"), "inspection"),
+            (None, "report"),
+        ];
+        for (template, kind) in builtins {
+            let (store, sid) = processed_session_with_template(
+                *template,
+                &[("todo", "order lumber"), ("part", "bark mulch")],
+            );
+            let ids: Vec<String> = store
+                .list_items_for_session(&sid)
+                .unwrap()
+                .into_iter()
+                .map(|i| i.id)
+                .collect();
+            let store = Arc::new(Mutex::new(store));
+            let pricing = is_pricing_kind(kind);
+            // Pricing kinds get a scripted price on item 1 (both pre- and
+            // post-refactor paths make exactly one pricing call).
+            let responses = if pricing {
+                vec![tool_use(
+                    "price_items",
+                    serde_json::json!({"prices": [{"item_id": ids[0], "amount_cents": 28500}]}),
+                )]
+            } else {
+                vec![]
+            };
+            let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::new(responses));
+            let b = builder(store.clone(), provider);
+            let outcome = b.build(&sid, kind).await.unwrap();
+
+            let store = store.lock().unwrap();
+            let art = store.get_artifact(&outcome.document_artifact_id).unwrap();
+            let v: serde_json::Value = serde_json::from_str(&art.body).unwrap();
+            let (total_kind, total_label_key) = total_shape(kind);
+            assert_eq!(v["doc_kind"], *kind);
+            assert_eq!(v["total_kind"], total_kind, "{kind}: total_kind is today's");
+            assert_eq!(v["total_label_key"], total_label_key, "{kind}: label key is today's");
+            assert_eq!(v["static_total_cents"], serde_json::Value::Null);
+            assert_eq!(v["queued"], false, "{kind}: no degrade in the golden path");
+            let lines = v["lines"].as_array().unwrap();
+            assert_eq!(lines.len(), 2);
+            let expected: Vec<(&str, &str, Option<i64>, bool)> = if pricing {
+                vec![
+                    ("order lumber", "", Some(28500), false),
+                    ("bark mulch", "", None, true),
+                ]
+            } else {
+                vec![("order lumber", "", None, false), ("bark mulch", "", None, false)]
+            };
+            for ((line, item_id), (title, qty, amount, is_gap)) in
+                lines.iter().zip(&ids).zip(expected)
+            {
+                assert_eq!(line["title"], title, "{kind}");
+                assert_eq!(line["detail"], "", "{kind}");
+                assert_eq!(line["qty"], qty, "{kind}");
+                assert_eq!(
+                    line["amount_cents"],
+                    amount.map_or(serde_json::Value::Null, |a| serde_json::json!(a)),
+                    "{kind}"
+                );
+                assert_eq!(line["section"], serde_json::Value::Null, "{kind}: section stays null");
+                assert_eq!(line["is_gap"], is_gap, "{kind}");
+                assert_eq!(line["item_id"], *item_id, "{kind}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn build_errors_when_the_builtin_schema_was_tombstoned() {
+        let (store, sid) = processed_session_with_items(&[("todo", "mulch")]);
+        store
+            .remove_document_schema(crate::domain::BUILTIN_SCHEMA_ID_ESTIMATE)
+            .unwrap();
+        let store = Arc::new(Mutex::new(store));
+        let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::new(vec![]));
+        let b = builder(store.clone(), provider);
+        let err = b.build(&sid, "estimate").await.unwrap_err();
+        assert!(
+            matches!(err, CoreError::InvalidState(_)),
+            "truthful failure, never a hardcoded fallback (that would resurrect): {err}"
+        );
+        let store = store.lock().unwrap();
+        assert!(
+            store
+                .list_artifacts_for_session(&sid)
+                .unwrap()
+                .iter()
+                .all(|a| a.kind != "document"),
+            "no document landed"
+        );
     }
 }
