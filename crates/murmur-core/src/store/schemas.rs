@@ -96,6 +96,58 @@ pub(crate) fn seed_schemas(conn: &Connection, schemas: &[DocumentSchema]) -> Res
     Ok(())
 }
 
+/// Save-time validation (Plan 19 Stage 3, R6 reject-never-coerce): runs at
+/// the top of `save_document_schema`, BEFORE any write — nothing persists on
+/// rejection. Rejects unknown section/field/fill kinds against the ONE shared
+/// allowlists (`domain::VALID_*`), ≠1 `line_items` section (v1: reject 0 and
+/// 2+ — item-less docs and labor-vs-materials are the named future
+/// relaxations), and empty `kind`/`label`/`number_prefix`. Error text mirrors
+/// `ffi/items.rs`'s allowlist message shape.
+pub(crate) fn validate_schema(schema: &DocumentSchema) -> Result<(), CoreError> {
+    use crate::domain::{VALID_FIELD_KINDS, VALID_FILL_KINDS, VALID_SECTION_KINDS};
+    if schema.kind.trim().is_empty() {
+        return Err(CoreError::InvalidState("schema kind is empty".into()));
+    }
+    if schema.label.trim().is_empty() {
+        return Err(CoreError::InvalidState("schema label is empty".into()));
+    }
+    if schema.number_prefix.trim().is_empty() {
+        return Err(CoreError::InvalidState("schema number_prefix is empty".into()));
+    }
+    for section in &schema.sections {
+        if !VALID_SECTION_KINDS.contains(&section.kind.as_str()) {
+            return Err(CoreError::InvalidState(format!(
+                "invalid section kind '{}'; must be one of: {}",
+                section.kind,
+                VALID_SECTION_KINDS.join(", ")
+            )));
+        }
+        for field in &section.fields {
+            if !VALID_FIELD_KINDS.contains(&field.kind.as_str()) {
+                return Err(CoreError::InvalidState(format!(
+                    "invalid field kind '{}'; must be one of: {}",
+                    field.kind,
+                    VALID_FIELD_KINDS.join(", ")
+                )));
+            }
+            if !VALID_FILL_KINDS.contains(&field.fill.as_str()) {
+                return Err(CoreError::InvalidState(format!(
+                    "invalid fill '{}'; must be one of: {}",
+                    field.fill,
+                    VALID_FILL_KINDS.join(", ")
+                )));
+            }
+        }
+    }
+    let line_items = schema.sections.iter().filter(|s| s.kind == "line_items").count();
+    if line_items != 1 {
+        return Err(CoreError::InvalidState(format!(
+            "a schema must have exactly one line_items section (found {line_items})"
+        )));
+    }
+    Ok(())
+}
+
 impl Store {
     /// One live schema by id; `NotFound` for missing or tombstoned rows
     /// (the `get_item` discipline).
@@ -144,6 +196,7 @@ impl Store {
         &self,
         schema: &DocumentSchema,
     ) -> Result<DocumentSchema, CoreError> {
+        validate_schema(schema)?; // R6: reject BEFORE any write (Stage 3)
         let id = if schema.id.trim().is_empty() {
             crate::ids::new_id()
         } else {
@@ -245,8 +298,8 @@ mod tests {
 
     use super::*;
     use crate::domain::{
-        BUILTIN_SCHEMA_ID_ESTIMATE, BUILTIN_SCHEMA_ID_INVOICE, BUILTIN_SCHEMA_ID_REPORT,
-        BUILTIN_SCHEMA_ID_WORK_ORDER,
+        SchemaField, BUILTIN_SCHEMA_ID_ESTIMATE, BUILTIN_SCHEMA_ID_INVOICE,
+        BUILTIN_SCHEMA_ID_REPORT, BUILTIN_SCHEMA_ID_WORK_ORDER,
     };
     use crate::error::CoreError;
     use crate::pipeline::{is_pricing_kind, total_shape};
@@ -547,5 +600,151 @@ mod tests {
         assert_eq!(all_live.len(), 7, "live set {{0002..0008}}; 0001 remains tombstoned");
         assert!(!all_live.iter().any(|id| id == BUILTIN_SCHEMA_ID_ESTIMATE));
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    // ---- Stage 3: save-time validation (R6, reject-never-coerce) ---------
+
+    fn schema_count(s: &Store) -> usize {
+        s.list_document_schemas(None).unwrap().len()
+    }
+
+    #[test]
+    fn reject_unknown_section_kind_nothing_persisted() {
+        let s = Store::open_in_memory("device-a").unwrap().with_clock(Arc::new(|| 1000));
+        let before = schema_count(&s);
+        let mut bad = custom_schema("custom-1", "hoa_addendum", Some("landscape"));
+        bad.sections.push(SchemaSection {
+            key: "gallery".into(),
+            kind: "gallery".into(),
+            label: "Gallery".into(),
+            priced: false,
+            fields: vec![],
+        });
+        let err = s.save_document_schema(&bad).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("invalid section kind 'gallery'; must be one of: line_items, static, filled"),
+            "exact allowlist message, got: {err}"
+        );
+        assert_eq!(schema_count(&s), before, "nothing persisted on rejection");
+        assert!(s.get_document_schema("custom-1").is_err());
+    }
+
+    /// WE-D core (§6): the exact error and the unchanged count.
+    #[test]
+    fn reject_unknown_field_kind_nothing_persisted() {
+        let s = Store::open_in_memory("device-a").unwrap().with_clock(Arc::new(|| 1000));
+        let before = schema_count(&s);
+        let mut bad = custom_schema("custom-1", "hoa_addendum", Some("landscape"));
+        bad.sections.push(SchemaSection {
+            key: "s2".into(),
+            kind: "filled".into(),
+            label: "S2".into(),
+            priced: false,
+            fields: vec![SchemaField {
+                key: "b".into(),
+                kind: "barcode".into(),
+                label: "B".into(),
+                fill: "walk".into(),
+                static_value: None,
+            }],
+        });
+        let err = s.save_document_schema(&bad).unwrap_err();
+        assert!(
+            err.to_string().contains(
+                "invalid field kind 'barcode'; must be one of: line_items, text, long_text, \
+                 currency, quantity, date, static"
+            ),
+            "WE-D's exact message, got: {err}"
+        );
+        assert_eq!(schema_count(&s), before, "the INSERT is never reached (WE-D)");
+    }
+
+    #[test]
+    fn reject_unknown_fill() {
+        let s = Store::open_in_memory("device-a").unwrap().with_clock(Arc::new(|| 1000));
+        let mut bad = custom_schema("custom-1", "hoa_addendum", Some("landscape"));
+        bad.sections.push(SchemaSection {
+            key: "s2".into(),
+            kind: "filled".into(),
+            label: "S2".into(),
+            priced: false,
+            fields: vec![SchemaField {
+                key: "f".into(),
+                kind: "text".into(),
+                label: "F".into(),
+                fill: "psychic".into(),
+                static_value: None,
+            }],
+        });
+        let err = s.save_document_schema(&bad).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid fill 'psychic'; must be one of: walk, manual, static"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn reject_zero_line_items_sections() {
+        let s = Store::open_in_memory("device-a").unwrap().with_clock(Arc::new(|| 1000));
+        let mut bad = custom_schema("custom-1", "hoa_addendum", Some("landscape"));
+        bad.sections.clear();
+        let err = s.save_document_schema(&bad).unwrap_err();
+        assert!(err.to_string().contains("exactly one line_items section (found 0)"), "got: {err}");
+        // Empty kind/label/prefix also reject.
+        let mut empty_kind = custom_schema("custom-2", " ", Some("landscape"));
+        empty_kind.kind = " ".into();
+        assert!(s.save_document_schema(&empty_kind).is_err());
+        let mut empty_prefix = custom_schema("custom-3", "hoa_addendum", Some("landscape"));
+        empty_prefix.number_prefix = "".into();
+        assert!(s.save_document_schema(&empty_prefix).is_err());
+    }
+
+    #[test]
+    fn reject_two_line_items_sections() {
+        let s = Store::open_in_memory("device-a").unwrap().with_clock(Arc::new(|| 1000));
+        let mut bad = custom_schema("custom-1", "hoa_addendum", Some("landscape"));
+        let second = bad.sections[0].clone();
+        bad.sections.push(second);
+        let err = s.save_document_schema(&bad).unwrap_err();
+        assert!(err.to_string().contains("exactly one line_items section (found 2)"), "got: {err}");
+        assert!(s.get_document_schema("custom-1").is_err(), "nothing persisted");
+    }
+
+    #[test]
+    fn valid_custom_schema_saves_and_round_trips() {
+        let s = Store::open_in_memory("device-a").unwrap().with_clock(Arc::new(|| 1000));
+        let mut schema = custom_schema("custom-hoa", "hoa_addendum", Some("landscape"));
+        schema.sections.push(SchemaSection {
+            key: "approvals".into(),
+            kind: "filled".into(),
+            label: "Approvals".into(),
+            priced: false,
+            fields: vec![SchemaField {
+                key: "hoa_no".into(),
+                kind: "text".into(),
+                label: "HOA approval #".into(),
+                fill: "walk".into(),
+                static_value: None,
+            }],
+        });
+        schema.sections.push(SchemaSection {
+            key: "terms".into(),
+            kind: "static".into(),
+            label: "Terms".into(),
+            priced: false,
+            fields: vec![SchemaField {
+                key: "terms_body".into(),
+                kind: "static".into(),
+                label: "Terms".into(),
+                fill: "static".into(),
+                static_value: Some("Valid for 30 days.".into()),
+            }],
+        });
+        let saved = s.save_document_schema(&schema).unwrap();
+        let read = s.get_document_schema("custom-hoa").unwrap();
+        assert_eq!(read, saved);
+        assert_eq!(read.sections, schema.sections, "sections round-trip through the envelope");
+        assert_eq!(read.sections[2].fields[0].static_value.as_deref(), Some("Valid for 30 days."));
     }
 }
