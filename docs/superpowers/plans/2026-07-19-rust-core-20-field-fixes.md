@@ -20,6 +20,32 @@ independently; they are one plan only to keep one PR, one bindings regen, one re
 
 ---
 
+## Rev 2 (adversarial review, 2026-07-19)
+
+Seven fixes from an adversarial review, folded into the sections they touch (voice
+preserved). No new scope — each tightens a decision the review found under-pinned:
+
+- **F1 — no `whisper_rs` type crosses the stt→ffi boundary (D6/Stage 3).** The ffi
+  crate has *zero* whisper-rs coupling today (it depends only on `stt`, and `stt`
+  re-exports `WhisperDecoder` but never `WhisperContext`). The Rev 1 warm holder
+  (`WarmStt { ctx: Arc<WhisperContext> }` in ffi) would have introduced that coupling.
+  Reworked to an **stt-OWNED opaque handle** `stt::WarmModel` — ffi holds
+  `Mutex<Option<stt::WarmModel>>` keyed by path and never names `whisper_rs`.
+- **F2 — `hydrateWalkLog` must not clobber on empty-success (D5/Stage 4/5).** A `?? `
+  fallback never fires when `listSessions` returns `[]` *successfully* — the demo
+  engine's exact case — wiping the walk log if the app-open sweep re-fires. Gated.
+- **F3 — the session-id snapshot ordering is a numbered invariant (D9/Stage 5).**
+  Nothing session-dependent moves into the paint-first block.
+- **F4 — `reopenWalk`'s Task gets a catch (D5/Stage 4).** A NotFound/tombstoned race
+  surfaces as a breadcrumb, never a silent dead tap.
+- **F5 — a reopened stale-Failed session must not show "unlocks when you reconnect"
+  (D3/D5/Stage 4).** Distinct banner string key for reopened-Failed.
+- **F6 — begin-throw cosmetic accepted-as-designed (D9/Stage 5).** Named explicitly.
+- **F7 — `WalkRecord.init(WalkSummary)` mapping pinned (D5/Stage 4).** The re-hydrate
+  fidelity loss (empty `docNo`) is documented as accepted v1.
+
+---
+
 ## Ground truth (verified against the real code on `main`)
 
 ### Half A — the read seam is genuinely absent, reconstruction already exists internally
@@ -112,6 +138,17 @@ NULL` **and** `status != 'recording'` (see D3). Reverse-chronological.
   affordances and build buttons **gated** (the exact `!notes.queued` predicate Plan 16
   clause (a) already uses), and a banner says so. `load_notes` still returns the items —
   capture is never hidden. (A retry sweep, `retryFailedSessions`, is the path to Processed.)
+  - **F5 — banner-copy semantics for a REOPENED stale-Failed session.** The fresh-finish
+    banner is `"SAVED OFFLINE — DOCUMENTS UNLOCK WHEN YOU RECONNECT"`
+    (`NotesView.swift:188`, gated purely on `notes.queued`). For a walk **reopened from the
+    board** that is *still* `queued=true`, that copy is a lie: the app-open retry sweep may
+    have already run and **exhausted** (the session stayed Failed for a real reason —
+    permanent LLM error, not transient offline), so "unlocks when you reconnect" promises a
+    recovery that reconnecting won't deliver. Pin a **distinct string key** for the
+    reopened-Failed banner (e.g. a `notesBannerReason` the reopen path sets, vs the live
+    finish path) so the two states render different copy. **The exact wording is sac's**
+    (something truthful like "couldn't finish — retrying automatically"); this plan only
+    pins that reopened-Failed MUST NOT reuse the reconnect-promise string.
 - **Recording** → **excluded** from `list_sessions` entirely. Either it is the *live* walk
   (reopening the walk you're in is nonsense) or an un-swept crash zombie (the app-open
   sweep flips it to Failed on the next launch anyway, `sweep_zombie_sessions`). Excluding it
@@ -138,24 +175,85 @@ banner). `WalkLogRow` becomes a `Button` → `model.reopenWalk(sessionId:)`, whi
 `buildDocument`/edit are engine-keyed correctly — `AppModel.swift:466,501,519` read
 `currentSessionId`), and navigates `phase = .notes; path = [.notes]`. Because the path is
 `[.notes]` (no `.walking` beneath it), **back returns to the board root, never to a live
-walk** — pinned. The board's walk log is **hydrated from `engine.listSessions()` at
-app-open** so history survives relaunch (functional-plain; `// sac:` owns row visuals,
-empty state, ordering polish). Reopen is read-only re-entry: it does NOT start a pump, does
-NOT touch `.walking`, does NOT resurrect a session.
+walk** — pinned. Reopen is read-only re-entry: it does NOT start a pump, does NOT touch
+`.walking`, does NOT resurrect a session.
+
+**F4 — `reopenWalk`'s Task gets a catch (no silent dead tap).** `loadNotes` can throw: a
+`NotFound`/tombstoned-session race (the board list was hydrated a moment ago; a concurrent
+delete/sweep could tombstone the row between hydrate and tap) surfaces as an `Err` from the
+FFI `load_notes` (`get_session` returns `NotFound` for a `deleted_at`-set row). `reopenWalk`'s
+`Task` **mirrors `buildDocument`'s error handling** (`AppModel.swift:483–487`): on throw, log
+the breadcrumb and set a new `reopenError: String?` ("Couldn't reopen that walk — it may have
+been removed.") — the board stays put, no navigation. A tap must NEVER fail silently.
+`// sac:` owns the `reopenError` chrome; the floor is the log + the breadcrumb string.
+
+**F7 — `WalkRecord.init(_ summary: WalkSummary)` mapping (pinned).** Board hydration maps each
+FFI `WalkSummary` → `WalkRecord`: `sessionId := summary.id`; `time :=` formatted from
+`summary.started_at` (the epoch-ms the summary carries — the same clock `walkStart` uses);
+`queued := summary.queued`; `sent := summary.has_document` (a built-and-kept walk reads as
+"sent"); `docKind := DocKinds.label(for: summary.doc_kind)`; **`docNo := ""` (synthesized
+empty).** The document *number* is minted per-build and is not in the lightweight projection
+(D2 carries `has_document`, not the number) — so a **re-hydrated** record loses the visible
+doc number. **This fidelity loss is accepted for v1** and documented: local *in-session*
+`WalkRecord`s (appended by `completeSend`/`discardDocument`) keep full fidelity including
+`docNo` until the next hydrate overwrites the log. (Carrying the doc number through
+`list_walk_summaries` is a possible follow-up; not scoped here.)
+
+**F2 — `hydrateWalkLog` must not clobber a good log on empty-success (guarded).** The board's
+walk log is **hydrated from `engine.listSessions()` at app-open** so history survives
+relaunch. Rev 1 wrote `sessionWalks = (try? listSessions())?.map(WalkRecord.init) ??
+sessionWalks` — but `DemoWalkEngine.listSessions` returns `[]` **successfully**, so the `??`
+never fires and the demo's in-memory walk log is **wiped** if `runAppOpenSweeps` re-fires
+(the exact re-fire the #206 guard exists for). Two guards:
+  1. **Once-per-process guard** `isHydratingWalkLog` (mirror `isRetryingFailedSessions`,
+     `AppModel.swift:102` / `AppModel+Photos.swift:150–151`) so a `.task` re-fire can't
+     re-hydrate.
+  2. **Overwrite only on non-empty OR real-core.** `hydrateWalkLog` overwrites `sessionWalks`
+     **only when the fetched list is non-empty, OR the engine is real-core** (real-core's
+     `[]` is a legitimate "no sessions yet" and should clear a stale log; the demo's `[]` is
+     a no-op stub that must not clobber). An empty result from the demo leaves the in-memory
+     log untouched.
+
+  **Demo posture (explicit):** the demo keeps its in-memory walk log (records appended by
+  `completeSend`/`discardDocument`); `DemoWalkEngine.listSessions` stays a `[]` no-op and
+  `loadNotes` returns the last demo notes or `emptyNotes`. Reopen on the demo compiles and is
+  a harmless no-op path — it never wipes the demo log.
+
+`// sac:` owns row visuals, empty state, ordering polish.
 
 ### Half B
 
-**D6 — reuse a single warmed `WhisperContext` across walks (pool-of-one).**
-`WhisperDecoder` holds `Arc<WhisperContext>` (was owned `WhisperContext`); `decode` is
-unchanged (`self.ctx.create_state()` already takes `&self`). New
-`WhisperDecoder::from_context(Arc<WhisperContext>, language, word_timestamps)` and
-`SttStream::with_context(Arc<WhisperContext>, cfg, vocab)`. The engine holds a warm holder
-`stt_warm: Mutex<Option<WarmStt>>` where `WarmStt { model_path: String, ctx:
-Arc<WhisperContext> }`. `build_stt_stream` (`engine.rs:227–247`): if a warm ctx exists for
-the current `stt_model_path`, `Arc::clone` it into `SttStream::with_context` (**no model
-load**); else cold-load via `with_model` AND populate the warm holder (warm-on-first-use).
-One walk at a time ⇒ pool-of-one is sufficient; `WhisperContext` is `Send + Sync` in
-whisper-rs 0.16 (verify in Task; the model is read-only after load, states are per-decode).
+**D6 — reuse a single warmed model across walks, via an stt-OWNED opaque handle
+(pool-of-one; NO `whisper_rs` type crosses the stt→ffi boundary — F1).** The ffi crate has
+**zero** whisper-rs coupling today: it depends only on `stt`, and `stt` re-exports
+`WhisperDecoder` but **never** `WhisperContext` (`crates/stt/src/lib.rs:16–17` gates the
+`whisper` module private; `WhisperContext` never leaves the crate). A warm holder that named
+`Arc<WhisperContext>` in ffi (Rev 1) would have *introduced* that coupling — wrong layer.
+Instead the warm model is an **opaque, stt-owned handle**:
+
+- **stt:** internally `WhisperDecoder` holds `Arc<WhisperContext>` (was owned
+  `WhisperContext`); `decode` is unchanged (`self.ctx.create_state()` already takes `&self`,
+  `whisper.rs:82`). New public opaque type **`stt::WarmModel`** (feature-gated with `whisper`
+  exactly like `WhisperDecoder` — non-whisper builds don't see it) that wraps the loaded
+  `Arc<WhisperContext>` **and does not expose it**. New
+  **`stt::load_warm_model(path: &Path, use_gpu: bool) -> Result<WarmModel, SttError>`**
+  (opens the `WhisperContext` once — the same `WhisperContext::new_with_params` `with_model`
+  runs, `whisper.rs:37–43`). New consumer
+  **`SttStream::with_warm(model: &WarmModel, cfg, vocab) -> Self`** (internally
+  `Arc::clone`s the context into a `WhisperDecoder::from_context` — **no model load**).
+  Keep `with_model` (cold path) unchanged. **Compile-assert `WarmModel: Send + Sync`**
+  behind `#[cfg(feature="whisper")]` (`const _: fn() = || { fn a<T: Send + Sync>() {}
+  a::<WarmModel>(); }`) — verified true in vendored whisper-rs 0.16.0 (`WhisperInnerContext`
+  is `unsafe impl Send`/`Sync`; the model is read-only after load, states are per-decode).
+- **ffi:** the engine holds `stt_warm: Mutex<Option<stt::WarmModel>>` **keyed by path** — ffi
+  **never names `whisper_rs`** (F1 is the correctness contract for this decision). Because the
+  handle is opaque, ffi cannot reach inside it; it only holds, matches, and hands it back to
+  `SttStream::with_warm`. (Path keying lives alongside the handle — see D8 for exactly how.)
+  `build_stt_stream` (`engine.rs:227–247`): if a warm handle exists for the current
+  `stt_model_path`, `SttStream::with_warm(&model, cfg, bias)` (**no model load**); else
+  cold-load via `with_model` AND populate the warm holder (warm-on-first-use).
+
+One walk at a time ⇒ pool-of-one is sufficient.
 
 **D7 — `warm_stt()`: app-open background warm, silent-degrade.** New engine export
 `MurmurEngine::warm_stt() -> Result<(), EngineError>` that loads the context into the warm
@@ -166,9 +264,12 @@ Swift `warmStt()` on `WalkEngine` fires it fire-and-forget from the **tail** of
 silent-degrade:** a warm failure is logged and swallowed — the next `begin` cold-loads on
 demand (today's exact behavior). Warm-up must NEVER block or crash the app.
 
-**D8 — staleness: the warm ctx is keyed by model path.** The warm holder stores the
-`model_path` it loaded. `build_stt_stream` reuses the warm ctx **only if
-`warm.model_path == self.stt_model_path`**; a mismatch (a `STT_MODEL` launch-arg swap
+**D8 — staleness: the warm handle is keyed by model path.** The warm holder stores the
+`model_path` that produced the handle **next to the opaque `WarmModel`** — ffi's own
+bookkeeping (a `struct { model_path: String, model: stt::WarmModel }`, or a
+`Mutex<Option<(String, stt::WarmModel)>>`), NOT a field ffi reaches inside the handle for
+(F1: ffi never inspects `WarmModel`). `build_stt_stream` reuses the warm handle **only if
+`stored_path == self.stt_model_path`**; a mismatch (a `STT_MODEL` launch-arg swap
 across a relaunch that somehow reuses a holder, or any future multi-path caller) discards
 and reloads. Within one process `stt_model_path` is fixed at construction, so this is a
 guard, not a hot path — but it makes the reuse provably correct against a model swap.
@@ -183,6 +284,32 @@ walking flow). `WalkView` shows a brief **"MIC STARTING…"** meta state while `
 (functional-plain string swap in the existing `MetaStrip`; `// sac:` owns styling).
 Combined with D6/D7 the common path is instant (warm ⇒ `begin` is an `Arc` clone); the
 "MIC STARTING…" state masks the residual first-ever-tap cold-load.
+
+**D9-invariant — the session-id snapshot stays strictly AFTER `begin` succeeds, inside the
+Task (F3).** Only two things move into the paint-first block: `phase = .walking` and
+`micStarting = true`. **Nothing session-dependent** moves with them. Pinned ordering inside
+the `Task { }`:
+
+1. `try engine.begin(trade:)` — if it throws, jump straight to the throw arm (log +
+   `phase = .board` + `micStarting = false`); do NOT run steps 2–4.
+2. `currentSessionId = engine.currentSessionId` — the snapshot, **strictly after** begin
+   returns Ok, while the live session still owns an id (Plan 11 D7). It must not precede
+   step 1, and it must not sit in the paint-first block.
+3. reset walk state (`transcript`/`previewTail`/`items`/`isPaused`/`walkStart`/`photos`) +
+   wire the pump/event/audio tasks.
+4. `micStarting = false`.
+
+Rationale (Plan 07 dead-walk): STT/audio must never wire onto a session that `begin` didn't
+successfully open — a dead session would run the pump and silently drop every append
+(capture loss). The snapshot and all wiring are session-dependent, so they live *after* the
+begin gate, never in the paint-first block.
+
+**F6 — accepted cosmetic (as-designed).** On a begin-throw, the screen briefly painted
+`.walking`/"MIC STARTING…" and then reverts to `.board` with the error breadcrumb (a visible
+flash-to-walking-then-back). This is accepted: begin-throw is the rare offline/permission
+edge, the revert is immediate, and the alternative (gate the paint on begin success) throws
+away the entire perceived-latency win of D9 for the common case. Stated so a future reviewer
+doesn't "fix" the flash by re-serializing the paint behind `begin`.
 
 **D10 — memory pressure: holding `base.en` resident is intended, documented.** The whole
 app is on-device STT; keeping the ~140 MB `base.en` context resident after warm is the
@@ -281,7 +408,7 @@ App-open, GalleryApp .task:
 [main] runAppOpenSweeps()  (sweepPhotoBytes, sweepZombieSessions — SYNC, #185)  ← unchanged, first
 [main]   retryFailedSessionsInBackground()   → Task (not awaited)
 [main]   warmSttInBackground()               → Task (not awaited)         ← NEW, AFTER the sync sweeps
-[bg-ish]   engine.warmStt() → load WhisperContext into warm holder (once)  ← T_load paid here, off the tap
+[bg-ish]   engine.warmStt() → load_warm_model → stt::WarmModel into warm holder (once)  ← T_load paid here, off the tap
 
 Tap:
 [main] tap → startWalk → (perm) → beginWalk
@@ -289,8 +416,9 @@ Tap:
 [main]   SwiftUI renders "MIC STARTING…"                 ← perceived latency = 0
 [main]   Task { }  (yields first)
 [main]     try engine.begin(trade:) → build_stt_stream
-[main]       warm holder present & path matches → Arc::clone(ctx)  ← O(1), no model load
-[main]       SttStream::with_context → returns fast
+[main]       warm holder present & path matches → SttStream::with_warm(&WarmModel)  ← O(1), no model load
+[main]         (WarmModel internally Arc::clones its ctx — opaque to ffi, F1)
+[main]     currentSessionId = engine.currentSessionId  (AFTER begin Ok — D9-invariant)
 [main]     wire pump/event tasks; micStarting = false
 ```
 Common path: main-actor block ≈ `Arc::clone` ≈ 0. First-ever tap before warm finishes:
@@ -390,23 +518,31 @@ Half B = Stages 3,5; Stage 6 gates both.
 
 ### Stage 3 — stt + ffi Half B core: context reuse + `warm_stt` (stt, ffi; D6/D7/D8/D10)
 
-- **stt:** `WhisperDecoder.ctx: Arc<WhisperContext>`; add
-  `WhisperDecoder::from_context(Arc<WhisperContext>, language, use... , word_timestamps)`;
-  `SttStream::with_context(Arc<WhisperContext>, cfg, vocab) -> Self`. Keep `with_model`
-  (cold path). **Verify `WhisperContext: Send + Sync`** (0.16) — a `const _: fn() = || { fn
-  assert<T: Send + Sync>() {} assert::<WhisperContext>(); }` compile-assert behind
-  `#[cfg(feature="whisper")]`.
-- **ffi:** engine holds `stt_warm: Mutex<Option<WarmStt>>` (`WarmStt { model_path: String,
-  ctx: Arc<WhisperContext> }`, feature-gated). `build_stt_stream` (`engine.rs`): if warm &&
-  `model_path == stt_model_path` → `SttStream::with_context(Arc::clone(ctx), cfg, bias)`;
-  else `with_model` then store the freshly loaded ctx into `stt_warm` (warm-on-first-use).
-  New `#[uniffi::export] MurmurEngine::warm_stt() -> Result<(), EngineError>` — loads into
-  the holder if absent/stale (idempotent); `None` model path → `Ok(())` no-op (text-only).
-  Non-whisper build → `warm_stt` = `Ok(())`, holder absent.
+- **stt (owns the opaque handle — F1):** `WhisperDecoder.ctx: Arc<WhisperContext>` (internal);
+  add `WhisperDecoder::from_context(Arc<WhisperContext>, language, use_gpu?, word_timestamps)`
+  (internal). Add the public opaque **`stt::WarmModel`** (feature-gated with `whisper`; wraps
+  the `Arc<WhisperContext>` and does **not** expose it), **`stt::load_warm_model(path: &Path,
+  use_gpu: bool) -> Result<WarmModel, SttError>`**, and **`SttStream::with_warm(model:
+  &WarmModel, cfg, vocab) -> Self`** (internally `Arc::clone`s into `from_context` — no model
+  load). Keep `with_model` (cold path). **Compile-assert `WarmModel: Send + Sync`** behind
+  `#[cfg(feature="whisper")]` — `const _: fn() = || { fn a<T: Send + Sync>() {} a::<WarmModel>();
+  }` (true in vendored 0.16.0: `WhisperInnerContext` is `unsafe impl Send`/`Sync`). **No
+  `whisper_rs` type is public** — `WhisperContext` stays crate-private.
+- **ffi (never names `whisper_rs` — F1):** engine holds `stt_warm: Mutex<Option<(String,
+  stt::WarmModel)>>` (or an equivalent `struct { model_path: String, model: stt::WarmModel }`),
+  feature-gated on `whisper`; the `String` is ffi's own path bookkeeping (D8), **not** a field
+  read out of the opaque handle. `build_stt_stream` (`engine.rs`): if warm && stored
+  `model_path == stt_model_path` → `SttStream::with_warm(&model, cfg, bias)`; else `with_model`
+  then store `(stt_model_path.clone(), load_warm_model(...)?)` into `stt_warm`
+  (warm-on-first-use). New `#[uniffi::export] MurmurEngine::warm_stt() -> Result<(),
+  EngineError>` — loads into the holder if absent/stale (idempotent); `None` model path →
+  `Ok(())` no-op (text-only). Non-whisper build → `warm_stt` = `Ok(())`, holder absent.
+  **Compile-check the F1 contract:** a `grep -R "whisper_rs\|WhisperContext" crates/ffi/src`
+  must return **nothing** after this stage.
 - **Tests:** `warm_stt_is_idempotent` (two calls, holder loaded once — assert via a load
   counter or path-match no-op); `build_stt_stream_reuses_warm_ctx` (feature-gated,
   `#[ignore]` needing a real model like the existing `real_model_decodes_silence`, or a
-  seam test asserting `with_context` is taken when warm present); `warm_stt_none_model_is_ok`;
+  seam test asserting `with_warm` is taken when warm present); `warm_stt_none_model_is_ok`;
   `warm_ctx_invalidated_on_model_path_change` (D8 — swap the holder's `model_path`, assert
   reload). Where a real model is unavailable in CI, gate on the seam (which constructor was
   called) via a test double, not on decoding.
@@ -423,17 +559,33 @@ Half B = Stages 3,5; Stage 6 gates both.
   `Self.notes(payload)` for `loadNotes`; new `Self.walkSummary(_:)` in
   `MurmurEngineFormatting.swift`).
 - **`AppModel.swift`:** `WalkRecord` gains `sessionId: String` + `queued: Bool`; populate
-  at `completeSend`/`discardDocument` from `currentSessionId` and the notes' `queued`.
-  Add `func hydrateWalkLog()` (called from the app-open path) → `sessionWalks =
-  (try? engine.listSessions())?.map(WalkRecord.init) ?? sessionWalks`. Add `func
-  reopenWalk(sessionId:)` → `Task { notes = try await engine.loadNotes(sessionId:);
-  currentSessionId = sessionId; phase = .notes; path = [.notes] }` (guard against a live
-  walk: only from `.board`). Change the post-edit paths (`AppModel.swift:501–537`) to
+  at `completeSend`/`discardDocument` from `currentSessionId` and the notes' `queued`. Add
+  **`WalkRecord.init(_ summary: WalkSummary)`** (F7 mapping: `sessionId := summary.id`,
+  `time` from `summary.started_at`, `queued := summary.queued`, `sent := summary.has_document`,
+  `docKind := DocKinds.label(for: summary.doc_kind)`, **`docNo := ""`** — the doc number isn't
+  in the projection; re-hydrate fidelity loss accepted v1, in-session records keep full
+  fidelity until the next hydrate).
+  Add `func hydrateWalkLog()` (called from the app-open path) — **guarded (F2):** a
+  once-per-process `isHydratingWalkLog` flag (mirror `isRetryingFailedSessions`), and it
+  overwrites `sessionWalks` **only when the fetched list is non-empty OR the engine is
+  real-core** (never let the demo's successful `[]` clobber the in-memory log — the `??`
+  fallback doesn't catch empty-success). Add `func reopenWalk(sessionId:)` →
+  `Task { do { notes = try await engine.loadNotes(sessionId:); currentSessionId = sessionId;
+  phase = .notes; path = [.notes] } catch { log + reopenError = "Couldn't reopen that walk…" } }`
+  (F4: mirror `buildDocument`'s catch, `AppModel.swift:483–487` — a NotFound/tombstoned race is
+  a breadcrumb, never a silent dead tap; guard against a live walk: only from `.board`). Add
+  `var reopenError: String?`. Change the post-edit paths (`AppModel.swift:501–537`) to
   **re-read via `loadNotes` after a successful mutation** instead of patching `notes.items`
   in place (D4).
 - **`BoardView.swift`:** `WalkLogRow` → `Button { model.reopenWalk(sessionId: walk.sessionId) }
   label: { … existing row … }.buttonStyle(.plain)`. `// sac:` marker for the reopen
   affordance visuals + the reopened banner.
+- **`NotesView.swift`:** the offline banner (`NotesView.swift:188`, gated on `notes.queued`)
+  must render **distinct copy for a REOPENED stale-Failed session** vs a fresh offline finish
+  (F5): a reopened `queued=true` walk must NOT show "DOCUMENTS UNLOCK WHEN YOU RECONNECT" (a
+  lie post-retry-exhaustion). Wire a distinct string key (e.g. a `notesBannerReason` the
+  `reopenWalk` path sets) so the two states diverge; **copy wording is sac's**. `// sac:`
+  marker on the reopened-Failed banner string.
 - **Tests / build:** iOS demo build green (`xcodegen generate` + simulator build); demo
   engine reopen is a no-op path (compiles, doesn't crash). *(Real reopen is exercised at the
   Stage 6 gate.)*
@@ -449,9 +601,17 @@ Half B = Stages 3,5; Stage 6 gates both.
   ("never before the synchronous sweeps"). Also call `hydrateWalkLog()` here (safe: read-only
   list, no session mutation).
 - **`AppModel.swift`:** add `var micStarting = false`. Reorder `beginWalk`: set
-  `phase = .walking; micStarting = true` + reset walk state FIRST, then `Task { }` (yields)
-  that runs `try engine.begin`, wires pump/event tasks, `micStarting = false`; on throw →
-  log + `phase = .board` (preserve the stay-on-board posture) + `micStarting = false`.
+  **only** `phase = .walking; micStarting = true` FIRST (the paint-first block — nothing
+  session-dependent here), then a `Task { }` (yields) that runs the D9-invariant ordering
+  **strictly**: (1) `try engine.begin`; (2) `currentSessionId = engine.currentSessionId`
+  **after** begin returns Ok; (3) reset walk state (`transcript`/`previewTail`/`items`/
+  `isPaused`/`walkStart`/`photos`) + wire pump/event/audio tasks; (4) `micStarting = false`.
+  On throw → log + `phase = .board` (preserve the stay-on-board posture) + `micStarting =
+  false`, and do NOT run steps 2–4 (no STT/audio wiring on a dead session — Plan 07). **The
+  session-id snapshot and all wiring MUST NOT move into the paint-first block** (F3). **F6
+  accepted cosmetic:** on begin-throw the screen briefly painted `.walking`/"MIC STARTING…"
+  then reverts to `.board` with the error — accepted as-designed (do not re-serialize the
+  paint behind `begin`, which would forfeit the D9 win).
 - **`WalkView.swift`:** the `MetaStrip` `right` shows `"MIC STARTING…"` while
   `model.micStarting`, else the existing "REC — ON-DEVICE STT". `// sac:` marker for the
   starting-state styling.
@@ -505,9 +665,10 @@ regenerating, not by hand-merging generated files.
    the log survives relaunch (Stage 6 smoke).
 4. The Plan 16 clause-(b) contract text names `loadNotes(sessionId:)` as the sanctioned
    post-edit fresh read, and the notes screen re-reads via it after an edit (D4).
-5. One warmed `WhisperContext` is reused across walks (no per-walk `new_with_params` when
-   warm); `warm_stt()` fires app-open, fire-and-forget, AFTER the synchronous sweeps (#185
-   preserved); warm failure silent-degrades to cold-load.
+5. One warmed model is reused across walks (no per-walk `new_with_params` when warm) via the
+   stt-owned opaque `stt::WarmModel` — `grep -R "whisper_rs\|WhisperContext" crates/ffi/src`
+   returns nothing (F1); `warm_stt()` fires app-open, fire-and-forget, AFTER the synchronous
+   sweeps (#185 preserved); warm failure silent-degrades to cold-load.
 6. The START WALK tap paints the walk screen before `begin` completes ("MIC STARTING…"),
    and the common (warm) path starts instantly (WE-D; Stage 6 smoke).
 
@@ -515,11 +676,15 @@ regenerating, not by hand-merging generated files.
 
 - **R1 — `load_notes`/`partial_notes` funnel drift.** Mitigated by extracting ONE shared
   `notes_payload_from_store` that both call; WE-A equality test is the regression guard.
-- **R2 — `WhisperContext` not `Send + Sync` / unsafe to share across the pump thread.**
-  Mitigated by the compile-assert (Stage 3) and the pool-of-one (one walk at a time). If it
-  fails to compile, fall back to warm-only-of-the-model-*bytes* (mmap cache) — but 0.16
-  `create_state(&self)` strongly implies shareable. Rollback: drop D6 reuse, keep D7 warm +
-  D9 decouple (still fixes the perceived latency; loses the per-walk-reload win).
+- **R2 — `stt::WarmModel` (wrapping `WhisperContext`) not `Send + Sync` / unsafe to share
+  across the pump thread.** Mitigated by the `WarmModel: Send + Sync` compile-assert (Stage 3,
+  verified true in vendored 0.16.0 — `WhisperInnerContext` is `unsafe impl Send`/`Sync`) and
+  the pool-of-one (one walk at a time). If it fails to compile, fall back to
+  warm-only-of-the-model-*bytes* (mmap cache) — but 0.16 `create_state(&self)` strongly
+  implies shareable. Rollback: drop D6 reuse, keep D7 warm + D9 decouple (still fixes the
+  perceived latency; loses the per-walk-reload win). The opaque-handle boundary (F1) is
+  independent of this risk: even the byte-cache fallback stays inside `stt` and keeps ffi
+  free of `whisper_rs`.
 - **R3 — warm ctx staleness on model swap.** Mitigated by the path-keyed holder (D8).
 - **R4 — `hydrateWalkLog()` at app-open racing a live walk.** It is read-only
   (`list_sessions` mutates nothing) and runs at the same quiescent app-open point as the
