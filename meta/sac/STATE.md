@@ -18,10 +18,12 @@ This is the critical path to putting Jefe in front of real testers. All are
   plain words (no "AI/transcript/extraction" anywhere):
   - **#236 intro** — payoff-first welcome ("Say it out loud. Get the paperwork.")
     + 3 "how it works" beats (Walk & talk / Fix anything / One tap → paperwork),
-    each with a mini phone visual. Also carries a **privacy-copy accuracy fix**:
-    mic sub-header "EVERYTHING TRANSCRIBES ON YOUR PHONE" → "YOUR AUDIO STAYS ON
-    YOUR PHONE" — the transcript text DOES go to the LLM, so this now matches the
-    website Privacy Policy (audio local; text → AI to build the paperwork).
+    each with a mini phone visual. **Privacy-copy accuracy fix now on main via
+    #246** (merged): mic sub-header "EVERYTHING TRANSCRIBES ON YOUR PHONE" →
+    "YOUR AUDIO STAYS ON YOUR PHONE" — the transcript text DOES go to the LLM, so
+    this matches the website Privacy Policy (audio local; text → AI). (It had
+    stranded on #236's branch — committed after #236 merged — so it's re-applied
+    directly; nothing needed from you, just noting it's in the tree for the tag.)
   - **#237 coach marks** — one-shot amber callouts on START WALK (board) + DONE
     (walk); non-blocking (target stays tappable), `@AppStorage`-gated
     (`resetcoach=1` re-arms; autoflow marks them shown).
