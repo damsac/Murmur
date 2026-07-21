@@ -10,6 +10,9 @@ import UIKit
 // pending dam's core answers.
 struct LetterheadStudioView: View {
     @Bindable var model: AppModel
+    /// When embedded in the My Business sheet, drop this screen's own header —
+    /// the container provides a shared header + tab bar.
+    let embedded: Bool
     @Environment(\.dismiss) private var dismiss
     @State private var draft: Branding
     @State private var draftProfile: BusinessProfile
@@ -19,8 +22,9 @@ struct LetterheadStudioView: View {
     @State private var pickedLogoData: Data?
     @State private var draftLayout: DocumentLayout
 
-    init(model: AppModel) {
+    init(model: AppModel, embedded: Bool = false) {
         self.model = model
+        self.embedded = embedded
         _draft = State(initialValue: model.branding)
         _draftLayout = State(initialValue: model.documentLayout)
         // The letterhead's business identity (name / city / license) is set at
@@ -47,7 +51,7 @@ struct LetterheadStudioView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            if !embedded { header }
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     preview
