@@ -44,6 +44,12 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         NSMicrophoneUsageDescription: "Jefe records your walk-and-talk so it can turn it into paperwork."
+        # Keep recording when the screen locks / the phone is pocketed. Without
+        # this, iOS suspends the app on lock and the mic goes silent mid-walk —
+        # which breaks the core "press record, pocket the phone, keep walking"
+        # flow. Paired with the `.record` AVAudioSession in AudioCaptureSource.
+        UIBackgroundModes:
+          - audio
         NSCameraUsageDescription: "Photos you take during a walk pin to the item you're describing and land in the finished document."
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
