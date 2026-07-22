@@ -9,6 +9,8 @@ import SwiftUI
 
 struct VocabularyView: View {
     @Bindable var model: AppModel
+    /// When embedded in the My Business sheet, drop this screen's own header.
+    var embedded: Bool = false
     @State private var newTerm = ""
     @FocusState private var fieldFocused: Bool
 
@@ -16,21 +18,23 @@ struct VocabularyView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header
-            VStack(alignment: .leading, spacing: 4) {
-                SectionLabel("FIELD VOCABULARY", color: Theme.C.orangeDeep)
-                Text("Teach the mic your jargon")
-                    .font(Theme.F.ui(22, .bold))
-                Text("NAMES, PLANTS, PART NUMBERS — WALKS HEAR THEM BETTER")
-                    .font(Theme.F.mono(8.5))
-                    .tracking(0.8)
-                    .foregroundStyle(Theme.C.ink60)
-                    .padding(.top, 1)
+            // Header (dropped when embedded — the My Business sheet supplies one)
+            if !embedded {
+                VStack(alignment: .leading, spacing: 4) {
+                    SectionLabel("FIELD VOCABULARY", color: Theme.C.orangeDeep)
+                    Text("Teach the mic your jargon")
+                        .font(Theme.F.ui(22, .bold))
+                    Text("NAMES, PLANTS, PART NUMBERS — WALKS HEAR THEM BETTER")
+                        .font(Theme.F.mono(8.5))
+                        .tracking(0.8)
+                        .foregroundStyle(Theme.C.ink60)
+                        .padding(.top, 1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Theme.S.screenPad)
+                .padding(.top, 18)
+                .padding(.bottom, 14)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, Theme.S.screenPad)
-            .padding(.top, 18)
-            .padding(.bottom, 14)
 
             MetaStrip(
                 left: "TERMS \(model.vocabulary.count) / \(cap)",

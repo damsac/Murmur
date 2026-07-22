@@ -8,8 +8,7 @@ struct BoardView: View {
     @Bindable var model: AppModel
     // sac: entry point + presentation (sheet vs. a new AppModel.Phase) is your
     // call; a gear → .sheet is a functional default, not a design decision.
-    @State private var showVocabulary = false
-    @State private var showLetterhead = false
+    @State private var showCustomize = false
     // First-run coach mark, one-shot (survives relaunch). Cleared by resetcoach=1.
     @AppStorage(CoachMarks.startWalkKey) private var coachStartShown = false
 
@@ -24,57 +23,23 @@ struct BoardView: View {
                         .tracking(2.0)
                         .foregroundStyle(Theme.C.orangeDeep)
                     Spacer()
-                    // Input-mode chip: VOICE (the product) vs DEMO (the canned
-                    // walk — graduates into onboarding). Tap to toggle;
-                    // launch-arg-forced modes lock it.
-                    Button { model.toggleMode() } label: {
-                        Text(model.walkMode == .voice ? "MIC · VOICE" : "DEMO WALK")
-                            .font(Theme.F.mono(8, .semibold))
-                            .tracking(1.0)
-                            .foregroundStyle(model.walkMode == .voice ? Theme.C.greenTag : Theme.C.yellowTag)
-                            .padding(.horizontal, 6)
-                            .padding(.top, 3)
-                            .padding(.bottom, 2)
-                            .background(model.walkMode == .voice ? Theme.C.greenTint : Theme.C.yellowTint)
-                            .padding(6)
-                            .contentShape(Rectangle())
+                    // Input mode is voice-only for users; the DEMO toggle was a
+                    // dev affordance (still reachable via the `demo=1` launch arg
+                    // for QA/screenshots) — removed from the board per Isaac.
+                    // One clear entry for making the app yours — replaces two
+                    // cryptic chips (VOCAB + PAPER). A raised amber block (same
+                    // pressed-block grammar as START WALK) so it reads as a
+                    // button; opens the two-tab PAPERWORK / WORDS sheet.
+                    Button { showCustomize = true } label: {
+                        raisedChip(face: Theme.C.orange, edge: Theme.C.orangeDeep) {
+                            Text("MY BUSINESS")
+                                .font(Theme.F.ui(11, .bold))
+                                .tracking(0.5)
+                                .foregroundStyle(Theme.C.onOrange)
+                        }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .padding(-6)
-                    .opacity(model.modeLocked ? 0.5 : 1)
-                    .disabled(model.modeLocked)
-                    // Vocabulary entry: a stamped chip in the tag grammar —
-                    // this is a field tool, not settings, so no gear. Padding
-                    // widens the tap target without growing the stamp.
-                    Button { showVocabulary = true } label: {
-                        Text("VOCAB")
-                            .font(Theme.F.mono(8, .semibold))
-                            .tracking(1.0)
-                            .foregroundStyle(Theme.C.ink60)
-                            .padding(.horizontal, 6)
-                            .padding(.top, 3)
-                            .padding(.bottom, 2)
-                            .background(Theme.C.paperDeep)
-                            .padding(6)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(-6)
-                    // Letterhead / paperwork branding — same stamp grammar.
-                    Button { showLetterhead = true } label: {
-                        Text("PAPER")
-                            .font(Theme.F.mono(8, .semibold))
-                            .tracking(1.0)
-                            .foregroundStyle(Theme.C.ink60)
-                            .padding(.horizontal, 6)
-                            .padding(.top, 3)
-                            .padding(.bottom, 2)
-                            .background(Theme.C.paperDeep)
-                            .padding(6)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(-6)
                 }
                 if let profile = model.profile {
                     // Operator mode: the board carries THEIR business. Trade
@@ -227,18 +192,101 @@ struct BoardView: View {
         .animation(.easeOut(duration: 0.25), value: coachStartShown)
         .background(Theme.C.paper.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
-        .sheet(isPresented: $showVocabulary) {
-            VocabularyView(model: model)
+        .sheet(isPresented: $showCustomize) {
+            CustomizeView(model: model)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationBackground(Theme.C.paper)
         }
-        .sheet(isPresented: $showLetterhead) {
-            LetterheadStudioView(model: model)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-                .presentationBackground(Theme.C.paper)
+    }
+}
+
+// MARK: - Raised chip (clickable header buttons)
+
+/// A compact "pressed block" — the START WALK button's raised look, chip-sized:
+/// a `face` cap sitting on a darker `edge` lip (3pt) so it reads as a button, not
+/// a flat label. Same depth cue as the primary block button, scaled down.
+@ViewBuilder
+private func raisedChip<L: View>(face: Color, edge: Color, @ViewBuilder _ label: () -> L) -> some View {
+    label()
+        .padding(.horizontal, 11)
+        .padding(.vertical, 6)
+        .background(face)
+        .padding(.bottom, 3)      // reveal the darker edge as a bottom lip
+        .background(edge)
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+}
+
+// MARK: - My Business (customization sheet)
+
+/// One sheet, two tabs — the single "MY BUSINESS" entry from the board (replaces
+/// the two cryptic VOCAB / PAPER chips). PAPERWORK (logo / colors / letterhead —
+/// the key differentiator) is shown first; WORDS is the former vocabulary editor.
+/// Wraps the two existing screens in `embedded` mode so they drop their own
+/// headers and share this one.
+struct CustomizeView: View {
+    @Bindable var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var tab: Tab = .paperwork
+    private enum Tab { case paperwork, words }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("MY BUSINESS")
+                    .font(Theme.F.mono(9, .semibold)).tracking(2.0)
+                    .foregroundStyle(Theme.C.orangeDeep)
+                Spacer()
+                Button { dismiss() } label: {
+                    Text("CLOSE")
+                        .font(Theme.F.mono(9, .semibold)).tracking(1.0)
+                        .foregroundStyle(Theme.C.ink60)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, Theme.S.screenPad)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
+
+            HStack(spacing: 0) {
+                tabButton("PAPERWORK", .paperwork)
+                tabButton("WORDS", .words)
+            }
+
+            // Both tabs stay ALIVE (ZStack + opacity), not a `switch` that
+            // tears the inactive branch down. LetterheadStudioView holds its
+            // edits in @State draft (name/color/logo/terms) committed only on
+            // SAVE — a `switch` would destroy that draft on every tab hop,
+            // silently losing uncommitted letterhead edits (review #247). The
+            // hidden tab is non-interactive so it can't steal touches.
+            ZStack {
+                LetterheadStudioView(model: model, embedded: true)
+                    .opacity(tab == .paperwork ? 1 : 0)
+                    .allowsHitTesting(tab == .paperwork)
+                VocabularyView(model: model, embedded: true)
+                    .opacity(tab == .words ? 1 : 0)
+                    .allowsHitTesting(tab == .words)
+            }
         }
+        .background(Theme.C.paper.ignoresSafeArea())
+    }
+
+    private func tabButton(_ label: String, _ t: Tab) -> some View {
+        let on = tab == t
+        return Button { tab = t } label: {
+            Text(label)
+                .font(Theme.F.ui(13.5, .bold)).tracking(0.8)
+                .foregroundStyle(on ? Theme.C.ink : Theme.C.ink35)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 13)
+                // Each tab draws its own bottom rule so the bar reads as one
+                // line with the active tab picked out in amber.
+                .overlay(alignment: .bottom) {
+                    (on ? Theme.C.orange : Theme.C.ink).frame(height: on ? 3 : 2)
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
