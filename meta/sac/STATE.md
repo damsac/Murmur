@@ -14,8 +14,14 @@ What sac is working on right now. Updated with every PR.
 intro, #237 coach marks, #235 dark-mode, #239 rename→Jefe, #246 privacy-accuracy
 fix — plus your core (#242–#245 DocumentSchema seam / walk-reopen / whisper
 warm-up). `main` builds + ships as **Jefe** (verified on-sim end-to-end: onboarding
-→ walk → live extraction → paperwork). **The only thing left for the first public
-beta is tagging the external build (see THE ASK).** The stack detail, for
+→ walk → live extraction → paperwork).
+
+**⛳ FINAL v1.1.0 BLOCKER — merge #248, then tag.** #248 (`pr/sac/background-audio`,
+MERGEABLE) is the pocket-recording fix: a walk was discarded when the phone slept
+mid-recording. Adds the `audio` background mode + keeps the screen awake during a
+walk (Isaac confirmed on-device that the walk now survives). It's the last piece —
+**merge #248, then `git tag v1.1.0 && git push origin v1.1.0`** (see THE ASK) and
+the external candidate is ready for Isaac to submit. The stack detail, for
 reference:
 
 - **Onboarding set** — teach a historically non-technical crew by *showing*, in
