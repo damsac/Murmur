@@ -27,35 +27,32 @@ struct BoardView: View {
                     // walk — graduates into onboarding). Tap to toggle;
                     // launch-arg-forced modes lock it.
                     Button { model.toggleMode() } label: {
-                        Text(model.walkMode == .voice ? "MIC · VOICE" : "DEMO WALK")
-                            .font(Theme.F.mono(8, .semibold))
-                            .tracking(1.0)
-                            .foregroundStyle(model.walkMode == .voice ? Theme.C.greenTag : Theme.C.yellowTag)
-                            .padding(.horizontal, 6)
-                            .padding(.top, 3)
-                            .padding(.bottom, 2)
-                            .background(model.walkMode == .voice ? Theme.C.greenTint : Theme.C.yellowTint)
-                            .padding(6)
-                            .contentShape(Rectangle())
+                        raisedChip(
+                            face: model.walkMode == .voice ? Theme.C.greenTint : Theme.C.yellowTint,
+                            edge: model.walkMode == .voice ? Theme.C.greenTag : Theme.C.yellowTag
+                        ) {
+                            Text(model.walkMode == .voice ? "MIC · VOICE" : "DEMO WALK")
+                                .font(Theme.F.mono(8, .semibold))
+                                .tracking(1.0)
+                                .foregroundStyle(model.walkMode == .voice ? Theme.C.greenTag : Theme.C.yellowTag)
+                        }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .padding(-6)
                     .opacity(model.modeLocked ? 0.5 : 1)
                     .disabled(model.modeLocked)
                     // One clear entry for making the app yours — replaces two
-                    // cryptic chips (VOCAB + PAPER) that Isaac (rightly) found
-                    // opaque. Amber-outlined so it reads as "set this up"; opens
-                    // a two-tab sheet: PAPERWORK (logo/colors/letterhead) + WORDS.
+                    // cryptic chips (VOCAB + PAPER). A raised amber block (same
+                    // pressed-block grammar as START WALK) so it reads as a
+                    // button; opens the two-tab PAPERWORK / WORDS sheet.
                     Button { showCustomize = true } label: {
-                        Text("MY BUSINESS")
-                            .font(Theme.F.ui(11, .bold))
-                            .tracking(0.5)
-                            .foregroundStyle(Theme.C.orangeDeep)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Theme.C.orangeTint)
-                            .overlay(Rectangle().stroke(Theme.C.orange, lineWidth: 1.5))
-                            .contentShape(Rectangle())
+                        raisedChip(face: Theme.C.orange, edge: Theme.C.orangeDeep) {
+                            Text("MY BUSINESS")
+                                .font(Theme.F.ui(11, .bold))
+                                .tracking(0.5)
+                                .foregroundStyle(Theme.C.onOrange)
+                        }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
@@ -217,6 +214,22 @@ struct BoardView: View {
                 .presentationBackground(Theme.C.paper)
         }
     }
+}
+
+// MARK: - Raised chip (clickable header buttons)
+
+/// A compact "pressed block" — the START WALK button's raised look, chip-sized:
+/// a `face` cap sitting on a darker `edge` lip (3pt) so it reads as a button, not
+/// a flat label. Same depth cue as the primary block button, scaled down.
+@ViewBuilder
+private func raisedChip<L: View>(face: Color, edge: Color, @ViewBuilder _ label: () -> L) -> some View {
+    label()
+        .padding(.horizontal, 11)
+        .padding(.vertical, 6)
+        .background(face)
+        .padding(.bottom, 3)      // reveal the darker edge as a bottom lip
+        .background(edge)
+        .clipShape(RoundedRectangle(cornerRadius: 5))
 }
 
 // MARK: - My Business (customization sheet)
