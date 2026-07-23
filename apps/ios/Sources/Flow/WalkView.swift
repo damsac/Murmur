@@ -150,7 +150,11 @@ struct WalkView: View {
             guard let newValue else { return }
             Task {
                 if let data = try? await newValue.loadTransferable(type: Data.self) {
-                    model.addPhoto(data)
+                    // Downsample off the main actor before storing (same OOM
+                    // guard as the camera path — a full-res library image is
+                    // just as heavy).
+                    let jpeg = await Task.detached { PhotoDownsize.jpeg(fromData: data) }.value
+                    model.addPhoto(jpeg)
                 }
                 pickerItem = nil
             }
