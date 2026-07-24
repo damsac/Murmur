@@ -29,11 +29,14 @@ build is firing now):**
 - **#251 worse ACCURACY = base.en.** The external build shipped **base.en**;
   earlier local builds used **small.en** (spike-validated better WER). Re-promoted
   small.en in all 3 spots (release.yml / EngineResolution / generate.sh).
-  **⚠️ YOUR-DOMAIN CAVEAT:** small.en was demoted 2026-07-10 for felt lag on the
-  iPhone 16e — but that predates your Plan 20 warm-up (#245). Isaac is re-testing
-  live RTF on device; if it lags, one-line revert to base.en. If small.en still
-  lags with the warm-up, that's a core/perf question for you (faster small model?
-  decode params?).
+  **RESOLVED — small.en STAYS.** Isaac tested on-device (2026-07-23): accuracy is
+  the clear win, and the only downside now is the **live transcript DISPLAY lags a
+  touch** — "just the text lagging," capture/accuracy unaffected, and he's fine
+  with it ("rather accurate than fast"). So the 07-10 lag concern is much smaller
+  post-warm-up (#245). **Optional core follow-ups (not urgent, your domain):** (a)
+  the on-screen transcript trail is cosmetic — could smooth if you ever want; (b)
+  worth a sanity check that a LONG (~30-min) pocket walk's DONE isn't slow if
+  small.en runs sub-real-time and the audio backlogs. Neither blocks anything.
 
 ### 1. Cut the `v1.1.0` external build — the stack is MERGED, `main` is READY
 
