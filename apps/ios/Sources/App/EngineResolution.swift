@@ -83,8 +83,9 @@ func resolveSttKnobs(_ args: [String]) -> SttKnobs {
 /// (superseded by the in-app mode chip — this now only reports an EXPLICIT
 /// arg; absent args defer to the user's persisted choice in AppModel.)
 /// scripted on sim (Metal STT SIGTRAPs on MTLSimDevice; QA assumes scripted),
-/// **live** on device. CAVEAT: small.en caused felt lag on iPhone 16e (sac,
-/// 2026-07-10); base.en is now default — `sttmodel=small.en`/`live=0` opts back in.
+/// **live** on device. NOTE: small.en is the default again (2026-07-23,
+/// accuracy) after a brief base.en demotion for lag — `sttmodel=base.en` opts
+/// back to the faster model if live RTF lags on a slower device.
 func resolveLive(_ args: [String]) -> Bool? {
     if args.contains("live=1") { return true }
     if args.contains("live=0") { return false }
@@ -92,10 +93,13 @@ func resolveLive(_ args: [String]) -> Bool? {
 }
 
 /// Resolves the bundled whisper model path from the `sttmodel=base.en|small.en`
-/// launch arg (default **base.en**). small.en (spike-validated on every
-/// measured WER/hallucination axis, `spikes/stt-whisper/RESULTS.md`) was
-/// DEMOTED 2026-07-10 after real-device lag on iPhone 16e — `sttmodel=
-/// small.en` (or `STT_MODEL=small.en` before `./generate.sh`) opts back in.
+/// launch arg (default **small.en**). small.en is spike-validated better on
+/// every measured WER/hallucination axis (`spikes/stt-whisper/RESULTS.md`); it
+/// was briefly demoted to base.en 2026-07-10 for felt lag on iPhone 16e, then
+/// RE-PROMOTED 2026-07-23 after a field tester reported worse transcription on
+/// the base.en external build — accuracy is the product. (The Plan 20 warm-up
+/// #245 also landed since the lag finding.) `sttmodel=base.en` opts back to
+/// the faster model if live RTF lags on a slower device.
 ///
 /// Falls back to whichever model IS bundled if the requested one isn't
 /// present — same "degrade, never crash" posture as the rest of engine
@@ -103,7 +107,7 @@ func resolveLive(_ args: [String]) -> Bool? {
 func resolveSttModelPath(_ args: [String]) -> String? {
     let requested = args
         .first(where: { $0.hasPrefix("sttmodel=") })
-        .map { String($0.dropFirst("sttmodel=".count)) } ?? "base.en"
+        .map { String($0.dropFirst("sttmodel=".count)) } ?? "small.en"
     let fallback = requested == "base.en" ? "small.en" : "base.en"
     for name in [requested, fallback] {
         if let path = Bundle.main.path(forResource: "ggml-\(name)-q5_1", ofType: "bin") {

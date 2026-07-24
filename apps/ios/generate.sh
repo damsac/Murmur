@@ -76,11 +76,11 @@ EOF
 # at every measured SNR, ~free RTF headroom on the Mac proxy) but DEMOTED
 # 2026-07-10 after real-device lag on iPhone 16e (sac's felt-lag datapoint —
 # the T5 device tier the Mac-proxy numbers couldn't answer; CANON 2026-07-10).
-# Default model is back to base.en — override with STT_MODEL=small.en for the
-# accuracy opt-in (matches the `sttmodel=` runtime launch arg in
-# GalleryApp.swift). fetch-whisper-model.sh caches on sha256, so repeat runs
-# of generate.sh don't re-download once the file is verified present.
-STT_MODEL="${STT_MODEL:-base.en}"
+# Default model is small.en (2026-07-23, accuracy — matches release.yml + the
+# runtime default in EngineResolution.swift). Override with STT_MODEL=base.en
+# for the faster model if you hit live lag. fetch-whisper-model.sh caches on
+# sha256, so repeat runs of generate.sh don't re-download once verified present.
+STT_MODEL="${STT_MODEL:-small.en}"
 if ./fetch-whisper-model.sh "$STT_MODEL"; then
   # Exactly ONE model may be bundled: project.yml globs Sources/ wholesale, so
   # if both ggml bins are on disk (e.g. a default small.en run followed by a
