@@ -435,6 +435,36 @@ final class AppModel {
         }
     }
 
+    /// True while a walk is auto-paused because the app went to the background
+    /// (distinct from a user's manual PAUSE) — so we auto-resume on return
+    /// without overriding a deliberate pause.
+    private(set) var pausedByBackground = false
+
+    /// Pause/resume STT across app background transitions. Whisper runs its
+    /// encode on the **Metal GPU**, and iOS forbids GPU work while an app is
+    /// backgrounded — a compute that runs in the background hits `ggml_abort`
+    /// (SIGABRT) and crashes the walk (field crash, build 56). Since the
+    /// pocket-recording fix (#248) keeps the app alive in the background instead
+    /// of suspending it, we must stop feeding whisper when we lose the
+    /// foreground: pause on background, auto-resume on return. (The keep-screen-
+    /// awake in #248 means a normal pocketed walk never backgrounds; this covers
+    /// the manual power-button lock / incoming call / app-switch cases.)
+    func handleBackgroundTransition(backgrounded: Bool) {
+        guard phase == .walking else { return }
+        if backgrounded {
+            guard !isPaused else { return }   // don't fight a manual pause
+            isPaused = true
+            source?.pause()
+            audioSource?.pause()
+            pausedByBackground = true
+        } else if pausedByBackground {
+            pausedByBackground = false
+            isPaused = false
+            source?.resume()
+            audioSource?.resume()
+        }
+    }
+
     /// Walk-time capture (Plan 11 D7 / sac design pass): one tap, zero
     /// confirm — the shot pins to the item being spoken (`lastCapturedID`,
     /// dam's D3 rule) or attaches session-level when the board is still

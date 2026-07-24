@@ -33,6 +33,7 @@ struct RootRouter: View {
 struct AppRoot: View {
     @State private var model: AppModel
     @State private var needsOnboarding: Bool
+    @Environment(\.scenePhase) private var scenePhase
     private let live: Bool?
     private let wavwalk: Bool
     private let autoflowRounds: Int
@@ -123,6 +124,13 @@ struct AppRoot: View {
             .transition(.opacity)
         } else {
             appFlow
+                // Whisper's Metal GPU encode aborts if it runs while the app is
+                // backgrounded (SIGABRT via ggml_abort) — pause STT the moment we
+                // leave the foreground, resume when we're back. `.active` is the
+                // only safe-for-GPU state; `.inactive`/`.background` both stop it.
+                .onChange(of: scenePhase) { _, phase in
+                    model.handleBackgroundTransition(backgrounded: phase != .active)
+                }
         }
     }
 
