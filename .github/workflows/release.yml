@@ -88,8 +88,14 @@ concurrency:
 env:
   # Model choice + sha256 digests live in apps/ios/fetch-whisper-model.sh (the
   # same script ./generate.sh uses locally) — this is the default it fetches.
-  WHISPER_MODEL: base.en
-  MODEL_FILENAME: ggml-base.en-q5_1.bin
+  # small.en (2026-07-23): field accuracy > raw speed. base.en shipped on the
+  # first external build and a tester reported worse transcription + inaccurate
+  # notes — small.en is spike-validated better on every WER/hallucination axis.
+  # It was demoted 2026-07-10 for felt lag on iPhone 16e, but that was BEFORE
+  # the Plan 20 whisper warm-up (#245); re-verify live RTF on device before a
+  # wide roll-out. One-line revert if it lags: base.en + ggml-base.en-q5_1.bin.
+  WHISPER_MODEL: small.en
+  MODEL_FILENAME: ggml-small.en-q5_1.bin
 
 jobs:
   release:
